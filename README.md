@@ -74,4 +74,4 @@ Contributions are welcome! If you have ideas for features or want to fix a bug:
 Distributed under the MIT License. See `LICENSE` for more information.
 
 ---
-*Built with ❤️ by [Your Name]*
+*Built with ❤️ by [Mtechson]*
