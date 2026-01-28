@@ -1,0 +1,18 @@
+﻿Analyzing youtube downloader...                                 
+
+warning - The value of the local variable 'cookieService' isn't used - lib\main.dart:24:9 - unused_local_variable
+warning - The value of the local variable 'downloadManager' isn't used - lib\main.dart:27:9 - unused_local_variable
+warning - Unused import: 'package:hive/hive.dart' - lib\models\app_settings.dart:1:8 - unused_import
+warning - Unused import: '../services/download_manager.dart' - lib\providers\download_provider.dart:2:8 - unused_import
+warning - Unused import: '../services/ytdlp_service.dart' - lib\providers\download_provider.dart:3:8 - unused_import
+   info - Don't invoke 'print' in production code - lib\providers\download_provider.dart:23:5 - avoid_print
+warning - Unused import: '../services/ytdlp_service.dart' - lib\providers\video_provider.dart:4:8 - unused_import
+   info - The private field _loadingStatus could be 'final' - lib\providers\video_provider.dart:12:10 - prefer_final_fields
+warning - The value of the local variable 'theme' isn't used - lib\ui\screens\home_screen.dart:88:11 - unused_local_variable
+   info - Don't use 'BuildContext's across async gaps, guarded by an unrelated 'mounted' check - lib\ui\screens\home_screen.dart:162:35 - use_build_context_synchronously
+warning - Unused import: '../../models/playlist_info.dart' - lib\ui\screens\playlist_preview_screen.dart:5:8 - unused_import
+warning - Unused import: '../widgets/format_selector.dart' - lib\ui\screens\playlist_preview_screen.dart:10:8 - unused_import
+warning - Unused import: '../widgets/animated_button.dart' - lib\ui\screens\playlist_preview_screen.dart:11:8 - unused_import
+warning - Unused import: '../widgets/shimmer_loading.dart' - lib\ui\screens\playlist_preview_screen.dart:12:8 - unused_import
+warning - Unused import: '../../models/download_item.dart' - lib\ui\screens\playlist_preview_screen.dart:13:8 - unused_import
+

@@ -1,0 +1,24 @@
+﻿Analyzing youtube downloader...                                 
+
+warning - Unused import: 'ui/screens/home_screen.dart' - lib\app.dart:6:8 - unused_import
+warning - The value of the local variable 'cookieService' isn't used - lib\main.dart:24:9 - unused_local_variable
+warning - Unused import: 'package:hive/hive.dart' - lib\models\app_settings.dart:1:8 - unused_import
+warning - The value of the field '_downloadManager' isn't used - lib\providers\download_provider.dart:9:25 - unused_field
+warning - The value of the field '_ytdlpService' isn't used - lib\providers\download_provider.dart:10:22 - unused_field
+   info - Don't invoke 'print' in production code - lib\providers\download_provider.dart:26:5 - avoid_print
+warning - The value of the field '_ytdlpService' isn't used - lib\providers\video_provider.dart:7:22 - unused_field
+   info - The private field _loadingStatus could be 'final' - lib\providers\video_provider.dart:13:10 - prefer_final_fields
+warning - Unused import: '../../models/download_item.dart' - lib\ui\screens\home_screen.dart:5:8 - unused_import
+warning - Unused import: '../../models/video_info.dart' - lib\ui\screens\home_screen.dart:9:8 - unused_import
+warning - The value of the local variable 'theme' isn't used - lib\ui\screens\home_screen.dart:90:11 - unused_local_variable
+   info - Don't use 'BuildContext's across async gaps, guarded by an unrelated 'mounted' check - lib\ui\screens\home_screen.dart:164:35 - use_build_context_synchronously
+warning - Unused import: '../../models/playlist_info.dart' - lib\ui\screens\playlist_preview_screen.dart:5:8 - unused_import
+warning - Unused import: '../widgets/format_selector.dart' - lib\ui\screens\playlist_preview_screen.dart:10:8 - unused_import
+warning - Unused import: '../widgets/animated_button.dart' - lib\ui\screens\playlist_preview_screen.dart:11:8 - unused_import
+warning - Unused import: '../widgets/shimmer_loading.dart' - lib\ui\screens\playlist_preview_screen.dart:12:8 - unused_import
+warning - Unused import: '../../models/download_item.dart' - lib\ui\screens\playlist_preview_screen.dart:13:8 - unused_import
+   info - 'activeColor' is deprecated and shouldn't be used. Use activeThumbColor instead. This feature was deprecated after v3.31.0-2.0.pre - lib\ui\screens\playlist_preview_screen.dart:209:29 - deprecated_member_use
+   info - 'value' is deprecated and shouldn't be used. Use initialValue instead. This will set the initial value for the form field. This feature was deprecated after v3.33.0-1.0.pre - lib\ui\screens\playlist_preview_screen.dart:471:7 - deprecated_member_use
+   info - 'value' is deprecated and shouldn't be used. Use initialValue instead. This will set the initial value for the form field. This feature was deprecated after v3.33.0-1.0.pre - lib\ui\screens\playlist_preview_screen.dart:505:7 - deprecated_member_use
+   info - 'activeColor' is deprecated and shouldn't be used. Use activeThumbColor instead. This feature was deprecated after v3.31.0-2.0.pre - lib\ui\widgets\video_configuration_widget.dart:480:23 - deprecated_member_use
+

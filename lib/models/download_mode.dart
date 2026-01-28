@@ -1,0 +1,4 @@
+enum DownloadMode {
+  videoWithAudio,
+  audioOnly,
+}

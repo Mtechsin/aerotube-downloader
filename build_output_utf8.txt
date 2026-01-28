@@ -1,0 +1,44 @@
+﻿Building Windows application...                                 
+flutter : lib/ui/screens/pla
+ylist_screen.dart(183,34): 
+error G4127D1E8: The getter 
+'theme' isn't defined for 
+the type 
+'_PlaylistScreenState'. 
+[E:\youtube downloader\build
+\windows\x64\flutter\flutter
+_assemble.vcxproj]
+At line:1 char:1
++ flutter build windows 
+--debug > build_output.txt 
+2>&1; Get-Content bu ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          
+    : NotSpecified: (lib/u  
+  i/screens/...semble.vcx   
+ proj]:String) [], Remot    
+eException
+    + FullyQualifiedErrorId 
+    : NativeCommandError
+ 
+C:\Program Files\Microsoft 
+Visual Studio\2022\Community
+\MSBuild\Microsoft\VC\v170\M
+icrosoft.CppCommon.targets(2
+54,5): error MSB8066: 
+Custom build for 
+'E:\youtube downloader\build
+\windows\x64\CMakeFiles\a742
+ac85cb5c3f588339a430784db238
+\flutter_windows.dll.rule;E:
+\youtube downloader\build\wi
+ndows\x64\CMakeFiles\b4bdcf4
+d32e183ba9b0724d1dd331813\fl
+utter_assemble.rule' exited 
+with code 1. [E:\youtube dow
+nloader\build\windows\x64\fl
+utter\flutter_assemble.vcxpr
+oj]
+Building Windows application...                                    15.0s
+Build process failed.

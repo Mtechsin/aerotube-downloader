@@ -1,0 +1,770 @@
+import 'dart:convert';
+import 'dart:io';
+import 'package:http/http.dart' as http;
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
+import '../models/download_item.dart';
+import '../models/video_info.dart';
+import '../models/playlist_info.dart';
+
+class YtdlpService {
+  String _ytdlpPath;
+  String? _cookiePath;
+  String? _cookieBrowser;
+  String? _webViewPath;
+  String? _ffmpegPath;
+  String? _userAgent;
+  bool _enableCookies = false;
+  bool _isInitialized = false;
+
+  static const String _windowsDownloadUrl = 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe';
+  // Fallback or other OS support can be added here, currently focusing on Windows per context.
+
+  YtdlpService({
+    String? ytdlpPath,
+    String? cookiePath,
+    String? cookieBrowser,
+    String? webViewPath,
+    String? ffmpegPath,
+  })  : _ytdlpPath = ytdlpPath ?? 'yt-dlp',
+        _cookiePath = cookiePath,
+        _cookieBrowser = cookieBrowser,
+        _webViewPath = webViewPath,
+        _ffmpegPath = ffmpegPath;
+
+  set ytdlpPath(String path) => _ytdlpPath = path;
+  String get ytdlpPath => _ytdlpPath;
+  set cookiePath(String? path) => _cookiePath = path;
+  String? get cookiePath => _cookiePath;
+  set cookieBrowser(String? browser) => _cookieBrowser = browser;
+  String? get cookieBrowser => _cookieBrowser;
+  set webViewPath(String? path) => _webViewPath = path;
+  String? get webViewPath => _webViewPath;
+  set ffmpegPath(String? path) => _ffmpegPath = path;
+  String? get ffmpegPath => _ffmpegPath;
+  set userAgent(String? ua) => _userAgent = ua;
+  String? get userAgent => _userAgent;
+  set enableCookies(bool value) => _enableCookies = value;
+
+  bool get isUsingCookies => _enableCookies && ((_cookiePath != null && File(_cookiePath!).existsSync()) || 
+                            (_cookieBrowser != null && _cookieBrowser != 'none') ||
+                            (_webViewPath != null));
+
+  String? get activeCookieSource => _cookiePath != null ? 'file' : (_cookieBrowser != 'none' ? 'browser' : (_webViewPath != null ? 'webview' : null));
+
+  /// Initialize the service: locate or download yt-dlp
+  Future<void> initialize({bool force = false}) async {
+    if (_isInitialized && !force) return;
+    if (force) _isInitialized = false;
+
+    try {
+      final dir = await getApplicationSupportDirectory();
+      final executableName = Platform.isWindows ? 'yt-dlp.exe' : 'yt-dlp';
+      final localPath = p.join(dir.path, 'bin', executableName);
+      final localFile = File(localPath);
+
+      // If the current path is NOT the default 'yt-dlp' AND not our managed local path,
+      // it means the user (or settings) provided a custom path. We should respect it.
+      if (_ytdlpPath != 'yt-dlp' && _ytdlpPath != localPath) {
+        // You might want to verify if it exists, but for now just mark initialized.
+        _isInitialized = true;
+        return;
+      }
+
+      if (await localFile.exists()) {
+        _ytdlpPath = localPath;
+      } else {
+        // specific check: if user didn't provide a path and it's not in PATH, we download it.
+        // For now, we prefer the local managed version to ensure consistency.
+        await _downloadYtdlp(localFile);
+        _ytdlpPath = localPath;
+      }
+
+      _isInitialized = true;
+    } catch (e) {
+      // Fallback to system PATH if initialization fails, or rethrow if critical
+      print('Failed to initialize local yt-dlp: $e');
+      // If we haven't set a path yet (and didn't crash), we rely on default 'yt-dlp' from constructor
+    }
+  }
+
+  /// Download yt-dlp binary
+  Future<void> _downloadYtdlp(File targetFile) async {
+    if (!await targetFile.parent.exists()) {
+      await targetFile.parent.create(recursive: true);
+    }
+
+    // Determine URL based on platform (assuming Windows for this specific request context, but making it slightly generic)
+    final url = Platform.isWindows ? _windowsDownloadUrl : _windowsDownloadUrl; // TODO: Add Linux/Mac URLs
+
+    try {
+      final response = await http.get(Uri.parse(url));
+      if (response.statusCode == 200) {
+        await targetFile.writeAsBytes(response.bodyBytes);
+        
+        if (!Platform.isWindows) {
+           // Make executable on Unix-like systems
+           await Process.run('chmod', ['+x', targetFile.path]);
+        }
+      } else {
+        throw YtdlpException('Failed to download yt-dlp: HTTP ${response.statusCode}');
+      }
+    } catch (e) {
+      throw YtdlpException('Failed to download yt-dlp: $e');
+    }
+  }
+
+  /// Update yt-dlp using its self-update feature
+  Future<bool> update() async {
+    try {
+      // If we are using the managed version, we can try deleting and re-downloading 
+      // OR use the built-in -U command. -U is easier usually.
+      final result = await Process.run(_ytdlpPath, ['-U']);
+      return result.exitCode == 0;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// Check if yt-dlp is available
+  Future<bool> isAvailable() async {
+    try {
+      final result = await Process.run(_ytdlpPath, ['--version']);
+      return result.exitCode == 0;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// Get yt-dlp version
+  Future<String?> getVersion() async {
+    try {
+      final result = await Process.run(_ytdlpPath, ['--version']);
+      if (result.exitCode == 0) {
+        return (result.stdout as String).trim();
+      }
+      return null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /// Check if a newer version of yt-dlp is available on GitHub
+  Future<String?> getLatestVersion() async {
+    try {
+      final response = await http.get(
+        Uri.parse('https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest'),
+        headers: {'Accept': 'application/vnd.github.v3+json'},
+      );
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        String tagName = data['tag_name'] as String;
+        // yt-dlp tags are usually the version itself (e.g. 2024.12.23)
+        return tagName;
+      }
+    } catch (e) {
+      print('Error checking for yt-dlp update: $e');
+    }
+    return null;
+  }
+
+  /// Compare two yt-dlp versions (format: YYYY.MM.DD)
+  /// Returns true if latest > current
+  bool isNewerVersion(String current, String latest) {
+    // Basic string comparison works for YYYY.MM.DD format
+    // tag_name might have a 'v' prefix, let's normalize
+    final normCurrent = current.startsWith('v') ? current.substring(1) : current;
+    final normLatest = latest.startsWith('v') ? latest.substring(1) : latest;
+    
+    // Sometimes versions are like 2024.12.23.1
+    // We can split and compare parts
+    final currentParts = normCurrent.split('.');
+    final latestParts = normLatest.split('.');
+    
+    for (int i = 0; i < latestParts.length; i++) {
+        if (i >= currentParts.length) return true; // latest has more parts (e.g. .1)
+        final c = int.tryParse(currentParts[i]) ?? 0;
+        final l = int.tryParse(latestParts[i]) ?? 0;
+        if (l > c) return true;
+        if (l < c) return false;
+    }
+    return false;
+  }
+
+  /// Detect if an error suggests yt-dlp is broken or outdated
+  bool isBrokenError(String error) {
+    final lowerError = error.toLowerCase();
+    return lowerError.contains('outdated') || 
+           lowerError.contains('update') || 
+           lowerError.contains('signature') || 
+           lowerError.contains('decipher') ||
+           lowerError.contains('extraction failed');
+  }
+
+  /// Fetch video information from URL with retry logic for authentication
+  Future<VideoInfo> getVideoInfo(String url, {Function(String status)? onProgress}) async {
+    if (!_isInitialized) await initialize();
+
+    onProgress?.call('Connecting to YouTube...');
+
+    // First attempt with current configuration
+    final args = _buildCommonArgs();
+    args.addAll(['--dump-json', url]);
+
+    // Debug: print the full command being executed
+    print('[YtdlpService] ========== FETCH VIDEO INFO =========');
+    print('[YtdlpService] Executing: $_ytdlpPath');
+    print('[YtdlpService] Arguments: ${args.join(' ')}');
+    print('[YtdlpService] =====================================');
+
+    onProgress?.call('Fetching video metadata...');
+    var result = await Process.run(_ytdlpPath, args);
+
+    if (result.exitCode != 0) {
+      final error = (result.stderr as String).trim();
+      final stdout = (result.stdout as String).trim();
+
+      print('[YtdlpService] ========== ERROR DEBUG =========');
+      print('[YtdlpService] Exit code: ${result.exitCode}');
+      print('[YtdlpService] Stderr: $error');
+      print('[YtdlpService] ================================');
+
+      final authError = checkAuthenticationErrors(error);
+
+      if (authError != null) {
+        print('[YtdlpService] Detected auth error: $authError');
+
+        // Try with additional extractor arguments for YouTube
+        if (error.contains('Sign in to confirm you') || error.contains('bot')) {
+          print('[YtdlpService] Attempting retry with additional YouTube extractor arguments...');
+          onProgress?.call('Retrying with alternative method...');
+
+          final retryArgs = <String>[
+            '--newline',
+            '--no-playlist',
+            if (_ffmpegPath != null) ...['--ffmpeg-location', _ffmpegPath!],
+            if (_userAgent != null) ...['--user-agent', _userAgent!],
+            if (_cookiePath != null && File(_cookiePath!).existsSync()) ...['--cookies', _cookiePath!],
+            '--extractor-args', 'youtube:player-client=web,mweb,android,ios;player-skip=webpage,configs',
+            '--dump-json',
+            url,
+          ];
+
+          print('[YtdlpService] Retrying with args: ${retryArgs.join(' ')}');
+          result = await Process.run(_ytdlpPath, retryArgs);
+
+          if (result.exitCode == 0) {
+            onProgress?.call('Processing video formats...');
+            final jsonStr = (result.stdout as String).trim();
+            final json = jsonDecode(jsonStr) as Map<String, dynamic>;
+            return VideoInfo.fromJson(json);
+          } else {
+            final retryError = (result.stderr as String).trim();
+            print('[YtdlpService] Retry failed with error: $retryError');
+          }
+        }
+
+        throw YtdlpException(authError);
+      }
+
+      // Fallback for DPAPI decryption error if browser cookies were used
+      if ((error.contains('DPAPI') || error.contains('Failed to decrypt')) && _cookieBrowser != null) {
+        print('Cookie extraction failed (DPAPI error), retrying without browser cookies...');
+        onProgress?.call('Retrying without browser cookies...');
+
+        final argsWithoutBrowser = <String>[
+          '--newline',
+          '--no-playlist',
+          if (_ffmpegPath != null) ...['--ffmpeg-location', _ffmpegPath!],
+          if (_cookiePath != null && File(_cookiePath!).existsSync()) ...['--cookies', _cookiePath!],
+          '--dump-json',
+          url,
+        ];
+
+        result = await Process.run(_ytdlpPath, argsWithoutBrowser);
+
+        if (result.exitCode != 0) {
+          final retryError = (result.stderr as String).trim();
+          throw YtdlpException('Failed to fetch video info: $retryError\n\nNote: Browser cookie extraction failed due to DPAPI. Try exporting cookies to a file or closing your browser.');
+        }
+      } else {
+        throw YtdlpException('Failed to fetch video info: $error');
+      }
+    }
+
+    onProgress?.call('Processing video formats...');
+    final stdout = (result.stdout as String).trim();
+    if (stdout.isEmpty) {
+      throw YtdlpException('Failed to fetch video info: Empty output from yt-dlp');
+    }
+
+    // Handle multi-line JSON output (yt-dlp can return multiple JSON objects)
+    final lines = stdout.split('\n').where((l) => l.trim().isNotEmpty).toList();
+    if (lines.isEmpty) {
+      throw YtdlpException('Failed to fetch video info: No valid JSON lines in output');
+    }
+
+    try {
+      final json = jsonDecode(lines.first) as Map<String, dynamic>;
+      return VideoInfo.fromJson(json);
+    } catch (e) {
+      print('[YtdlpService] JSON Parse Error: $e');
+      print('[YtdlpService] Raw output (first 200 chars): ${stdout.substring(0, stdout.length.clamp(0, 200))}');
+      throw YtdlpException('Failed to parse video info: $e');
+    }
+  }
+
+  /// Fetch playlist information from URL
+  Future<PlaylistInfo> getPlaylistInfo(String url, {Function(String status)? onProgress}) async {
+    if (!_isInitialized) await initialize();
+
+    onProgress?.call('Connecting to YouTube...');
+
+    final args = _buildCommonArgs();
+    // Remove --no-playlist for playlist fetching
+    args.remove('--no-playlist');
+    
+    // Use --flat-playlist for fast metadata fetching
+    args.addAll([
+      '--flat-playlist',
+      '--extractor-args', 'youtubetab:skip=authcheck',
+      '--dump-json',
+      url,
+    ]);
+
+    onProgress?.call('Fetching playlist metadata...');
+    final process = await Process.start(_ytdlpPath, args);
+    final videos = <PlaylistVideoItem>[];
+    Map<String, dynamic>? playlistMetadata;
+    final stderrBuffer = StringBuffer();
+    String? playlistTitle;
+    int? expectedCount;
+
+    // Listen to stdout for line-by-line JSON
+    final stdoutFuture = process.stdout
+        .transform(const SystemEncoding().decoder)
+        .listen((data) {
+      final lines = data.split('\n').where((l) => l.trim().isNotEmpty);
+      for (final line in lines) {
+        try {
+          final json = jsonDecode(line) as Map<String, dynamic>;
+          
+          if (json['_type'] == 'playlist') {
+            playlistMetadata = json;
+            playlistTitle = json['title'] as String?;
+            expectedCount = (json['playlist_count'] as int?) ?? (json['n_entries'] as int?);
+            if (playlistTitle != null) {
+              onProgress?.call('Found playlist: $playlistTitle');
+            }
+          } else {
+            final video = PlaylistVideoItem.fromJson(json);
+            videos.add(video);
+            
+            // Build detailed status message
+            final videoTitle = video.title.length > 40 
+                ? '${video.title.substring(0, 40)}...' 
+                : video.title;
+            final countStr = expectedCount != null 
+                ? '${videos.length}/$expectedCount' 
+                : '${videos.length}';
+            onProgress?.call('Loading video $countStr: $videoTitle');
+          }
+        } catch (e) {
+          // Ignore parsing errors for individual lines
+        }
+      }
+    }).asFuture();
+
+    // Capture stderr
+    final stderrFuture = process.stderr
+        .transform(const SystemEncoding().decoder)
+        .listen((data) {
+      stderrBuffer.write(data);
+    }).asFuture();
+
+    final exitCode = await process.exitCode;
+    await stdoutFuture;
+    await stderrFuture;
+
+    if (exitCode != 0) {
+      final error = stderrBuffer.toString().trim();
+      print('[YtdlpService] Playlist fetch error: $error');
+      
+      final authError = checkAuthenticationErrors(error);
+      if (authError != null) throw YtdlpException(authError);
+      
+      throw YtdlpException('Failed to fetch playlist info: $error');
+    }
+
+    if (videos.isEmpty) {
+      throw YtdlpException('No videos found in playlist');
+    }
+
+    onProgress?.call('Processing ${videos.length} videos...');
+
+    return PlaylistInfo(
+      id: playlistMetadata?['id'] ?? '',
+      title: playlistMetadata?['title'] ?? 'Playlist',
+      uploader: playlistMetadata?['uploader'] ?? playlistMetadata?['uploader_id'] ?? 'Unknown',
+      description: playlistMetadata?['description'],
+      videoCount: videos.length,
+      videos: videos,
+    );
+  }
+
+  /// Download video with specified format
+  Future<Process> downloadVideo({
+    required String url,
+    required String outputPath,
+    String? formatId,
+    String? audioFormatId,
+    bool audioOnly = false,
+    String? audioQuality, // '0' (best) to '9' (worst)
+    int? targetHeight,
+    bool embedThumbnail = true,
+    bool embedMetadata = true,
+    Function(double progress, double speed, int eta)? onProgress,
+  }) async {
+    if (!_isInitialized) await initialize();
+
+    final args = _buildCommonArgs();
+    args.addAll(['-o', outputPath]);
+
+    // Embed thumbnail and metadata (requires FFmpeg)
+    if (_ffmpegPath != null) {
+      if (embedThumbnail) args.add('--embed-thumbnail');
+      if (embedMetadata) args.add('--embed-metadata');
+    }
+
+    if (audioOnly) {
+      // Audio only mode
+      args.addAll([
+        '-x', // Extract audio
+        '--audio-format', 'mp3',
+        '--audio-quality', audioQuality ?? '0', // Default to 0 (Best)
+      ]);
+    } else if (formatId != null && audioFormatId != null) {
+      // Separate video and audio streams - strictly use selected formats
+      args.addAll([
+        '-f', '$formatId+$audioFormatId',
+      ]);
+    } else if (formatId != null) {
+      // Single format with fallback - skip if it's a live stream format (9x range)
+      final isLikelyLiveFormat = int.tryParse(formatId) != null && 
+          int.parse(formatId) >= 90 && int.parse(formatId) <= 99;
+      if (isLikelyLiveFormat) {
+        // Use best quality instead of live stream format
+        args.addAll([
+          '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best',
+        ]);
+      } else {
+        // Strictly use the specified single format
+        args.addAll(['-f', formatId]);
+      }
+    } else if (targetHeight != null) {
+      // User specified max resolution - apply height filter
+      args.addAll([
+        '-f', 'bestvideo[height<=$targetHeight][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=$targetHeight]+bestaudio/best[height<=$targetHeight][ext=mp4]/best[height<=$targetHeight]',
+      ]);
+    } else {
+      // Best quality default with comprehensive fallback chain
+      args.addAll([
+        '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best[ext=mp4]/best',
+      ]);
+    }
+
+    args.add(url);
+
+    // Debug: print the full command being executed
+    print('yt-dlp command: $_ytdlpPath ${args.join(' ')}');
+
+    final process = await Process.start(_ytdlpPath, args);
+    return process;
+  }
+
+  /// Build common arguments for yt-dlp including cookies and ffmpeg location
+  List<String> _buildCommonArgs() {
+    final args = <String>[
+      '--newline',
+      '--no-playlist',
+      '--retries', '2',
+      '--fragment-retries', '2',
+      '--extractor-retries', '1',
+      '--socket-timeout', '10',
+      '--no-warnings',
+    ];
+
+    if (_ffmpegPath != null) {
+      args.addAll(['--ffmpeg-location', _ffmpegPath!]);
+    }
+
+    if (_userAgent != null) {
+      args.addAll(['--user-agent', _userAgent!]);
+    }
+
+    // Authentication logic: WebView profile > cookies file > browser cookies
+    // First check if we have a WebView path configured (highest priority for WebView login)
+    if (_enableCookies) {
+      if (_webViewPath != null) {
+      print('[YtdlpService] ========== WEBVIEW COOKIE DEBUG =========');
+      print('[YtdlpService] Using WebView2 profile for cookies');
+      print('[YtdlpService] WebView profile path: $_webViewPath');
+      args.addAll(['--cookies-from-browser', 'edge:$_webViewPath']);
+      print('[YtdlpService] Added --cookies-from-browser edge:$_webViewPath');
+      print('[YtdlpService] ================================');
+    } else if (_cookiePath != null) {
+      final cookieFile = File(_cookiePath!);
+      // print('[YtdlpService] ========== COOKIE DEBUG =========');
+      // print('[YtdlpService] Cookie path configured: $_cookiePath');
+      // print('[YtdlpService] Cookie file exists: ${cookieFile.existsSync()}');
+
+      if (cookieFile.existsSync()) {
+        try {
+          final stat = cookieFile.statSync();
+          final content = cookieFile.readAsStringSync();
+          
+          // Check if this is a WebView marker file
+          if (content.contains('WEBVIEW_LOGIN')) {
+            print('[YtdlpService] Detected WebView marker file - this should not happen if webViewPath is set');
+            print('[YtdlpService] WARNING: WebView login detected but webViewPath not configured!');
+          }
+          
+          final lines = content.split('\n').where((l) => l.trim().isNotEmpty && !l.startsWith('#')).toList();
+
+          // print('[YtdlpService] Cookie file size: ${stat.size} bytes');
+          // print('[YtdlpService] Cookie file modified: ${stat.modified}');
+          // print('[YtdlpService] Cookie line count (excluding comments/empty): ${lines.length}');
+
+          // Check for critical YouTube auth cookies
+          final criticalCookies = ['SAPISID', 'HSID', 'SSID', 'SID', 'LOGIN_INFO', '__Secure-1PSID', '__Secure-3PSID'];
+          final foundCookies = <String>[];
+          final missingCookies = <String>[];
+
+          for (final cookie in criticalCookies) {
+            if (content.contains(cookie)) {
+              foundCookies.add(cookie);
+            } else {
+              missingCookies.add(cookie);
+            }
+          }
+
+          // print('[YtdlpService] Found critical cookies: ${foundCookies.join(", ")}');
+          // print('[YtdlpService] Missing critical cookies: ${missingCookies.join(", ")}');
+
+          // Show first few cookie entries for debugging
+          // if (lines.isNotEmpty) {
+          //   print('[YtdlpService] First few cookie entries:');
+          //   for (int i = 0; i < lines.length && i < 5; i++) {
+          //     // Truncate value for security
+          //     final parts = lines[i].split('\t');
+          //     if (parts.length >= 6) {
+          //       final name = parts.length > 5 ? parts[5] : 'unknown';
+          //       final domain = parts[0];
+          //       print('[YtdlpService]   - $name (domain: $domain)');
+          //     } else {
+          //       print('[YtdlpService]   - ${lines[i].substring(0, lines[i].length.clamp(0, 50))}...');
+          //     }
+          //   }
+          // }
+
+          if (missingCookies.isNotEmpty) {
+            print('[YtdlpService] WARNING: Missing critical auth cookies!');
+            print('[YtdlpService] This usually occurs with basic browser extraction.');
+            print('[YtdlpService] We recommend using the "Login to YouTube" feature to capture secure cookies.');
+
+            // Add additional flags to help with authentication issues
+            args.addAll(['--extractor-args', 'youtube:player-client=web;webpage=no_cookie']);
+          } else {
+            print('[YtdlpService] SUCCESS: All critical auth cookies are present.');
+          }
+        } catch (e) {
+          print('[YtdlpService] Failed to read cookie file: $e');
+        }
+
+        args.addAll(['--cookies', _cookiePath!]);
+        // print('[YtdlpService] Added --cookies argument to yt-dlp');
+      } else {
+        print('[YtdlpService] WARNING: Cookie file does not exist!');
+      }
+      print('[YtdlpService] ================================');
+    } else if (_cookieBrowser != null && _cookieBrowser != 'none') {
+      args.addAll(['--cookies-from-browser', _cookieBrowser!.toLowerCase()]);
+      print('[YtdlpService] Using browser cookies: $_cookieBrowser');
+      } else {
+        print('[YtdlpService] No cookies configured');
+      }
+    } else {
+      print('[YtdlpService] Cookies disabled globally');
+    }
+
+    if (_userAgent != null) {
+      print('[YtdlpService] Using User-Agent: ${_userAgent!.substring(0, _userAgent!.length.clamp(0, 50))}...');
+    }
+
+    return args;
+  }
+
+  /// Check for authentication or permission errors in yt-dlp output
+  static String? checkAuthenticationErrors(String output) {
+    if (output.contains('Sign in to confirm you’re not a bot') ||
+        output.contains('Sign in to confirm your age') ||
+        output.contains('This video is age-restricted') ||
+        output.contains('Please sign in to view this video') ||
+        output.contains('requires authentication')) {
+      return 'Authentication required. Please provide a cookies.txt file or use browser cookies in Settings.';
+    }
+
+    if (output.contains('Permission denied') && output.contains('cookie')) {
+      return 'Access to browser cookies denied. Please close all windows of specified browser and try again, or use a cookies.txt file.';
+    }
+
+    if (output.contains('Incomplete cookies file')) {
+      return 'The selected cookies.txt file is incomplete or invalid. Please re-export it using the Netscape format.';
+    }
+
+    // Check for specific YouTube authentication errors
+    if (output.toLowerCase().contains('authentication') &&
+        (output.toLowerCase().contains('failed') || output.toLowerCase().contains('required'))) {
+      return 'Authentication failed. Please verify your cookies are valid and up-to-date.';
+    }
+
+    if (output.contains('HTTP Error 429') || output.contains('Too Many Requests')) {
+      return 'Rate limit exceeded (HTTP 429). Please wait a while before downloading more videos.';
+    }
+
+    return null;
+  }
+
+  /// Parse progress from yt-dlp output line
+  static DownloadProgress? parseProgress(String line) {
+    // Check for destination to determine phase
+    if (line.contains('[download] Destination:')) {
+      if (line.toLowerCase().contains('.mp4') || 
+          line.toLowerCase().contains('.mkv') || 
+          line.toLowerCase().contains('.webm')) {
+        return DownloadProgress(progress: 0, speed: 0, eta: 0, status: DownloadStatus.downloadingVideo);
+      } else if (line.toLowerCase().contains('.m4a') || 
+                 line.toLowerCase().contains('.audio') ||
+                 line.toLowerCase().contains('.mp3') ||
+                 line.toLowerCase().contains('.opus')) {
+        return DownloadProgress(progress: 0, speed: 0, eta: 0, status: DownloadStatus.downloadingAudio);
+      }
+    }
+
+    // Example: [download]  45.2% of 125.50MiB at 5.25MiB/s ETA 00:15
+    // Example: [download]  10.0% of  1.20GiB at 10.00MiB/s ETA 01:20:30
+    final progressMatch = RegExp(
+      r'\[download\]\s+(\d+\.?\d*)%\s+of\s+~?(\d+\.?\d*)(Ki|Mi|Gi)?B?\s+at\s+(\d+\.?\d*)(Ki|Mi|Gi)?B/s\s+ETA\s+(?:(\d+):)?(\d+):(\d+)',
+    ).firstMatch(line);
+
+    if (progressMatch != null) {
+      final percent = double.parse(progressMatch.group(1)!) / 100;
+      
+      // Parse speed
+      double speed = double.parse(progressMatch.group(4)!);
+      final speedUnit = progressMatch.group(5);
+      if (speedUnit == 'Ki') {
+        speed *= 1024;
+      } else if (speedUnit == 'Mi') {
+        speed *= 1024 * 1024;
+      } else if (speedUnit == 'Gi') {
+        speed *= 1024 * 1024 * 1024;
+      }
+      
+      // Parse ETA
+      final etaHoursStr = progressMatch.group(6);
+      final etaHours = etaHoursStr != null ? int.parse(etaHoursStr) : 0;
+      final etaMin = int.parse(progressMatch.group(7)!);
+      final etaSec = int.parse(progressMatch.group(8)!);
+      final eta = etaHours * 3600 + etaMin * 60 + etaSec;
+
+      return DownloadProgress(
+        progress: percent,
+        speed: speed,
+        eta: eta,
+      );
+    }
+
+    // Check for completion of a part (not the whole thing)
+    if (line.contains('[download] 100%') || line.contains('has already been downloaded')) {
+      return DownloadProgress(progress: 1.0, speed: 0, eta: 0);
+    }
+
+    // Check for merging
+    if (line.contains('[Merger]') || line.contains('[ffmpeg]') || line.contains('Merging formats into')) {
+      return DownloadProgress(progress: 1.0, speed: 0, eta: 0, status: DownloadStatus.merging);
+    }
+
+    return null;
+  }
+
+  /// Get best format for a specific resolution
+  static String? getBestFormatForResolution(VideoInfo video, int targetHeight, {bool videoOnly = false}) {
+    final formats = videoOnly ? video.videoOnlyFormats : video.formats;
+    
+    // Find formats matching or closest to target height
+    final matchingFormats = formats
+        .where((f) => f.hasVideo && f.height != null)
+        .toList();
+    
+    if (matchingFormats.isEmpty) return null;
+    
+    // Sort by how close they are to target, preferring higher quality
+    matchingFormats.sort((a, b) {
+      final diffA = (a.height! - targetHeight).abs();
+      final diffB = (b.height! - targetHeight).abs();
+      if (diffA != diffB) return diffA.compareTo(diffB);
+      return (b.height ?? 0).compareTo(a.height ?? 0);
+    });
+    
+    return matchingFormats.first.formatId;
+  }
+
+  /// Get best audio format
+  static String? getBestAudioFormat(VideoInfo video) {
+    final audioFormats = video.audioOnlyFormats;
+    if (audioFormats.isEmpty) return null;
+    return audioFormats.first.formatId;
+  }
+
+  /// Test authentication with a simple YouTube video to verify cookies are working
+  Future<bool> testAuthentication() async {
+    try {
+      // Use a simple, non-age-restricted video for testing
+      final testVideoUrl = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
+
+      print('[YtdlpService] Testing authentication with: $testVideoUrl');
+
+      // Try to fetch video info - this will fail if authentication is not working
+      final videoInfo = await getVideoInfo(testVideoUrl);
+
+      print('[YtdlpService] Authentication test successful! Retrieved video info: ${videoInfo.title}');
+      return true;
+    } catch (e) {
+      print('[YtdlpService] Authentication test failed: $e');
+      return false;
+    }
+  }
+}
+
+class DownloadProgress {
+  final double progress;
+  final double speed;
+  final int eta;
+  final DownloadStatus? status;
+
+  DownloadProgress({
+    required this.progress,
+    required this.speed,
+    required this.eta,
+    this.status,
+  });
+}
+
+class YtdlpException implements Exception {
+  final String message;
+  YtdlpException(this.message);
+
+  @override
+  String toString() => 'YtdlpException: $message';
+}

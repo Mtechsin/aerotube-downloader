@@ -1,0 +1,81 @@
+﻿Building Windows application...                                 
+flutter : E:\youtube downloa
+der\windows\flutter\ephemera
+l\.plugin_symlinks\flutter_i
+nappwebview_windows\windows\
+types\web_resource_response.
+cpp(54,28): warning C4244: 
+'argument': conversion from 
+'__int64' to 'int', 
+possible loss of data 
+[E:\youtube downloader\build
+\windows\x64\plugins\flutter
+_inappwebview_windows\flutte
+r_inappwebview_windows_plugi
+n.vcxproj]
+At line:1 char:1
++ flutter build windows 
+--debug > 
+build_output_2.txt 2>&1; 
+Get-Content  ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~
+    + CategoryInfo          
+    : NotSpecified: (E:\yo  
+  utube down...plugin.vcx   
+ proj]:String) [], Remot    
+eException
+    + FullyQualifiedErrorId 
+    : NativeCommandError
+ 
+E:\youtube downloader\build\
+windows\x64\packages\Microso
+ft.Web.WebView2\build\native
+\include\WebView2Environment
+Options.h(194,3): warning 
+C4458: declaration of 
+'value' hides class member 
+[E:\youtube downloader\build
+\windows\x64\plugins\flutter
+_inappwebview_windows\flutte
+r_inappwebview_windows_plugi
+n.vcxproj]
+E:\youtube downloader\build\
+windows\x64\packages\Microso
+ft.Web.WebView2\build\native
+\include\WebView2Environment
+Options.h(193,3): warning 
+C4458: declaration of 
+'value' hides class member 
+[E:\youtube downloader\build
+\windows\x64\plugins\flutter
+_inappwebview_windows\flutte
+r_inappwebview_windows_plugi
+n.vcxproj]
+E:\youtube downloader\build\
+windows\x64\packages\Microso
+ft.Web.WebView2\build\native
+\include\WebView2Environment
+Options.h(194,3): warning 
+C4458: declaration of 
+'value' hides class member 
+[E:\youtube downloader\build
+\windows\x64\plugins\flutter
+_inappwebview_windows\flutte
+r_inappwebview_windows_plugi
+n.vcxproj]
+E:\youtube downloader\build\
+windows\x64\packages\Microso
+ft.Web.WebView2\build\native
+\include\WebView2Environment
+Options.h(193,3): warning 
+C4458: declaration of 
+'value' hides class member 
+[E:\youtube downloader\build
+\windows\x64\plugins\flutter
+_inappwebview_windows\flutte
+r_inappwebview_windows_plugi
+n.vcxproj]
+Building Windows application...                                   258.9s
+ΓêÜ Built build\windows\x64\runner\Debug\youtube_downloader.exe
