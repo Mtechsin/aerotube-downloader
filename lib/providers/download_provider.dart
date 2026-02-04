@@ -4,25 +4,28 @@ import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
 import '../services/ytdlp_service.dart';
+import '../services/notification_service.dart';
+import '../services/logging_service.dart';
 import '../models/video_info.dart';
 import '../models/download_item.dart';
 import '../models/download_mode.dart';
 
 class DownloadProvider extends ChangeNotifier {
   final YtdlpService _ytdlpService;
-  
+  final NotificationService? _notificationService;
+
   // Active downloads (in memory only while active)
   final List<DownloadItem> _activeDownloads = [];
-  
+
   // History downloads (persisted)
   List<DownloadItem> _historyDownloads = [];
-  
+
   final Map<String, Process> _activeProcesses = {};
-  
+
   late Box<DownloadItem> _downloadsBox;
   bool _isInit = false;
 
-  DownloadProvider(this._ytdlpService) {
+  DownloadProvider(this._ytdlpService, this._notificationService) {
     _initHive();
   }
 
@@ -32,32 +35,49 @@ class DownloadProvider extends ChangeNotifier {
     _isInit = true;
     notifyListeners();
   }
-  
+
   void _loadHistory() {
     _historyDownloads = _downloadsBox.values.toList()
-      ..sort((a, b) => (b.completedDate ?? DateTime.now()).compareTo(a.completedDate ?? DateTime.now()));
+      ..sort(
+        (a, b) => (b.completedDate ?? DateTime.now()).compareTo(
+          a.completedDate ?? DateTime.now(),
+        ),
+      );
     notifyListeners();
   }
 
   List<DownloadItem> get activeDownloads => List.unmodifiable(_activeDownloads);
-  List<DownloadItem> get historyDownloads => List.unmodifiable(_historyDownloads);
-  
+  List<DownloadItem> get historyDownloads =>
+      List.unmodifiable(_historyDownloads);
+
   // Backwards compatibility getter if needed, or migration getter
-  List<DownloadItem> get downloads => [..._activeDownloads, ..._historyDownloads];
-  
+  List<DownloadItem> get downloads => [
+    ..._activeDownloads,
+    ..._historyDownloads,
+  ];
+
   int get activeCount => _activeDownloads.length;
-  int get activeRunningCount => _activeDownloads.where((i) => 
-      i.status == DownloadStatus.downloadingVideo || 
-      i.status == DownloadStatus.downloadingAudio || 
-      i.status == DownloadStatus.merging).length;
-  
-  int get pendingCount => _activeDownloads.where((i) => 
-      i.status == DownloadStatus.pending || 
-      i.status == DownloadStatus.queued).length;
+  int get activeRunningCount => _activeDownloads
+      .where(
+        (i) =>
+            i.status == DownloadStatus.downloadingVideo ||
+            i.status == DownloadStatus.downloadingAudio ||
+            i.status == DownloadStatus.merging,
+      )
+      .length;
+
+  int get pendingCount => _activeDownloads
+      .where(
+        (i) =>
+            i.status == DownloadStatus.pending ||
+            i.status == DownloadStatus.queued,
+      )
+      .length;
 
   int get pausedCount => 0; // Placeholder until pause is implemented
 
-  int get completedCount => _historyDownloads.length; // Approximate, assuming history is completed/failed
+  int get completedCount => _historyDownloads
+      .length; // Approximate, assuming history is completed/failed
 
   Future<void> startDownload({
     required VideoInfo video,
@@ -70,12 +90,17 @@ class DownloadProvider extends ChangeNotifier {
     bool embedThumbnail = true,
     bool embedMetadata = true,
   }) async {
+    LoggingService().info(
+      'Starting download: ${video.title} (${mode.name})',
+      component: 'DownloadProvider',
+    );
+
     final item = DownloadItem(
       id: video.id,
       title: video.title,
       thumbnailUrl: video.thumbnailUrl,
       url: video.url,
-      outputPath: outputPath, 
+      outputPath: outputPath,
       status: DownloadStatus.pending,
       audioOnly: mode == DownloadMode.audioOnly,
       formatId: formatId,
@@ -102,11 +127,13 @@ class DownloadProvider extends ChangeNotifier {
       );
 
       _activeProcesses[item.id] = process;
-      
+
       // Update status
       final index = _activeDownloads.indexOf(item);
       if (index != -1) {
-        _activeDownloads[index] = item.copyWith(status: DownloadStatus.downloadingVideo);
+        _activeDownloads[index] = item.copyWith(
+          status: DownloadStatus.downloadingVideo,
+        );
         notifyListeners();
       }
 
@@ -115,7 +142,7 @@ class DownloadProvider extends ChangeNotifier {
         final lines = data.split('\n');
         for (final line in lines) {
           if (line.trim().isEmpty) continue;
-          
+
           final progress = YtdlpService.parseProgress(line);
           if (progress != null) {
             final idx = _activeDownloads.indexWhere((d) => d.id == item.id);
@@ -147,7 +174,7 @@ class DownloadProvider extends ChangeNotifier {
       final idx = _activeDownloads.indexWhere((d) => d.id == item.id);
       if (idx != -1) {
         DownloadItem finalItem = _activeDownloads[idx];
-        
+
         if (exitCode == 0) {
           finalItem = finalItem.copyWith(
             status: DownloadStatus.completed,
@@ -156,44 +183,78 @@ class DownloadProvider extends ChangeNotifier {
             completedDate: DateTime.now(),
             // We could parse file size from logs but for now let's leave it null or try to find file
           );
-          
+
           // Move to history
           _activeDownloads.removeAt(idx);
           _addToHistory(finalItem);
-          
+
+          LoggingService().info(
+            'Download completed: ${finalItem.title}',
+            component: 'DownloadProvider',
+          );
+
+          LoggingService().showUserLog('Download complete: ${finalItem.title}');
+
+          _notificationService?.show(
+            title: 'Download Complete',
+            body: finalItem.title,
+            onTap: () {
+              Process.run('explorer', [finalItem.outputPath]);
+            },
+          );
         } else {
-           if (finalItem.status != DownloadStatus.cancelled) {
-             final errorMsg = stderrBuffer.toString().trim();
-             finalItem = finalItem.copyWith(
-               status: DownloadStatus.failed, 
-               error: errorMsg.isNotEmpty ? errorMsg : 'Process exited with code $exitCode'
-             );
-             // Move to history even if failed? Or keep in active to retry? 
-             // User requested separate tabs. Failed usually implies functionality stops.
-             // Let's keep in active if failed to allow retry? Or move to history as failed.
-             // Prompt says: "History/Finished Tab ... ListView of persisted Hive items (completed, failed, cancelled)"
-             _activeDownloads.removeAt(idx);
-             _addToHistory(finalItem);
-           } else {
-             _activeDownloads.removeAt(idx);
-              finalItem = finalItem.copyWith(completedDate: DateTime.now());
-             _addToHistory(finalItem);
-           }
+          if (finalItem.status != DownloadStatus.cancelled) {
+            final errorMsg = stderrBuffer.toString().trim();
+            finalItem = finalItem.copyWith(
+              status: DownloadStatus.failed,
+              error: errorMsg.isNotEmpty
+                  ? errorMsg
+                  : 'Process exited with code $exitCode',
+            );
+            // Move to history even if failed? Or keep in active to retry?
+            // User requested separate tabs. Failed usually implies functionality stops.
+            // Let's keep in active if failed to allow retry? Or move to history as failed.
+            // Prompt says: "History/Finished Tab ... ListView of persisted Hive items (completed, failed, cancelled)"
+            _activeDownloads.removeAt(idx);
+            _addToHistory(finalItem);
+          } else {
+            _activeDownloads.removeAt(idx);
+            finalItem = finalItem.copyWith(completedDate: DateTime.now());
+            _addToHistory(finalItem);
+          }
         }
         notifyListeners();
       }
+    } catch (e, stackTrace) {
+      final logger = LoggingService();
+      logger.error(
+        'Download failed for ${item.title}',
+        component: 'DownloadProvider',
+        error: e,
+        stackTrace: stackTrace,
+      );
 
-    } catch (e) {
-      print('Download error: $e');
       final idx = _activeDownloads.indexWhere((d) => d.id == item.id);
       if (idx != -1) {
-         final finalItem = _activeDownloads[idx].copyWith(
-           status: DownloadStatus.failed, 
-           error: e.toString(),
-           completedDate: DateTime.now()
-         );
-         _activeDownloads.removeAt(idx);
-         _addToHistory(finalItem);
+        final finalItem = _activeDownloads[idx].copyWith(
+          status: DownloadStatus.failed,
+          error: e.toString(),
+          completedDate: DateTime.now(),
+        );
+        _activeDownloads.removeAt(idx);
+        _addToHistory(finalItem);
+
+        // Show user-facing error
+        logger.showUserLog(
+          'Download failed: ${finalItem.title}',
+          isError: true,
+        );
+
+        _notificationService?.show(
+          title: 'Download Failed',
+          body: 'Failed to download ${finalItem.title}',
+          isError: true,
+        );
       }
       _activeProcesses.remove(item.id);
       notifyListeners();
@@ -205,15 +266,17 @@ class DownloadProvider extends ChangeNotifier {
       _activeProcesses[id]?.kill();
       _activeProcesses.remove(id);
     }
-    
+
     final index = _activeDownloads.indexWhere((d) => d.id == id);
     if (index != -1) {
-        // Optimistic update
-      _activeDownloads[index] = _activeDownloads[index].copyWith(status: DownloadStatus.cancelled);
+      // Optimistic update
+      _activeDownloads[index] = _activeDownloads[index].copyWith(
+        status: DownloadStatus.cancelled,
+      );
       notifyListeners();
     }
   }
-  
+
   Future<void> _addToHistory(DownloadItem item) async {
     if (!_isInit) await _initHive();
     await _downloadsBox.put(item.id, item);
@@ -227,14 +290,14 @@ class DownloadProvider extends ChangeNotifier {
   }
 
   Future<void> clearHistory() async {
-     if (!_isInit) return;
-     await _downloadsBox.clear();
-     _loadHistory();
+    if (!_isInit) return;
+    await _downloadsBox.clear();
+    _loadHistory();
   }
 
   Future<void> clearCompleted() async {
     if (!_isInit) return;
-    
+
     final keysToDelete = _historyDownloads
         .where((item) => item.status == DownloadStatus.completed)
         .map((item) => item.id)
@@ -245,8 +308,8 @@ class DownloadProvider extends ChangeNotifier {
   }
 
   void retryDownload(String id) {
-     // TODO: Implement retry logic by retrieving video info again
-     // For now, we accept we can't fully retry without VideoInfo, 
-     // unless we store VideoInfo json in DownloadItem.
+    // TODO: Implement retry logic by retrieving video info again
+    // For now, we accept we can't fully retry without VideoInfo,
+    // unless we store VideoInfo json in DownloadItem.
   }
 }

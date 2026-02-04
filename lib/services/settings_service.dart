@@ -61,6 +61,7 @@ class SettingsService {
 
   String? _readString(String key) {
     final val = _prefs.get(key);
+    if (val is String && val.isEmpty) return null;
     return val is String ? val : null;
   }
 
@@ -77,8 +78,17 @@ class SettingsService {
   }
 
   Future<void> _saveSettings() async {
-    await _prefs.setString(keyYtdlpPath, _settings.ytdlpPath ?? '');
-    await _prefs.setString(keyFfmpegPath, _settings.ffmpegPath ?? '');
+    if (_settings.ytdlpPath != null && _settings.ytdlpPath!.isNotEmpty) {
+      await _prefs.setString(keyYtdlpPath, _settings.ytdlpPath!);
+    } else {
+      await _prefs.remove(keyYtdlpPath);
+    }
+
+    if (_settings.ffmpegPath != null && _settings.ffmpegPath!.isNotEmpty) {
+      await _prefs.setString(keyFfmpegPath, _settings.ffmpegPath!);
+    } else {
+      await _prefs.remove(keyFfmpegPath);
+    }
     await _prefs.setBool(keyIsYtdlpManaged, _settings.isYtdlpManaged);
     
     await _prefs.setString(keyOutputPath, _settings.outputPath ?? '');

@@ -334,12 +334,12 @@ class SettingsProvider extends ChangeNotifier {
     // Ensure initialized
     await _ffmpegService.initialize();
     
-    await _ffmpegService.update();
+    final success = await _ffmpegService.update();
     
     // Refresh version info
     await checkToolsAvailability();
     
-    return _isFfmpegAvailable;
+    return success;
   }
   
   /// Helper to install tools if missing

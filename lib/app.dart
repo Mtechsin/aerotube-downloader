@@ -4,12 +4,14 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'core/theme/app_theme.dart';
 import 'providers/settings_provider.dart';
 import 'providers/download_provider.dart';
+import 'providers/update_provider.dart';
+import 'services/notification_service.dart';
 import 'ui/screens/home_screen.dart';
 import 'ui/screens/downloads_screen.dart';
 import 'ui/screens/settings_screen.dart';
 import 'ui/screens/youtube_login_screen.dart';
-
 import 'ui/widgets/gradient_background.dart';
+import 'ui/widgets/update_dialog.dart';
 
 class App extends StatefulWidget {
   const App({super.key});
@@ -21,25 +23,44 @@ class App extends StatefulWidget {
 class _AppState extends State<App> {
   int _currentIndex = 0;
 
-  final _screens = const [
-    HomeScreen(),
-    DownloadsScreen(),
-    SettingsScreen(),
-  ];
+  final _screens = const [HomeScreen(), DownloadsScreen(), SettingsScreen()];
+
+  @override
+  void initState() {
+    super.initState();
+    // Check for updates after the app is initialized
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkForUpdates();
+    });
+  }
+
+  Future<void> _checkForUpdates() async {
+    final updateProvider = context.read<UpdateProvider>();
+    await updateProvider.checkOnStartup();
+
+    // If update is available, show dialog
+    if (updateProvider.hasUpdate && mounted) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const UpdateDialog(),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final settingsProvider = context.watch<SettingsProvider>();
+    final notificationService = context.read<NotificationService>();
 
     return MaterialApp(
+      scaffoldMessengerKey: notificationService.scaffoldMessengerKey,
       title: 'YouTube Downloader',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
       themeMode: settingsProvider.themeMode,
-      routes: {
-        '/youtube_login': (context) => const YoutubeLoginScreen(),
-      },
+      routes: {'/youtube_login': (context) => const YoutubeLoginScreen()},
       home: GradientBackground(
         child: Scaffold(
           backgroundColor: Colors.transparent,
@@ -47,13 +68,10 @@ class _AppState extends State<App> {
             children: [
               // Custom Glassmorphic Navigation Rail
               _buildCustomNavigationRail(),
-              
+
               // Content
               Expanded(
-                child: IndexedStack(
-                  index: _currentIndex,
-                  children: _screens,
-                ),
+                child: IndexedStack(index: _currentIndex, children: _screens),
               ),
             ],
           ),
@@ -105,15 +123,16 @@ class _AppState extends State<App> {
     bool showBadge = false,
   }) {
     final isSelected = _currentIndex == index;
-    
+
     return Consumer<DownloadProvider>(
       builder: (context, downloadProvider, child) {
         final badgeCount = showBadge ? downloadProvider.activeCount : 0;
-        
+
         return MouseRegion(
           cursor: SystemMouseCursors.click,
           child: GestureDetector(
-            behavior: HitTestBehavior.translucent, // Capture taps on empty space
+            behavior:
+                HitTestBehavior.translucent, // Capture taps on empty space
             onTap: () {
               FocusScope.of(context).unfocus(); // Dismiss keyboard/input focus
               setState(() => _currentIndex = index);
@@ -121,7 +140,9 @@ class _AppState extends State<App> {
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 200), // Slightly faster
               curve: Curves.easeOut,
-              padding: const EdgeInsets.symmetric(vertical: 4), // Add vertical touch padding
+              padding: const EdgeInsets.symmetric(
+                vertical: 4,
+              ), // Add vertical touch padding
               child: Row(
                 children: [
                   // Selection indicator - vertical bar on the left
@@ -150,9 +171,10 @@ class _AppState extends State<App> {
                               curve: Curves.easeOut,
                               child: Icon(
                                 isSelected ? selectedIcon : icon,
-                                color: isSelected 
+                                color: isSelected
                                     ? Theme.of(context).colorScheme.primary
-                                    : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
+                                    : Theme.of(context).colorScheme.onSurface
+                                          .withValues(alpha: 0.6),
                                 size: 32,
                               ),
                             ),
@@ -160,34 +182,42 @@ class _AppState extends State<App> {
                               Positioned(
                                 right: -6,
                                 top: -4,
-                                child: Container(
-                                  padding: const EdgeInsets.all(4),
-                                  decoration: BoxDecoration(
-                                    color: Theme.of(context).colorScheme.error,
-                                    shape: BoxShape.circle,
-                                  ),
-                                  constraints: const BoxConstraints(
-                                    minWidth: 18,
-                                    minHeight: 18,
-                                  ),
-                                  child: Center(
-                                    child: Text(
-                                      '$badgeCount',
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  ),
-                                ).animate(
-                                  onPlay: (controller) => controller.repeat(reverse: true),
-                                ).scale(
-                                  begin: const Offset(1, 1),
-                                  end: const Offset(1.15, 1.15),
-                                  duration: const Duration(milliseconds: 800),
-                                  curve: Curves.easeInOut,
-                                ),
+                                child:
+                                    Container(
+                                          padding: const EdgeInsets.all(4),
+                                          decoration: BoxDecoration(
+                                            color: Theme.of(
+                                              context,
+                                            ).colorScheme.error,
+                                            shape: BoxShape.circle,
+                                          ),
+                                          constraints: const BoxConstraints(
+                                            minWidth: 18,
+                                            minHeight: 18,
+                                          ),
+                                          child: Center(
+                                            child: Text(
+                                              '$badgeCount',
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          ),
+                                        )
+                                        .animate(
+                                          onPlay: (controller) =>
+                                              controller.repeat(reverse: true),
+                                        )
+                                        .scale(
+                                          begin: const Offset(1, 1),
+                                          end: const Offset(1.15, 1.15),
+                                          duration: const Duration(
+                                            milliseconds: 800,
+                                          ),
+                                          curve: Curves.easeInOut,
+                                        ),
                               ),
                           ],
                         ),
@@ -196,11 +226,14 @@ class _AppState extends State<App> {
                           duration: const Duration(milliseconds: 200),
                           curve: Curves.easeOut,
                           style: TextStyle(
-                            color: isSelected 
+                            color: isSelected
                                 ? Theme.of(context).colorScheme.primary
-                                : Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5),
+                                : Theme.of(context).colorScheme.onSurface
+                                      .withValues(alpha: 0.5),
                             fontSize: 12,
-                            fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
+                            fontWeight: isSelected
+                                ? FontWeight.w600
+                                : FontWeight.w400,
                             letterSpacing: 0.5,
                           ),
                           child: Text(label),
@@ -217,4 +250,3 @@ class _AppState extends State<App> {
     );
   }
 }
-

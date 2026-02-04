@@ -31,170 +31,304 @@ class _UrlInputCardState extends State<UrlInputCard> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final hasError = widget.errorMessage != null;
-    final errorHelper = hasError ? ErrorHelper.parse(widget.errorMessage!) : null;
+    final errorHelper = hasError
+        ? ErrorHelper.parse(widget.errorMessage!)
+        : null;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
       children: [
-        GlassCard(
-          borderRadius: 100,
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
-          opacity: 0.05,
-          backgroundColor: theme.colorScheme.surface.withValues(alpha: 0.4),
-          border: Border.all(
-            color: hasError
-                ? theme.colorScheme.error
-                : _isFocused
-                    ? theme.colorScheme.primary.withValues(alpha: 0.5)
-                    : theme.colorScheme.onSurface.withValues(alpha: 0.15),
-            width: 1.2,
-          ),
-          child: Row(
-            children: [
-              const SizedBox(width: 8),
-              Expanded(
-                child: Focus(
-                  onFocusChange: (focused) {
-                    setState(() => _isFocused = focused);
-                  },
-                  child: TextField(
-                    controller: widget.controller,
-                    style: theme.textTheme.bodyLarge?.copyWith(
-
-                      color: theme.colorScheme.onSurface,
-                      fontSize: 15,
-                    ),
-                    decoration: InputDecoration(
-                      hintText: 'Paste YouTube URL here...',
-                      hintStyle: TextStyle(color: theme.colorScheme.onSurface.withValues(alpha: 0.4)),
-                      prefixIcon: Icon(
-                        Icons.link_rounded,
-                        color: _isFocused ? theme.colorScheme.primary : theme.colorScheme.onSurface.withValues(alpha: 0.4),
-                      ),
-                      suffixIcon: widget.controller.text.isNotEmpty
-                          ? IconButton(
-                              icon: Icon(Icons.clear_rounded, color: theme.colorScheme.onSurface.withValues(alpha: 0.38)),
-                              onPressed: () {
-                                widget.controller.clear();
-                                setState(() {});
-                              },
-                            )
-                          : null,
-                      border: InputBorder.none,
-                      enabledBorder: InputBorder.none,
-                      focusedBorder: InputBorder.none,
-                      filled: false,
-                      contentPadding: const EdgeInsets.symmetric(vertical: 18),
-                    ),
-                    onChanged: (_) => setState(() {}),
-                    onSubmitted: (_) {
-                      if (widget.controller.text.isNotEmpty) {
-                        widget.onFetch();
-                      }
-                    },
-                  ),
-                ),
+        // Main Input Card
+        Container(
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surface,
+            borderRadius: BorderRadius.circular(28),
+            boxShadow: [
+              BoxShadow(
+                color: theme.colorScheme.shadow.withValues(alpha: 0.08),
+                blurRadius: 30,
+                spreadRadius: -5,
+                offset: const Offset(0, 8),
               ),
-              // Paste button
-              IconButton(
-                onPressed: () async {
-                  final data = await Clipboard.getData('text/plain');
-                  if (data?.text != null) {
-                    widget.controller.text = data!.text!;
-                    setState(() {});
-                  }
-                },
-                icon: const Icon(Icons.content_paste_rounded),
-                tooltip: 'Paste from clipboard',
-                style: IconButton.styleFrom(
-                  foregroundColor: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-                  backgroundColor: Colors.transparent,
-                  hoverColor: theme.colorScheme.onSurface.withValues(alpha: 0.05),
-                ),
-              ),
-              const SizedBox(width: 4),
-              // Fetch Button
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 6),
-                child: FilledButton(
-                  onPressed: widget.isLoading || widget.controller.text.isEmpty ? null : widget.onFetch,
-                  style: FilledButton.styleFrom(
-                    backgroundColor: theme.colorScheme.primary,
-                    foregroundColor: theme.colorScheme.onPrimary,
-                    padding: const EdgeInsets.symmetric(horizontal: 24),
-                    minimumSize: const Size(0, 48),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(100)),
-                    elevation: 0,
-                  ),
-                  child: widget.isLoading
-                      ? SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2.5,
-                            color: theme.colorScheme.onPrimary.withValues(alpha: 0.7),
-                          ),
-                        )
-                      : const Text(
-                          'Fetch',
-                          style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 0.5),
-                        ),
-                ),
-              ),
-              const SizedBox(width: 6),
             ],
+            border: Border.all(
+              color: hasError
+                  ? theme.colorScheme.error.withValues(alpha: 0.5)
+                  : _isFocused
+                  ? theme.colorScheme.primary.withValues(alpha: 0.5)
+                  : theme.colorScheme.onSurface.withValues(alpha: 0.08),
+              width: hasError
+                  ? 2
+                  : _isFocused
+                  ? 1.5
+                  : 1,
+            ),
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(28),
+            child: Row(
+              children: [
+                const SizedBox(width: 8),
+                // URL Icon
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: hasError
+                        ? theme.colorScheme.error.withValues(alpha: 0.1)
+                        : _isFocused
+                        ? theme.colorScheme.primary.withValues(alpha: 0.1)
+                        : theme.colorScheme.onSurface.withValues(alpha: 0.05),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Icon(
+                    Icons.link_rounded,
+                    color: hasError
+                        ? theme.colorScheme.error
+                        : _isFocused
+                        ? theme.colorScheme.primary
+                        : theme.colorScheme.onSurface.withValues(alpha: 0.4),
+                    size: 22,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                // Text Input
+                Expanded(
+                  child: Focus(
+                    onFocusChange: (focused) {
+                      setState(() => _isFocused = focused);
+                    },
+                    child: TextField(
+                      controller: widget.controller,
+                      style: theme.textTheme.bodyLarge?.copyWith(
+                        color: theme.colorScheme.onSurface,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                      ),
+                      decoration: InputDecoration(
+                        hintText: 'Paste YouTube URL here...',
+                        hintStyle: TextStyle(
+                          color: theme.colorScheme.onSurface.withValues(
+                            alpha: 0.35,
+                          ),
+                          fontSize: 16,
+                          fontWeight: FontWeight.normal,
+                        ),
+                        border: InputBorder.none,
+                        enabledBorder: InputBorder.none,
+                        focusedBorder: InputBorder.none,
+                        filled: false,
+                        contentPadding: const EdgeInsets.symmetric(
+                          vertical: 20,
+                        ),
+                        suffixIcon: widget.controller.text.isNotEmpty
+                            ? IconButton(
+                                icon: Icon(
+                                  Icons.clear_rounded,
+                                  color: theme.colorScheme.onSurface.withValues(
+                                    alpha: 0.4,
+                                  ),
+                                ),
+                                onPressed: () {
+                                  widget.controller.clear();
+                                  setState(() {});
+                                },
+                              )
+                            : null,
+                      ),
+                      onChanged: (_) => setState(() {}),
+                      onSubmitted: (_) {
+                        if (widget.controller.text.isNotEmpty) {
+                          widget.onFetch();
+                        }
+                      },
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                // Action Buttons
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Paste Button
+                    _buildIconButton(
+                      icon: Icons.content_paste_rounded,
+                      tooltip: 'Paste from clipboard',
+                      onPressed: () async {
+                        final data = await Clipboard.getData('text/plain');
+                        if (data?.text != null) {
+                          widget.controller.text = data!.text!;
+                          setState(() {});
+                        }
+                      },
+                    ),
+                    const SizedBox(width: 8),
+                    // Fetch Button
+                    AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      child: FilledButton(
+                        onPressed:
+                            widget.isLoading || widget.controller.text.isEmpty
+                            ? null
+                            : widget.onFetch,
+                        style: FilledButton.styleFrom(
+                          backgroundColor: hasError
+                              ? theme.colorScheme.error
+                              : theme.colorScheme.primary,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 28,
+                            vertical: 16,
+                          ),
+                          minimumSize: const Size(0, 52),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          elevation: 0,
+                        ),
+                        child: widget.isLoading
+                            ? SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2.5,
+                                  color: Colors.white.withValues(alpha: 0.9),
+                                ),
+                              )
+                            : const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.search_rounded, size: 18),
+                                  SizedBox(width: 8),
+                                  Text(
+                                    'Fetch',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 15,
+                                      letterSpacing: 0.5,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(width: 12),
+              ],
+            ),
           ),
         ),
-        
+
         // Error Message
         if (hasError && errorHelper != null)
           Container(
-            margin: const EdgeInsets.only(top: 16),
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: theme.colorScheme.errorContainer.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(24),
-              border: Border.all(color: theme.colorScheme.error.withValues(alpha: 0.2)),
-            ),
-            child: Row(
-              children: [
-                Icon(Icons.error_outline_rounded, color: theme.colorScheme.error),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        errorHelper.friendlyMessage,
-                        style: TextStyle(
-                          color: theme.colorScheme.error,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      if (errorHelper.suggestion != null)
-                        Text(
-                          errorHelper.suggestion!,
-                          style: TextStyle(
-                            color: theme.colorScheme.onSurfaceVariant,
-                            fontSize: 12,
-                          ),
-                        ),
+                margin: const EdgeInsets.only(top: 16, left: 8, right: 8),
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      theme.colorScheme.errorContainer.withValues(alpha: 0.3),
+                      theme.colorScheme.errorContainer.withValues(alpha: 0.1),
                     ],
                   ),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: theme.colorScheme.error.withValues(alpha: 0.3),
+                  ),
                 ),
-              ],
-            ),
-          ).animate().fadeIn(duration: 200.ms).slideY(begin: -0.1, end: 0),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.error.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(
+                        Icons.error_outline_rounded,
+                        color: theme.colorScheme.error,
+                        size: 24,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            errorHelper.friendlyMessage,
+                            style: TextStyle(
+                              color: theme.colorScheme.error,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 15,
+                            ),
+                          ),
+                          if (errorHelper.suggestion != null) ...[
+                            const SizedBox(height: 6),
+                            Text(
+                              errorHelper.suggestion!,
+                              style: TextStyle(
+                                color: theme.colorScheme.onSurface.withValues(
+                                  alpha: 0.7,
+                                ),
+                                fontSize: 13,
+                                height: 1.4,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              )
+              .animate()
+              .fadeIn(duration: 300.ms)
+              .slideY(begin: -0.2, end: 0, curve: Curves.easeOut),
 
         // Status Message (Loading)
         if (widget.isLoading && widget.statusMessage != null)
-           _buildLoadingStatus(theme, widget.statusMessage!),
+          _buildLoadingStatus(theme, widget.statusMessage!),
       ],
     );
   }
 
+  Widget _buildIconButton({
+    required IconData icon,
+    required String tooltip,
+    required VoidCallback onPressed,
+  }) {
+    final theme = Theme.of(context);
+
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(16),
+          child: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.05),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Icon(
+              icon,
+              size: 20,
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildLoadingStatus(ThemeData theme, String status) {
-    // Choose icon based on status phase
     IconData icon = Icons.hourglass_empty_rounded;
     if (status.contains('Connecting')) {
       icon = Icons.wifi_rounded;
@@ -207,47 +341,50 @@ class _UrlInputCardState extends State<UrlInputCard> {
     } else if (status.contains('Retrying')) {
       icon = Icons.refresh_rounded;
     }
-    
-    return Padding(
-      padding: const EdgeInsets.only(top: 16, left: 8),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: theme.colorScheme.primary.withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(100),
-          border: Border.all(
-            color: theme.colorScheme.primary.withValues(alpha: 0.2),
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            SizedBox(
-              width: 14,
-              height: 14,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                color: theme.colorScheme.primary,
-              ),
-            ),
-            const SizedBox(width: 10),
-            Icon(icon, size: 16, color: theme.colorScheme.primary),
-            const SizedBox(width: 8),
-            Flexible(
-              child: Text(
-                status,
-                style: TextStyle(
-                  color: theme.colorScheme.onSurface.withValues(alpha:0.8),
-                  fontSize: 13,
-                  fontWeight: FontWeight.w500,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
+
+    return Container(
+      margin: const EdgeInsets.only(top: 16, left: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            theme.colorScheme.primary.withValues(alpha: 0.15),
+            theme.colorScheme.primary.withValues(alpha: 0.05),
           ],
         ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: theme.colorScheme.primary.withValues(alpha: 0.2),
+        ),
       ),
-    ).animate().fadeIn(duration: 150.ms);
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: theme.colorScheme.primary,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Icon(icon, size: 18, color: theme.colorScheme.primary),
+          const SizedBox(width: 10),
+          Flexible(
+            child: Text(
+              status,
+              style: TextStyle(
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.9),
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    ).animate().fadeIn(duration: 200.ms).slideY(begin: -0.1, end: 0);
   }
 }

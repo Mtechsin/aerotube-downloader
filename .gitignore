@@ -67,6 +67,35 @@ _h.h
 *.ipch
 
 # Python/Other Temp
+
 __pycache__/
+
 *.tmp
+
 *.bak
+
+
+
+# Logs and Analysis outputs
+
+*_output.txt
+
+*_log.txt
+
+*_errors.txt
+
+analysis*.json
+
+analyze*.txt
+
+build_output*.txt
+
+all_errors.txt
+
+build_error.log
+
+
+
+# Agent/AI temp files
+
+.agent/

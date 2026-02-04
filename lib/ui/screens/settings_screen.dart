@@ -4,6 +4,11 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../providers/settings_provider.dart';
+import '../../providers/update_provider.dart';
+import '../../providers/tool_update_provider.dart';
+import '../widgets/update_dialog.dart';
+import '../widgets/logs_viewer.dart';
+import '../widgets/floating_progress_overlay.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -15,53 +20,68 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
-
     final settingsProvider = context.watch<SettingsProvider>();
 
-    return CustomScrollView(
-      slivers: [
-        SliverAppBar(
-          floating: true,
-          snap: true,
-          title: const Text('Settings'),
-          centerTitle: true,
-          backgroundColor: Colors.transparent,
-          surfaceTintColor: Colors.transparent,
+    return Stack(
+      children: [
+        CustomScrollView(
+          slivers: [
+            SliverAppBar(
+              floating: true,
+              snap: true,
+              title: const Text('Settings'),
+              centerTitle: true,
+              backgroundColor: Colors.transparent,
+              surfaceTintColor: Colors.transparent,
+            ),
+            SliverPadding(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+              sliver: SliverList(
+                delegate: SliverChildListDelegate([
+                  _buildSectionHeader('TOOLS MANAGEMENT'),
+                  const SizedBox(height: 16),
+                  _buildToolsSection(context, settingsProvider),
+
+                  const SizedBox(height: 32),
+                  _buildSectionHeader('DOWNLOAD PREFERENCES'),
+                  const SizedBox(height: 16),
+                  _buildDownloadSection(context, settingsProvider),
+
+                  const SizedBox(height: 32),
+                  _buildSectionHeader('APPEARANCE'),
+                  const SizedBox(height: 16),
+                  _buildAppearanceSection(context, settingsProvider),
+
+                  const SizedBox(height: 32),
+                  _buildSectionHeader('AUTHENTICATION & COOKIES'),
+                  const SizedBox(height: 16),
+                  _buildAuthSection(context, settingsProvider),
+
+                  const SizedBox(height: 32),
+                  _buildSectionHeader('ADVANCED'),
+                  const SizedBox(height: 16),
+                  _buildAdvancedSection(context, settingsProvider),
+
+                  const SizedBox(height: 32),
+                  _buildSectionHeader('LOGS & DEBUGGING'),
+                  const SizedBox(height: 16),
+                  _buildLogsSection(context),
+
+                  const SizedBox(height: 32),
+                  _buildSectionHeader('APP UPDATES'),
+                  const SizedBox(height: 16),
+                  _buildUpdateSection(context),
+
+                  const SizedBox(height: 48),
+                  _buildAboutSection(context, settingsProvider),
+                  const SizedBox(height: 48),
+                ]),
+              ),
+            ),
+          ],
         ),
-        SliverPadding(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-          sliver: SliverList(
-            delegate: SliverChildListDelegate([
-              _buildSectionHeader('TOOLS MANAGEMENT'),
-              const SizedBox(height: 16),
-              _buildToolsSection(context, settingsProvider),
-              
-              const SizedBox(height: 32),
-              _buildSectionHeader('DOWNLOAD PREFERENCES'),
-              const SizedBox(height: 16),
-              _buildDownloadSection(context, settingsProvider),
-              
-              const SizedBox(height: 32),
-              _buildSectionHeader('APPEARANCE'),
-              const SizedBox(height: 16),
-              _buildAppearanceSection(context, settingsProvider),
-              
-              const SizedBox(height: 32),
-              _buildSectionHeader('AUTHENTICATION & COOKIES'),
-              const SizedBox(height: 16),
-              _buildAuthSection(context, settingsProvider),
-              
-              const SizedBox(height: 32),
-              _buildSectionHeader('ADVANCED'),
-              const SizedBox(height: 16),
-              _buildAdvancedSection(context, settingsProvider),
-              
-              const SizedBox(height: 48),
-              _buildAboutSection(context, settingsProvider),
-              const SizedBox(height: 48),
-            ]),
-          ),
-        ),
+        // Floating progress overlay
+        const FloatingProgressOverlay(),
       ],
     );
   }
@@ -88,11 +108,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
       decoration: BoxDecoration(
         color: theme.cardTheme.color ?? theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: theme.colorScheme.onSurface.withValues(alpha: 0.1)),
+        border: Border.all(
+          color: theme.colorScheme.onSurface.withValues(alpha: 0.1),
+        ),
       ),
-      child: Column(
-        children: children,
-      ),
+      child: Column(children: children),
     );
   }
 
@@ -107,7 +127,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     bool showDivider = true,
   }) {
     final theme = Theme.of(context);
-    
+
     return Column(
       children: [
         Material(
@@ -124,7 +144,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: (iconColor ?? theme.colorScheme.primary).withValues(alpha: 0.15),
+                      color: (iconColor ?? theme.colorScheme.primary)
+                          .withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Icon(
@@ -150,7 +171,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           Text(
                             subtitle,
                             style: TextStyle(
-                              color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                              color: theme.colorScheme.onSurface.withValues(
+                                alpha: 0.5,
+                              ),
                               fontSize: 12,
                             ),
                             maxLines: 1,
@@ -189,7 +212,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     bool showDivider = true,
   }) {
     final theme = Theme.of(context);
-    
+
     return _buildSettingsTile(
       title: title,
       subtitle: subtitle,
@@ -207,46 +230,219 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // --- Tools Section ---
   Widget _buildToolsSection(BuildContext context, SettingsProvider provider) {
     final theme = Theme.of(context);
+    return Consumer<ToolUpdateProvider>(
+      builder: (context, toolProvider, child) {
+        final ytdlpState = toolProvider.ytdlpState;
+        final ffmpegState = toolProvider.ffmpegState;
+
+        return _buildSettingsSection(
+          children: [
+            _buildToolTile(
+              context,
+              title: 'yt-dlp',
+              icon: Icons.terminal_rounded,
+              state: ytdlpState,
+              onCheckUpdate: () => toolProvider.checkYtdlpForUpdate(),
+              onUpdate: ytdlpState.hasUpdate
+                  ? () => toolProvider.updateYtdlp()
+                  : null,
+              onInstall: () => toolProvider.installYtdlp(),
+              onAdvanced: () =>
+                  _showToolAdvancedSheet(context, provider, toolProvider, 'yt-dlp'),
+            ),
+            _buildToolTile(
+              context,
+              title: 'FFmpeg',
+              icon: Icons.video_settings_rounded,
+              state: ffmpegState,
+              onCheckUpdate: () => toolProvider.checkFfmpegForUpdate(),
+              onUpdate: ffmpegState.hasUpdate
+                  ? () => toolProvider.updateFfmpeg()
+                  : null,
+              onInstall: () => toolProvider.installFfmpeg(),
+              onAdvanced: () =>
+                  _showToolAdvancedSheet(context, provider, toolProvider, 'FFmpeg'),
+              isOptional: true,
+              showDivider: false,
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildToolTile(
+    BuildContext context, {
+    required String title,
+    required IconData icon,
+    required ToolUpdateState state,
+    required VoidCallback onCheckUpdate,
+    VoidCallback? onUpdate,
+    required VoidCallback onInstall,
+    required VoidCallback onAdvanced,
+    bool isOptional = false,
+    bool showDivider = true,
+  }) {
+    final theme = Theme.of(context);
+
+    String subtitle;
+    Color iconColor;
+    Widget? trailing;
+
+    if (state.isBusy) {
+      subtitle = state.statusMessage ?? 'Working...';
+      iconColor = theme.colorScheme.primary;
+      trailing = SizedBox(
+        width: 20,
+        height: 20,
+        child: CircularProgressIndicator(
+          strokeWidth: 2,
+          value: state.progress > 0 ? state.progress : null,
+          color: theme.colorScheme.primary,
+        ),
+      );
+    } else if (state.hasUpdate) {
+      subtitle = 'Update available: ${state.latestVersion}';
+      iconColor = Colors.orange;
+      trailing = Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: Colors.orange.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.circle, size: 8, color: Colors.orange),
+                const SizedBox(width: 4),
+                Text(
+                  'Update',
+                  style: TextStyle(
+                    color: Colors.orange,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          _buildAdvancedButton(onAdvanced),
+        ],
+      );
+    } else if (state.isAvailable) {
+      subtitle = state.status == ToolUpdateStatus.upToDate
+          ? 'Up to date (v${state.currentVersion})'
+          : 'Installed (v${state.currentVersion})';
+      iconColor = Colors.green;
+      trailing = Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _buildSmallButton('Check', onCheckUpdate),
+          const SizedBox(width: 8),
+          _buildAdvancedButton(onAdvanced),
+        ],
+      );
+    } else {
+      subtitle = isOptional ? 'Not found (Optional)' : 'Not found';
+      iconColor = isOptional ? Colors.grey : Colors.red;
+      trailing = Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (isOptional)
+            Text(
+              'Optional',
+              style: TextStyle(
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
+                fontSize: 12,
+              ),
+            ),
+          const SizedBox(width: 8),
+          _buildSmallButton('Install', onInstall, filled: !isOptional),
+          const SizedBox(width: 8),
+          _buildAdvancedButton(onAdvanced),
+        ],
+      );
+    }
+
+    return _buildSettingsTile(
+      title: title,
+      subtitle: subtitle,
+      icon: icon,
+      iconColor: iconColor,
+      trailing: trailing,
+      showDivider: showDivider,
+    );
+  }
+
+  // --- Logs Section ---
+  Widget _buildLogsSection(BuildContext context) {
     return _buildSettingsSection(
       children: [
         _buildSettingsTile(
-          title: 'yt-dlp',
-          subtitle: provider.isYtdlpAvailable 
-              ? 'Installed (v${provider.ytdlpVersion ?? "Unknown"})' 
-              : 'Not found',
-          icon: Icons.terminal_rounded,
-          iconColor: provider.isYtdlpAvailable ? Colors.green : Colors.grey,
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (provider.isYtdlpAvailable)
-                _buildSmallButton('Update', () => _updateTool(context, provider, 'yt-dlp'))
-              else
-                _buildSmallButton('Install', () => _installTool(context, provider, 'yt-dlp'), filled: true),
-              const SizedBox(width: 8),
-              _buildAdvancedButton(() => _showToolAdvancedSheet(context, provider, 'yt-dlp')),
-            ],
+          title: 'View Logs',
+          subtitle: 'Developer logs and debugging info',
+          icon: Icons.bug_report_rounded,
+          trailing: Icon(
+            Icons.chevron_right_rounded,
+            color: Theme.of(
+              context,
+            ).colorScheme.onSurface.withValues(alpha: 0.5),
           ),
+          onTap: () => _showLogsViewer(context),
         ),
         _buildSettingsTile(
-          title: 'FFmpeg',
-          subtitle: provider.isFfmpegAvailable 
-              ? 'Installed (v${provider.ffmpegVersion ?? "Unknown"})' 
-              : 'Not found (Optional for merging)',
-          icon: Icons.video_settings_rounded,
-          iconColor: provider.isFfmpegAvailable ? Colors.green : Colors.grey,
+          title: 'Download Progress',
+          subtitle: 'Show floating progress indicator',
+          icon: Icons.download_rounded,
           showDivider: false,
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (!provider.isFfmpegAvailable)
-                Text('Optional', style: TextStyle(color: theme.colorScheme.onSurface.withValues(alpha: 0.4), fontSize: 12)),
-              const SizedBox(width: 8),
-              _buildAdvancedButton(() => _showToolAdvancedSheet(context, provider, 'FFmpeg')),
-            ],
-          ),
+          trailing: const CompactDownloadProgress(showWhenEmpty: true),
         ),
       ],
+    );
+  }
+
+  void _showLogsViewer(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        height: MediaQuery.of(context).size.height * 0.7,
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: const LogsViewer(),
+      ),
+    );
+  }
+
+  void _showFFmpegUpdateInfo(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('FFmpeg Update'),
+        content: const Text(
+          'FFmpeg updates require manual download from the official website. Would you like to open the download page?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              launchUrl(Uri.parse('https://www.gyan.dev/ffmpeg/builds/'));
+              Navigator.pop(context);
+            },
+            child: const Text('Open Download Page'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -263,9 +459,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _buildSmallButton(String label, VoidCallback onPressed, {bool filled = false}) {
+  Widget _buildSmallButton(
+    String label,
+    VoidCallback onPressed, {
+    bool filled = false,
+  }) {
     final theme = Theme.of(context);
-    
+
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -276,8 +476,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
           decoration: BoxDecoration(
-            color: filled 
-                ? theme.colorScheme.primary 
+            color: filled
+                ? theme.colorScheme.primary
                 : theme.colorScheme.primary.withValues(alpha: 0.15),
             borderRadius: BorderRadius.circular(20),
           ),
@@ -294,35 +494,38 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Future<void> _updateTool(BuildContext context, SettingsProvider provider, String toolName) async {
+  Future<void> _updateTool(
+    BuildContext context,
+    SettingsProvider provider,
+    String toolName,
+  ) async {
     final messenger = ScaffoldMessenger.of(context);
-    messenger.showSnackBar(SnackBar(content: Text('Checking for $toolName updates...')));
-    
+    messenger.showSnackBar(
+      SnackBar(content: Text('Checking for $toolName updates...')),
+    );
+
     bool result = false;
     if (toolName == 'yt-dlp') {
       result = await provider.updateYtdlp();
     }
-    
+
     messenger.hideCurrentSnackBar();
-    messenger.showSnackBar(SnackBar(
-      content: Text(result ? '$toolName is up to date!' : 'Failed to update $toolName'),
-    ));
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          result ? '$toolName is up to date!' : 'Failed to update $toolName',
+        ),
+      ),
+    );
   }
 
-  Future<void> _installTool(BuildContext context, SettingsProvider provider, String toolName) async {
-    if (toolName == 'yt-dlp') {
-      final messenger = ScaffoldMessenger.of(context);
-      messenger.showSnackBar(const SnackBar(content: Text('Downloading yt-dlp...')));
-      final success = await provider.installYtdlp();
-      messenger.hideCurrentSnackBar();
-      messenger.showSnackBar(SnackBar(
-        content: Text(success ? 'yt-dlp installed successfully!' : 'Installation failed'),
-      ));
-    }
-  }
+
 
   // --- Download Preferences Section ---
-  Widget _buildDownloadSection(BuildContext context, SettingsProvider provider) {
+  Widget _buildDownloadSection(
+    BuildContext context,
+    SettingsProvider provider,
+  ) {
     final theme = Theme.of(context);
     return _buildSettingsSection(
       children: [
@@ -330,14 +533,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
           title: 'Default Quality',
           subtitle: provider.defaultQuality,
           icon: Icons.high_quality_rounded,
-          trailing: Icon(Icons.chevron_right_rounded, color: theme.colorScheme.onSurface.withValues(alpha: 0.5)),
+          trailing: Icon(
+            Icons.chevron_right_rounded,
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+          ),
           onTap: () => _showQualitySheet(context, provider),
         ),
         _buildSettingsTile(
           title: 'Download Location',
           subtitle: provider.outputPath ?? 'Not set',
           icon: Icons.folder_rounded,
-          trailing: Icon(Icons.chevron_right_rounded, color: theme.colorScheme.onSurface.withValues(alpha: 0.5)),
+          trailing: Icon(
+            Icons.chevron_right_rounded,
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+          ),
           onTap: () async {
             final result = await FilePicker.platform.getDirectoryPath();
             if (result != null) {
@@ -390,39 +599,53 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   void _showQualitySheet(BuildContext context, SettingsProvider provider) {
     final qualities = ['Best', '4K', '1080p', '720p', '480p', 'Audio Only'];
-    
+
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       builder: (context) => _buildBottomSheet(
         title: 'Select Quality',
-        children: qualities.map((q) => _buildSheetOption(
-          label: q,
-          isSelected: provider.defaultQuality == q,
-          icon: _getQualityIcon(q),
-          onTap: () {
-            provider.setDefaultQuality(q);
-            Navigator.pop(context);
-          },
-        )).toList(),
+        children: qualities
+            .map(
+              (q) => _buildSheetOption(
+                label: q,
+                isSelected: provider.defaultQuality == q,
+                icon: _getQualityIcon(q),
+                onTap: () {
+                  provider.setDefaultQuality(q);
+                  Navigator.pop(context);
+                },
+              ),
+            )
+            .toList(),
       ),
     );
   }
 
   IconData _getQualityIcon(String quality) {
     switch (quality) {
-      case 'Best': return Icons.auto_awesome_rounded;
-      case '4K': return Icons.four_k_rounded;
-      case '1080p': return Icons.hd_rounded;
-      case '720p': return Icons.sd_rounded;
-      case '480p': return Icons.sd_rounded;
-      case 'Audio Only': return Icons.audiotrack_rounded;
-      default: return Icons.high_quality_rounded;
+      case 'Best':
+        return Icons.auto_awesome_rounded;
+      case '4K':
+        return Icons.four_k_rounded;
+      case '1080p':
+        return Icons.hd_rounded;
+      case '720p':
+        return Icons.sd_rounded;
+      case '480p':
+        return Icons.sd_rounded;
+      case 'Audio Only':
+        return Icons.audiotrack_rounded;
+      default:
+        return Icons.high_quality_rounded;
     }
   }
 
   // --- Appearance Section ---
-  Widget _buildAppearanceSection(BuildContext context, SettingsProvider provider) {
+  Widget _buildAppearanceSection(
+    BuildContext context,
+    SettingsProvider provider,
+  ) {
     return _buildSettingsSection(
       children: [
         Padding(
@@ -435,7 +658,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.15),
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.primary.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Icon(
@@ -447,10 +672,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   const SizedBox(width: 16),
                   const Text(
                     'Theme Mode',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w600,
-                      fontSize: 14,
-                    ),
+                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
                   ),
                 ],
               ),
@@ -464,8 +686,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Widget _buildThemeChips(SettingsProvider provider) {
-
-    
     return Row(
       children: [
         _buildThemeChip(
@@ -499,7 +719,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     required VoidCallback onTap,
   }) {
     final theme = Theme.of(context);
-    
+
     return Expanded(
       child: Material(
         color: Colors.transparent,
@@ -512,13 +732,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
             duration: const Duration(milliseconds: 200),
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
             decoration: BoxDecoration(
-              color: isSelected 
+              color: isSelected
                   ? theme.colorScheme.primary
                   : theme.colorScheme.onSurface.withValues(alpha: 0.08),
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
-                color: isSelected 
-                    ? theme.colorScheme.primary 
+                color: isSelected
+                    ? theme.colorScheme.primary
                     : theme.colorScheme.onSurface.withValues(alpha: 0.1),
               ),
             ),
@@ -528,13 +748,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 Icon(
                   icon,
                   size: 18,
-                  color: isSelected ? theme.colorScheme.onPrimary : theme.colorScheme.onSurface.withValues(alpha: 0.7),
+                  color: isSelected
+                      ? theme.colorScheme.onPrimary
+                      : theme.colorScheme.onSurface.withValues(alpha: 0.7),
                 ),
                 const SizedBox(width: 8),
                 Text(
                   label,
                   style: TextStyle(
-                    color: isSelected ? theme.colorScheme.onPrimary : theme.colorScheme.onSurface,
+                    color: isSelected
+                        ? theme.colorScheme.onPrimary
+                        : theme.colorScheme.onSurface,
                     fontWeight: FontWeight.bold,
                     fontSize: 13,
                   ),
@@ -551,15 +775,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget _buildAuthSection(BuildContext context, SettingsProvider provider) {
     final isAuthData = provider.isCookieActive;
     final theme = Theme.of(context);
-    
+
     return _buildSettingsSection(
       children: [
         _buildSettingsTile(
           title: 'Current Status',
           subtitle: provider.cookieStatus,
-          icon: isAuthData ? Icons.lock_open_rounded : Icons.lock_outline_rounded,
+          icon: isAuthData
+              ? Icons.lock_open_rounded
+              : Icons.lock_outline_rounded,
           iconColor: isAuthData ? Colors.green : Colors.grey,
-          trailing: isAuthData 
+          trailing: isAuthData
               ? _buildSmallButton('Logout', () async {
                   await provider.logoutFromYouTube();
                   await provider.setCookieBrowser(null);
@@ -571,7 +797,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
           subtitle: 'Open secure browser to sign in',
           icon: Icons.login_rounded,
           iconColor: Colors.blueAccent,
-          trailing: Icon(Icons.chevron_right_rounded, color: theme.colorScheme.onSurface.withValues(alpha: 0.5)),
+          trailing: Icon(
+            Icons.chevron_right_rounded,
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+          ),
           onTap: () async {
             final result = await Navigator.pushNamed(context, '/youtube_login');
             if (result == true) {
@@ -583,7 +812,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
           title: 'Use Browser Cookies',
           subtitle: _getBrowserLabel(provider.settings.cookieBrowser),
           icon: Icons.cookie_rounded,
-          trailing: Icon(Icons.chevron_right_rounded, color: theme.colorScheme.onSurface.withValues(alpha: 0.5)),
+          trailing: Icon(
+            Icons.chevron_right_rounded,
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+          ),
           onTap: () => _showBrowserSheet(context, provider),
         ),
         _buildToggleTile(
@@ -599,14 +831,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
             title: 'Import cookies.txt',
             subtitle: provider.cookieFileName ?? 'No file selected',
             icon: Icons.upload_file_rounded,
-            trailing: Icon(Icons.chevron_right_rounded, color: theme.colorScheme.onSurface.withValues(alpha: 0.5)),
+            trailing: Icon(
+              Icons.chevron_right_rounded,
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+            ),
             showDivider: false,
             onTap: () async {
               final result = await FilePicker.platform.pickFiles(
                 type: FileType.custom,
                 allowedExtensions: ['txt'],
               );
-              
+
               if (result != null) {
                 provider.setCookiePath(result.files.single.path);
               }
@@ -622,9 +857,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   // --- Tool Advanced Sheet ---
-  void _showToolAdvancedSheet(BuildContext context, SettingsProvider provider, String toolName) {
+  void _showToolAdvancedSheet(
+    BuildContext context,
+    SettingsProvider provider,
+    ToolUpdateProvider toolProvider,
+    String toolName,
+  ) {
     final isYtdlp = toolName == 'yt-dlp';
-    final currentPath = isYtdlp ? provider.activeYtdlpPath : (provider.activeFfmpegPath ?? 'System PATH');
+    final currentPath = isYtdlp
+        ? provider.activeYtdlpPath
+        : (provider.activeFfmpegPath ?? 'System PATH');
     final version = isYtdlp ? provider.ytdlpVersion : provider.ffmpegVersion;
 
     showModalBottomSheet(
@@ -648,15 +890,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const Divider(height: 1, indent: 24, endIndent: 24),
           _buildSheetOption(
             label: 'Download / Re-install',
-            subtitle: isYtdlp ? 'Download latest binary to app folder' : 'Download FFmpeg (Windows Only)',
+            subtitle: isYtdlp
+                ? 'Download latest binary to app folder'
+                : 'Download FFmpeg (Windows Only)',
             isSelected: false,
             icon: Icons.download_for_offline_rounded,
             onTap: () {
               Navigator.pop(context);
               if (isYtdlp) {
-                _installTool(context, provider, 'yt-dlp');
+                toolProvider.installYtdlp();
               } else {
-                _showFFmpegDownloadNotice(context);
+                toolProvider.installFfmpeg();
               }
             },
           ),
@@ -677,6 +921,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 } else {
                   await provider.setFfmpegPath(result.files.single.path);
                 }
+                await toolProvider.refreshAvailability();
               }
             },
           ),
@@ -692,6 +937,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               } else {
                 await provider.setFfmpegPath(null);
               }
+              await toolProvider.refreshAvailability();
             },
           ),
         ],
@@ -705,12 +951,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
       children: [
         Text(
           label,
-          style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5), fontWeight: FontWeight.bold),
+          style: TextStyle(
+            fontSize: 12,
+            color: Theme.of(
+              context,
+            ).colorScheme.onSurface.withValues(alpha: 0.5),
+            fontWeight: FontWeight.bold,
+          ),
         ),
         const SizedBox(height: 4),
         Text(
           value,
-          style: TextStyle(fontSize: 13, fontFamily: 'monospace', color: Theme.of(context).colorScheme.onSurface),
+          style: TextStyle(
+            fontSize: 13,
+            fontFamily: 'monospace',
+            color: Theme.of(context).colorScheme.onSurface,
+          ),
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
         ),
@@ -745,34 +1001,45 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   void _showBrowserSheet(BuildContext context, SettingsProvider provider) {
     final browsers = ['chrome', 'firefox', 'edge', 'opera', 'brave', 'vivaldi'];
-    
+
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       builder: (context) => _buildBottomSheet(
         title: 'Select Browser',
-        children: browsers.map((b) => _buildSheetOption(
-          label: b[0].toUpperCase() + b.substring(1),
-          isSelected: provider.settings.cookieBrowser == b,
-          icon: _getBrowserIcon(b),
-          onTap: () {
-            provider.setCookieBrowser(b);
-            Navigator.pop(context);
-          },
-        )).toList(),
+        children: browsers
+            .map(
+              (b) => _buildSheetOption(
+                label: b[0].toUpperCase() + b.substring(1),
+                isSelected: provider.settings.cookieBrowser == b,
+                icon: _getBrowserIcon(b),
+                onTap: () {
+                  provider.setCookieBrowser(b);
+                  Navigator.pop(context);
+                },
+              ),
+            )
+            .toList(),
       ),
     );
   }
 
   IconData _getBrowserIcon(String browser) {
     switch (browser.toLowerCase()) {
-      case 'chrome': return Icons.public_rounded;
-      case 'firefox': return Icons.local_fire_department_rounded;
-      case 'edge': return Icons.open_in_browser_rounded;
-      case 'opera': return Icons.circle_outlined;
-      case 'brave': return Icons.shield_rounded;
-      case 'vivaldi': return Icons.apps_rounded;
-      default: return Icons.web_rounded;
+      case 'chrome':
+        return Icons.public_rounded;
+      case 'firefox':
+        return Icons.local_fire_department_rounded;
+      case 'edge':
+        return Icons.open_in_browser_rounded;
+      case 'opera':
+        return Icons.circle_outlined;
+      case 'brave':
+        return Icons.shield_rounded;
+      case 'vivaldi':
+        return Icons.apps_rounded;
+      default:
+        return Icons.web_rounded;
     }
   }
 
@@ -786,9 +1053,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
         color: Theme.of(context).colorScheme.surface,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
         border: Border(
-          top: BorderSide(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.1)),
-          left: BorderSide(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.1)),
-          right: BorderSide(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.1)),
+          top: BorderSide(
+            color: Theme.of(
+              context,
+            ).colorScheme.onSurface.withValues(alpha: 0.1),
+          ),
+          left: BorderSide(
+            color: Theme.of(
+              context,
+            ).colorScheme.onSurface.withValues(alpha: 0.1),
+          ),
+          right: BorderSide(
+            color: Theme.of(
+              context,
+            ).colorScheme.onSurface.withValues(alpha: 0.1),
+          ),
         ),
       ),
       child: Column(
@@ -800,7 +1079,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             width: 40,
             height: 4,
             decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.3),
+              color: Theme.of(
+                context,
+              ).colorScheme.onSurface.withValues(alpha: 0.3),
               borderRadius: BorderRadius.circular(2),
             ),
           ),
@@ -809,19 +1090,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
             padding: const EdgeInsets.only(bottom: 8),
             child: Text(
               title,
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-              ),
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
           ),
           // Options
           Flexible(
             child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: children,
-              ),
+              child: Column(mainAxisSize: MainAxisSize.min, children: children),
             ),
           ),
           const SizedBox(height: 24),
@@ -838,7 +1113,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     required VoidCallback onTap,
   }) {
     final theme = Theme.of(context);
-    
+
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -852,7 +1127,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: isSelected 
+                  color: isSelected
                       ? theme.colorScheme.primary.withValues(alpha: 0.2)
                       : Colors.white.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(10),
@@ -860,7 +1135,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 child: Icon(
                   icon,
                   size: 20,
-                  color: isSelected ? theme.colorScheme.primary : Colors.white70,
+                  color: isSelected
+                      ? theme.colorScheme.primary
+                      : Colors.white70,
                 ),
               ),
               const SizedBox(width: 16),
@@ -874,7 +1151,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       style: TextStyle(
                         fontWeight: FontWeight.w600,
                         fontSize: 14,
-                        color: isSelected ? theme.colorScheme.primary : Colors.white,
+                        color: isSelected
+                            ? theme.colorScheme.primary
+                            : Colors.white,
                       ),
                     ),
                     if (subtitle != null) ...[
@@ -896,15 +1175,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 height: 22,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: isSelected ? theme.colorScheme.primary : Colors.transparent,
+                  color: isSelected
+                      ? theme.colorScheme.primary
+                      : Colors.transparent,
                   border: Border.all(
-                    color: isSelected 
-                        ? theme.colorScheme.primary 
+                    color: isSelected
+                        ? theme.colorScheme.primary
                         : Colors.white.withValues(alpha: 0.3),
                     width: 2,
                   ),
                 ),
-                child: isSelected 
+                child: isSelected
                     ? const Icon(Icons.check, size: 14, color: Colors.black)
                     : null,
               ),
@@ -916,7 +1197,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   // --- Advanced Section ---
-  Widget _buildAdvancedSection(BuildContext context, SettingsProvider provider) {
+  Widget _buildAdvancedSection(
+    BuildContext context,
+    SettingsProvider provider,
+  ) {
     return _buildSettingsSection(
       children: [
         _buildToggleTile(
@@ -944,7 +1228,89 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ],
     );
   }
-  
+
+  Widget _buildUpdateSection(BuildContext context) {
+    return Consumer<UpdateProvider>(
+      builder: (context, updateProvider, child) {
+        return _buildSettingsSection(
+          children: [
+            _buildSettingsTile(
+              title: 'Check for Updates',
+              subtitle: updateProvider.hasUpdate
+                  ? 'Version ${updateProvider.updateInfo?.version} available'
+                  : 'Check for the latest version',
+              icon: Icons.system_update_rounded,
+              iconColor: updateProvider.hasUpdate ? Colors.orange : null,
+              trailing: updateProvider.isChecking
+                  ? SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                    )
+                  : updateProvider.hasUpdate
+                  ? Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.circle, size: 8, color: Colors.orange),
+                          const SizedBox(width: 4),
+                          Text(
+                            'New',
+                            style: TextStyle(
+                              color: Colors.orange,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  : Icon(
+                      Icons.chevron_right_rounded,
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.onSurface.withValues(alpha: 0.5),
+                    ),
+              onTap: updateProvider.isChecking
+                  ? null
+                  : () async {
+                      showUpdateDialogWrapper(context);
+                      await updateProvider.checkForUpdates();
+                    },
+            ),
+            _buildToggleTile(
+              title: 'Auto-check for Updates',
+              subtitle: 'Check automatically on startup',
+              icon: Icons.update_rounded,
+              value: updateProvider.autoCheckEnabled,
+              onChanged: (value) => updateProvider.setAutoCheckEnabled(value),
+              showDivider: false,
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void showUpdateDialogWrapper(BuildContext context) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const UpdateDialog(),
+    );
+  }
+
   Widget _buildAboutSection(BuildContext context, SettingsProvider provider) {
     return Center(
       child: Column(
