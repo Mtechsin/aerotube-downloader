@@ -11,6 +11,7 @@ class VideoProvider extends ChangeNotifier {
   bool _isLoading = false;
   String? _errorMessage;
   String _loadingStatus = '';
+  String _currentUrl = '';
   
   bool _audioOnly = false;
   
@@ -38,6 +39,7 @@ class VideoProvider extends ChangeNotifier {
   String? get errorMessage => _errorMessage;
   String get loadingStatus => _loadingStatus;
   bool get hasError => _errorMessage != null;
+  String get currentUrl => _currentUrl;
 
   bool get audioOnly => _audioOnly;
   
@@ -91,6 +93,7 @@ class VideoProvider extends ChangeNotifier {
   Future<void> fetchVideoInfo(String url) async {
     _isLoading = true;
     _errorMessage = null;
+    _currentUrl = url;
     _availableResolutions = []; // Clear previous
     _selectedVideoFormatOverride = null;
     _loadingStatus = 'Initializing...';
@@ -229,6 +232,7 @@ class VideoProvider extends ChangeNotifier {
   void clear() {
     _videoInfo = null;
     _playlistInfo = null;
+    _currentUrl = '';
     _availableResolutions = [];
     _selectedResolution = null;
     _selectedVideoFormatOverride = null;

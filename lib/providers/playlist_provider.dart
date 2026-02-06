@@ -109,6 +109,16 @@ class PlaylistProvider extends ChangeNotifier {
     }
   }
 
+  /// Release all playlist data from memory
+  void clear() {
+    _playlist = null;
+    _selectedIds.clear();
+    _error = null;
+    _currentUrl = null;
+    _loadingStatus = null;
+    notifyListeners();
+  }
+
   void updateBatchSettings({String? formatId, bool? audioOnly, AudioQuality? audioQuality}) {
     if (formatId != null) _selectedFormatId = formatId;
     if (audioOnly != null) _audioOnly = audioOnly;

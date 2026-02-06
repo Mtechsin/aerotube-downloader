@@ -67,10 +67,13 @@ dependencies:
 
   url_launcher: ^6.3.2
   local_notifier: ^0.1.6
+  youtube_explode_dart: ^3.0.5
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
+
+  flutter_launcher_icons: ^0.14.1
 
   build_runner: ^2.4.8
   hive_generator: ^2.0.1
@@ -82,6 +85,14 @@ dev_dependencies:
   # rules and activating additional ones.
   flutter_lints: ^5.0.0
 
+# Launcher icons configuration
+flutter_launcher_icons:
+  image_path: "assets/images/logo.png"
+  windows:
+    generate: true
+    image_path: "assets/images/logo.png"
+    icon_size: 256
+
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
 
@@ -92,6 +103,9 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
+  assets:
+    - assets/images/
 
   # To add assets to your application, add an assets section, like this:
   # assets:

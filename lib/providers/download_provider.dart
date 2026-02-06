@@ -119,8 +119,8 @@ class DownloadProvider extends ChangeNotifier {
         outputPath: templatePath,
         formatId: formatId,
         audioFormatId: audioFormatId,
-        targetHeight: targetHeight,
         audioOnly: mode == DownloadMode.audioOnly,
+        targetHeight: targetHeight,
         audioQuality: audioQuality,
         embedThumbnail: embedThumbnail,
         embedMetadata: embedMetadata,
@@ -128,8 +128,7 @@ class DownloadProvider extends ChangeNotifier {
 
       _activeProcesses[item.id] = process;
 
-      // Update status
-      final index = _activeDownloads.indexOf(item);
+      final index = _activeDownloads.indexWhere((d) => d.id == item.id);
       if (index != -1) {
         _activeDownloads[index] = item.copyWith(
           status: DownloadStatus.downloadingVideo,
@@ -142,6 +141,26 @@ class DownloadProvider extends ChangeNotifier {
         final lines = data.split('\n');
         for (final line in lines) {
           if (line.trim().isEmpty) continue;
+
+          // Check for thumbnail path
+          if (line.contains('Writing video thumbnail') || line.contains('Writing thumbnail')) {
+             final match = RegExp(r'Writing.*thumbnail.*to: (.+)').firstMatch(line);
+             if (match != null) {
+               final thumbPath = match.group(1)?.trim();
+               if (thumbPath != null) {
+                 final idx = _activeDownloads.indexWhere((d) => d.id == item.id);
+                 if (idx != -1) {
+                   _activeDownloads[idx] = _activeDownloads[idx].copyWith(
+                     thumbnailPath: thumbPath,
+                   );
+                   // Don't notify listeners just for this to avoid too many rebuilds, 
+                   // or do if you want to show it immediately. 
+                   // Since it happens early, it's fine.
+                   notifyListeners();
+                 }
+               }
+             }
+          }
 
           final progress = YtdlpService.parseProgress(line);
           if (progress != null) {

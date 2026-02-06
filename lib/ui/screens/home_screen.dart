@@ -10,6 +10,7 @@ import '../../providers/playlist_provider.dart';
 import '../../models/video_info.dart';
 import '../widgets/video_configuration_widget.dart';
 import '../widgets/url_input_card.dart';
+import '../widgets/app_logo.dart';
 import 'playlist_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -41,6 +42,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _onVideoProviderChange() {
     if (_videoProvider == null) return;
+    
+    // Sync URL controller
+    if (_urlController.text != _videoProvider!.currentUrl && _videoProvider!.currentUrl.isNotEmpty) {
+      _urlController.text = _videoProvider!.currentUrl;
+    }
+
     if (_videoProvider!.hasError &&
         (_videoProvider!.errorMessage!.contains('Authentication') ||
             _videoProvider!.errorMessage!.contains('cookies.txt'))) {
@@ -182,44 +189,11 @@ class _HomeScreenState extends State<HomeScreen> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // Animated Logo Icon
-              Container(
-                    width: 120,
-                    height: 120,
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [
-                          theme.colorScheme.primary,
-                          theme.colorScheme.primary.withValues(alpha: 0.7),
-                        ],
-                      ),
-                      borderRadius: BorderRadius.circular(32),
-                      boxShadow: [
-                        BoxShadow(
-                          color: theme.colorScheme.primary.withValues(
-                            alpha: 0.4,
-                          ),
-                          blurRadius: 40,
-                          spreadRadius: 0,
-                          offset: const Offset(0, 20),
-                        ),
-                      ],
-                    ),
-                    child: const Icon(
-                      Icons.download_rounded,
-                      size: 56,
-                      color: Colors.white,
-                    ),
-                  )
-                  .animate(onPlay: (c) => c.repeat(reverse: true))
-                  .scale(
-                    begin: const Offset(1, 1),
-                    end: const Offset(1.05, 1.05),
-                    duration: 2000.ms,
-                    curve: Curves.easeInOut,
-                  ),
+              // Animated Logo Image
+              AppLogo(size: 140)
+                  .animate()
+                  .fadeIn(duration: 800.ms)
+                  .scale(begin: const Offset(0.8, 0.8), curve: Curves.easeOutBack),
 
               const SizedBox(height: 40),
 
@@ -557,43 +531,7 @@ class _HomeScreenState extends State<HomeScreen> {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           // Animated Illustration Container
-          Container(
-                width: 180,
-                height: 180,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      theme.colorScheme.primary.withValues(alpha: 0.15),
-                      theme.colorScheme.primary.withValues(alpha: 0.05),
-                    ],
-                  ),
-                  borderRadius: BorderRadius.circular(40),
-                  boxShadow: [
-                    BoxShadow(
-                      color: theme.colorScheme.primary.withValues(alpha: 0.15),
-                      blurRadius: 60,
-                      spreadRadius: 0,
-                      offset: const Offset(0, 20),
-                    ),
-                  ],
-                ),
-                child: Center(
-                  child: Icon(
-                    Icons.download_done_rounded,
-                    size: 72,
-                    color: theme.colorScheme.primary,
-                  ),
-                ),
-              )
-              .animate(onPlay: (c) => c.repeat(reverse: true))
-              .scale(
-                begin: const Offset(1, 1),
-                end: const Offset(1.03, 1.03),
-                duration: 4000.ms,
-                curve: Curves.easeInOut,
-              ),
+          const AppLogo(size: 160),
 
           const SizedBox(height: 48),
 
@@ -674,44 +612,8 @@ class _HomeScreenState extends State<HomeScreen> {
         mainAxisAlignment: MainAxisAlignment.center,
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Compact Icon
-          Container(
-                width: 100,
-                height: 100,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      theme.colorScheme.primary.withValues(alpha: 0.2),
-                      theme.colorScheme.primary.withValues(alpha: 0.1),
-                    ],
-                  ),
-                  borderRadius: BorderRadius.circular(28),
-                  boxShadow: [
-                    BoxShadow(
-                      color: theme.colorScheme.primary.withValues(alpha: 0.2),
-                      blurRadius: 30,
-                      spreadRadius: 0,
-                      offset: const Offset(0, 10),
-                    ),
-                  ],
-                ),
-                child: Center(
-                  child: Icon(
-                    Icons.download_done_rounded,
-                    size: 44,
-                    color: theme.colorScheme.primary,
-                  ),
-                ),
-              )
-              .animate(onPlay: (c) => c.repeat(reverse: true))
-              .scale(
-                begin: const Offset(1, 1),
-                end: const Offset(1.05, 1.05),
-                duration: 3000.ms,
-                curve: Curves.easeInOut,
-              ),
+          // Compact Logo
+          const AppLogo(size: 80, showGlow: false),
 
           const SizedBox(height: 28),
 

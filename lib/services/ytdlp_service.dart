@@ -109,7 +109,6 @@ class YtdlpService {
       _isInitialized = true;
     } catch (e) {
       // Fallback to system PATH if initialization fails, or rethrow if critical
-      print('Failed to initialize local yt-dlp: $e');
       // If we haven't set a path yet (and didn't crash), we rely on default 'yt-dlp' from constructor
     }
   }
@@ -218,7 +217,7 @@ class YtdlpService {
         return tagName;
       }
     } catch (e) {
-      print('Error checking for yt-dlp update: $e');
+      // Error checking for update - will return null
     }
     return null;
   }
@@ -272,12 +271,6 @@ class YtdlpService {
     final args = _buildCommonArgs();
     args.addAll(['--dump-json', url]);
 
-    // Debug: print the full command being executed
-    print('[YtdlpService] ========== FETCH VIDEO INFO =========');
-    print('[YtdlpService] Executing: $_ytdlpPath');
-    print('[YtdlpService] Arguments: ${args.join(' ')}');
-    print('[YtdlpService] =====================================');
-
     onProgress?.call('Fetching video metadata...');
     var result = await Process.run(_ytdlpPath, args);
 
@@ -285,21 +278,12 @@ class YtdlpService {
       final error = (result.stderr as String).trim();
       final stdout = (result.stdout as String).trim();
 
-      print('[YtdlpService] ========== ERROR DEBUG =========');
-      print('[YtdlpService] Exit code: ${result.exitCode}');
-      print('[YtdlpService] Stderr: $error');
-      print('[YtdlpService] ================================');
-
       final authError = checkAuthenticationErrors(error);
 
       if (authError != null) {
-        print('[YtdlpService] Detected auth error: $authError');
 
         // Try with additional extractor arguments for YouTube
         if (error.contains('Sign in to confirm you') || error.contains('bot')) {
-          print(
-            '[YtdlpService] Attempting retry with additional YouTube extractor arguments...',
-          );
           onProgress?.call('Retrying with alternative method...');
 
           final retryArgs = <String>[
@@ -317,7 +301,6 @@ class YtdlpService {
             url,
           ];
 
-          print('[YtdlpService] Retrying with args: ${retryArgs.join(' ')}');
           result = await Process.run(_ytdlpPath, retryArgs);
 
           if (result.exitCode == 0) {
@@ -325,9 +308,6 @@ class YtdlpService {
             final jsonStr = (result.stdout as String).trim();
             final json = jsonDecode(jsonStr) as Map<String, dynamic>;
             return VideoInfo.fromJson(json);
-          } else {
-            final retryError = (result.stderr as String).trim();
-            print('[YtdlpService] Retry failed with error: $retryError');
           }
         }
 
@@ -337,9 +317,6 @@ class YtdlpService {
       // Fallback for DPAPI decryption error if browser cookies were used
       if ((error.contains('DPAPI') || error.contains('Failed to decrypt')) &&
           _cookieBrowser != null) {
-        print(
-          'Cookie extraction failed (DPAPI error), retrying without browser cookies...',
-        );
         onProgress?.call('Retrying without browser cookies...');
 
         final argsWithoutBrowser = <String>[
@@ -389,10 +366,6 @@ class YtdlpService {
       _notificationService?.show(title: 'Fetch Complete', body: info.title);
       return info;
     } catch (e) {
-      print('[YtdlpService] JSON Parse Error: $e');
-      print(
-        '[YtdlpService] Raw output (first 200 chars): ${stdout.substring(0, stdout.length.clamp(0, 200))}',
-      );
       throw YtdlpException('Failed to parse video info: $e');
     }
   }
@@ -479,7 +452,6 @@ class YtdlpService {
 
     if (exitCode != 0) {
       final error = stderrBuffer.toString().trim();
-      print('[YtdlpService] Playlist fetch error: $error');
 
       final authError = checkAuthenticationErrors(error);
       if (authError != null) throw YtdlpException(authError);
@@ -535,6 +507,9 @@ class YtdlpService {
       if (embedMetadata) args.add('--embed-metadata');
     }
 
+    // Always write thumbnail to disk for History UI optimization
+    args.add('--write-thumbnail');
+
     if (audioOnly) {
       // Audio only mode
       args.addAll([
@@ -577,9 +552,6 @@ class YtdlpService {
 
     args.add(url);
 
-    // Debug: print the full command being executed
-    print('yt-dlp command: $_ytdlpPath ${args.join(' ')}');
-
     final process = await Process.start(_ytdlpPath, args);
     return process;
   }
@@ -609,44 +581,15 @@ class YtdlpService {
     }
 
     // Authentication logic: WebView profile > cookies file > browser cookies
-    // First check if we have a WebView path configured (highest priority for WebView login)
     if (_enableCookies) {
       if (_webViewPath != null) {
-        print('[YtdlpService] ========== WEBVIEW COOKIE DEBUG =========');
-        print('[YtdlpService] Using WebView2 profile for cookies');
-        print('[YtdlpService] WebView profile path: $_webViewPath');
         args.addAll(['--cookies-from-browser', 'edge:$_webViewPath']);
-        print('[YtdlpService] Added --cookies-from-browser edge:$_webViewPath');
-        print('[YtdlpService] ================================');
       } else if (_cookiePath != null) {
         final cookieFile = File(_cookiePath!);
-        // print('[YtdlpService] ========== COOKIE DEBUG =========');
-        // print('[YtdlpService] Cookie path configured: $_cookiePath');
-        // print('[YtdlpService] Cookie file exists: ${cookieFile.existsSync()}');
 
         if (cookieFile.existsSync()) {
           try {
-            final stat = cookieFile.statSync();
             final content = cookieFile.readAsStringSync();
-
-            // Check if this is a WebView marker file
-            if (content.contains('WEBVIEW_LOGIN')) {
-              print(
-                '[YtdlpService] Detected WebView marker file - this should not happen if webViewPath is set',
-              );
-              print(
-                '[YtdlpService] WARNING: WebView login detected but webViewPath not configured!',
-              );
-            }
-
-            final lines = content
-                .split('\n')
-                .where((l) => l.trim().isNotEmpty && !l.startsWith('#'))
-                .toList();
-
-            // print('[YtdlpService] Cookie file size: ${stat.size} bytes');
-            // print('[YtdlpService] Cookie file modified: ${stat.modified}');
-            // print('[YtdlpService] Cookie line count (excluding comments/empty): ${lines.length}');
 
             // Check for critical YouTube auth cookies
             final criticalCookies = [
@@ -658,79 +601,30 @@ class YtdlpService {
               '__Secure-1PSID',
               '__Secure-3PSID',
             ];
-            final foundCookies = <String>[];
             final missingCookies = <String>[];
 
             for (final cookie in criticalCookies) {
-              if (content.contains(cookie)) {
-                foundCookies.add(cookie);
-              } else {
+              if (!content.contains(cookie)) {
                 missingCookies.add(cookie);
               }
             }
 
-            // print('[YtdlpService] Found critical cookies: ${foundCookies.join(", ")}');
-            // print('[YtdlpService] Missing critical cookies: ${missingCookies.join(", ")}');
-
-            // Show first few cookie entries for debugging
-            // if (lines.isNotEmpty) {
-            //   print('[YtdlpService] First few cookie entries:');
-            //   for (int i = 0; i < lines.length && i < 5; i++) {
-            //     // Truncate value for security
-            //     final parts = lines[i].split('\t');
-            //     if (parts.length >= 6) {
-            //       final name = parts.length > 5 ? parts[5] : 'unknown';
-            //       final domain = parts[0];
-            //       print('[YtdlpService]   - $name (domain: $domain)');
-            //     } else {
-            //       print('[YtdlpService]   - ${lines[i].substring(0, lines[i].length.clamp(0, 50))}...');
-            //     }
-            //   }
-            // }
-
             if (missingCookies.isNotEmpty) {
-              print('[YtdlpService] WARNING: Missing critical auth cookies!');
-              print(
-                '[YtdlpService] This usually occurs with basic browser extraction.',
-              );
-              print(
-                '[YtdlpService] We recommend using the "Login to YouTube" feature to capture secure cookies.',
-              );
-
               // Add additional flags to help with authentication issues
               args.addAll([
                 '--extractor-args',
                 'youtube:player-client=web;webpage=no_cookie',
               ]);
-            } else {
-              print(
-                '[YtdlpService] SUCCESS: All critical auth cookies are present.',
-              );
             }
           } catch (e) {
-            print('[YtdlpService] Failed to read cookie file: $e');
+            // Failed to read cookie file - continue without extra args
           }
 
           args.addAll(['--cookies', _cookiePath!]);
-          // print('[YtdlpService] Added --cookies argument to yt-dlp');
-        } else {
-          print('[YtdlpService] WARNING: Cookie file does not exist!');
         }
-        print('[YtdlpService] ================================');
       } else if (_cookieBrowser != null && _cookieBrowser != 'none') {
         args.addAll(['--cookies-from-browser', _cookieBrowser!.toLowerCase()]);
-        print('[YtdlpService] Using browser cookies: $_cookieBrowser');
-      } else {
-        print('[YtdlpService] No cookies configured');
       }
-    } else {
-      print('[YtdlpService] Cookies disabled globally');
-    }
-
-    if (_userAgent != null) {
-      print(
-        '[YtdlpService] Using User-Agent: ${_userAgent!.substring(0, _userAgent!.length.clamp(0, 50))}...',
-      );
     }
 
     return args;
@@ -885,22 +779,17 @@ class YtdlpService {
       // Use a simple, non-age-restricted video for testing
       final testVideoUrl = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
 
-      print('[YtdlpService] Testing authentication with: $testVideoUrl');
-
       // Try to fetch video info - this will fail if authentication is not working
-      final videoInfo = await getVideoInfo(testVideoUrl);
-
-      print(
-        '[YtdlpService] Authentication test successful! Retrieved video info: ${videoInfo.title}',
-      );
+      await getVideoInfo(testVideoUrl);
       return true;
     } catch (e) {
-      print('[YtdlpService] Authentication test failed: $e');
       return false;
     }
   }
 
   /// Check for updates and return update info with download URL
+  /// Returns null ONLY if yt-dlp is not available or version check failed
+  /// Returns YtdlpUpdateInfo with same current/latest version when up to date
   Future<YtdlpUpdateInfo?> checkForUpdateWithProgress() async {
     final logger = LoggingService();
     logger.info('Checking for yt-dlp updates...', component: 'YtdlpService');
@@ -921,7 +810,14 @@ class YtdlpService {
           'Cannot check for updates: failed to fetch latest version',
           component: 'YtdlpService',
         );
-        return null;
+        // Still return info with current version so UI knows yt-dlp is installed
+        return YtdlpUpdateInfo(
+          currentVersion: currentVersion,
+          latestVersion: currentVersion, // Same as current means up to date
+          downloadUrl: _windowsDownloadUrl,
+          publishedAt: DateTime.now(),
+          releaseNotes: 'Up to date',
+        );
       }
 
       final hasUpdate = isNewerVersion(currentVersion, latestVersion);
@@ -931,17 +827,14 @@ class YtdlpService {
         component: 'YtdlpService',
       );
 
-      if (hasUpdate) {
-        return YtdlpUpdateInfo(
-          currentVersion: currentVersion,
-          latestVersion: latestVersion,
-          downloadUrl: _windowsDownloadUrl,
-          publishedAt: DateTime.now(), // yt-dlp doesn't provide this easily
-          releaseNotes: 'New version available: $latestVersion',
-        );
-      }
-
-      return null;
+      // Always return info - this lets the caller know yt-dlp is available
+      return YtdlpUpdateInfo(
+        currentVersion: currentVersion,
+        latestVersion: latestVersion,
+        downloadUrl: _windowsDownloadUrl,
+        publishedAt: DateTime.now(),
+        releaseNotes: hasUpdate ? 'New version available: $latestVersion' : 'Up to date',
+      );
     } catch (e, stackTrace) {
       logger.error(
         'Failed to check for yt-dlp updates',

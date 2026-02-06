@@ -104,7 +104,10 @@ class ToolUpdateProvider extends ChangeNotifier {
 
     // Auto-check for updates if enabled
     if (_autoCheckEnabled) {
-      await checkAllForUpdates();
+      // Defer update check to avoid blocking app startup
+      Future.delayed(const Duration(seconds: 3), () {
+        checkAllForUpdates();
+      });
     }
   }
 
@@ -155,23 +158,32 @@ class ToolUpdateProvider extends ChangeNotifier {
       final updateInfo = await _ytdlpService.checkForUpdateWithProgress();
 
       if (updateInfo != null) {
+        // yt-dlp is available - check if update is needed
+        final hasUpdate = updateInfo.currentVersion != updateInfo.latestVersion;
+        
         _ytdlpState = _ytdlpState.copyWith(
-          status: ToolUpdateStatus.updateAvailable,
+          status: hasUpdate ? ToolUpdateStatus.updateAvailable : ToolUpdateStatus.upToDate,
           currentVersion: updateInfo.currentVersion,
           latestVersion: updateInfo.latestVersion,
-          statusMessage: 'Update available: ${updateInfo.latestVersion}',
+          statusMessage: hasUpdate 
+              ? 'Update available: ${updateInfo.latestVersion}'
+              : 'Up to date (v${updateInfo.currentVersion})',
+          isAvailable: true,
         );
-        _logger.info(
-          'yt-dlp update available: ${updateInfo.currentVersion} -> ${updateInfo.latestVersion}',
-          component: 'ToolUpdateProvider',
-        );
+        
+        if (hasUpdate) {
+          _logger.info(
+            'yt-dlp update available: ${updateInfo.currentVersion} -> ${updateInfo.latestVersion}',
+            component: 'ToolUpdateProvider',
+          );
+        }
       } else {
-        // Preserve the current version even when no update is available
-        final currentVersion = _ytdlpState.currentVersion ?? (await _ytdlpService.getVersion());
+        // yt-dlp is not available
         _ytdlpState = _ytdlpState.copyWith(
-          status: ToolUpdateStatus.upToDate,
-          currentVersion: currentVersion,
-          statusMessage: currentVersion != null ? 'Up to date (v$currentVersion)' : 'Up to date',
+          status: ToolUpdateStatus.error,
+          isAvailable: false,
+          errorMessage: 'yt-dlp not found',
+          statusMessage: 'Not found',
         );
       }
     } catch (e) {

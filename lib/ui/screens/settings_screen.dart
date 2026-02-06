@@ -9,6 +9,7 @@ import '../../providers/tool_update_provider.dart';
 import '../widgets/update_dialog.dart';
 import '../widgets/logs_viewer.dart';
 import '../widgets/floating_progress_overlay.dart';
+import '../widgets/app_logo.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -334,9 +335,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ],
       );
     } else if (state.isAvailable) {
-      subtitle = state.status == ToolUpdateStatus.upToDate
-          ? 'Up to date (v${state.currentVersion})'
-          : 'Installed (v${state.currentVersion})';
+      // Tool is available - show version and status
+      if (state.status == ToolUpdateStatus.upToDate) {
+        subtitle = 'Up to date (v${state.currentVersion})';
+      } else if (state.currentVersion != null) {
+        // Tool is installed but update status not checked yet
+        subtitle = 'Installed (v${state.currentVersion})';
+      } else {
+        // Fallback if version is somehow null
+        subtitle = 'Installed';
+      }
       iconColor = Colors.green;
       trailing = Row(
         mainAxisSize: MainAxisSize.min,
@@ -1315,6 +1323,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Center(
       child: Column(
         children: [
+          const AppLogo(size: 80, showGlow: true),
+          const SizedBox(height: 16),
           Text(
             'YouTube Downloader v1.0.0',
             style: TextStyle(

@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import '../../models/download_item.dart';
 import 'wavy_progress_painter.dart';
@@ -94,26 +95,22 @@ class _DownloadItemCardState extends State<DownloadItemCard> with SingleTickerPr
         ],
       ),
       clipBehavior: Clip.antiAlias,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
+      child: RepaintBoundary(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
           // 1. Thumbnail (Left side, full height)
           // "make it from top to bottom with no margin or with a little margin" -> No margin implementation
           AspectRatio(
             aspectRatio: 16 / 9,
-            child: widget.item.thumbnailUrl != null
-                ? Image.network(
-                    widget.item.thumbnailUrl!,
+            child: widget.item.thumbnailPath != null && File(widget.item.thumbnailPath!).existsSync()
+                ? Image.file(
+                    File(widget.item.thumbnailPath!),
                     fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => Container(
-                      color: theme.colorScheme.surfaceContainerHighest,
-                      child: Icon(Icons.broken_image_outlined, color: theme.colorScheme.onSurfaceVariant),
-                    ),
+                    cacheWidth: 480, // Optimize RAM: Limit decode size
+                    errorBuilder: (_, __, ___) => _buildNetworkThumbnail(theme),
                   )
-                : Container(
-                    color: theme.colorScheme.surfaceContainerHighest,
-                    child: Icon(Icons.movie_outlined, color: theme.colorScheme.onSurfaceVariant),
-                  ),
+                : _buildNetworkThumbnail(theme),
           ),
 
           // 2. Content (Right side)
@@ -204,6 +201,7 @@ class _DownloadItemCardState extends State<DownloadItemCard> with SingleTickerPr
             ),
           ),
         ],
+      ),
       ),
     );
   }
@@ -386,5 +384,24 @@ class _DownloadItemCardState extends State<DownloadItemCard> with SingleTickerPr
   String _formatDate(DateTime? date) {
     if (date == null) return '';
     return '${date.day}/${date.month}/${date.year}';
+  }
+
+  Widget _buildNetworkThumbnail(ThemeData theme) {
+    return widget.item.thumbnailUrl != null
+        ? CachedNetworkImage(
+            imageUrl: widget.item.thumbnailUrl!,
+            fit: BoxFit.cover,
+            memCacheWidth: 480, // Optimize RAM: Limit decode size
+            placeholder: (context, url) => _buildPlaceholder(theme, Icons.movie_outlined),
+            errorWidget: (context, url, error) => _buildPlaceholder(theme, Icons.broken_image_outlined),
+          )
+        : _buildPlaceholder(theme, Icons.movie_outlined);
+  }
+
+  Widget _buildPlaceholder(ThemeData theme, IconData icon) {
+    return Container(
+      color: theme.colorScheme.surfaceContainerHighest,
+      child: Icon(icon, color: theme.colorScheme.onSurfaceVariant),
+    );
   }
 }

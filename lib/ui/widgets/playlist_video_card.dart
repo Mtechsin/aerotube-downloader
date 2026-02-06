@@ -49,11 +49,12 @@ class PlaylistVideoCard extends StatelessWidget {
           child: InkWell(
             onTap: onToggleSelection,
             borderRadius: BorderRadius.circular(20),
-            child: Padding(
-              padding: const EdgeInsets.all(12.0),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start, // Align to top for larger thumbnail
-                children: [
+            child: RepaintBoundary(
+              child: Padding(
+                padding: const EdgeInsets.all(12.0),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start, // Align to top for larger thumbnail
+                  children: [
                   // Thumbnail (Larger & Immersive)
                   Container(
                     width: 180, // Increased for immersion (16:9 approx)
@@ -181,6 +182,7 @@ class PlaylistVideoCard extends StatelessWidget {
                 ],
               ),
             ),
+          ),
           ),
         ),
       ),

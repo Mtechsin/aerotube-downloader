@@ -41,6 +41,7 @@ class VideoInfoCard extends StatelessWidget {
                     child: CachedNetworkImage(
                       imageUrl: video.thumbnailUrl,
                       fit: BoxFit.cover,
+                      memCacheWidth: 1024, // Optimize RAM: Limit decode size for single video view
                       placeholder: (context, url) => Container(
                         color: theme.colorScheme.surfaceContainerHighest,
                         child: const Center(

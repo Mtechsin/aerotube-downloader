@@ -15,6 +15,8 @@ import 'providers/download_provider.dart';
 import 'providers/playlist_provider.dart';
 import 'providers/update_provider.dart';
 import 'providers/tool_update_provider.dart';
+import 'providers/search_provider.dart';
+import 'providers/navigation_provider.dart';
 
 import 'package:hive_flutter/hive_flutter.dart';
 import 'models/download_item.dart';
@@ -45,6 +47,9 @@ void main() async {
   ]);
 
   loggingService.info('Application starting...', component: 'Main');
+
+  // Limit image cache to reduce memory usage
+  PaintingBinding.instance.imageCache.maximumSizeBytes = 100 * 1024 * 1024; // 100MB
 
   // Only use WebView path if there's an active login (now using cached property)
   final isLoggedIn = await cookieService.isLoggedIn;
@@ -98,6 +103,8 @@ void main() async {
             ffmpegService: ffmpegService,
           )..init(),
         ),
+        ChangeNotifierProvider(create: (_) => SearchProvider()),
+        ChangeNotifierProvider(create: (_) => NavigationProvider()),
         Provider<CookieService>.value(value: cookieService),
         Provider<NotificationService>.value(value: notificationService),
         Provider<LoggingService>.value(value: loggingService),
