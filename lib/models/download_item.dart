@@ -19,67 +19,83 @@ enum DownloadStatus {
   @HiveField(6)
   cancelled,
   @HiveField(7)
-  queued
+  queued,
 }
 
 @HiveType(typeId: 1)
 class DownloadItem {
   @HiveField(0)
   final String id;
-  
+
   @HiveField(1)
   final String title;
-  
+
   @HiveField(2)
   final String? thumbnailUrl;
-  
+
   @HiveField(3)
   final String url;
-  
+
   @HiveField(4)
   final String outputPath;
-  
+
   // Progress tracking
   @HiveField(5)
   double progress;
-  
+
   @HiveField(6)
   double speed; // bytes per second
-  
+
   @HiveField(7)
   int eta; // seconds
-  
+
   @HiveField(8)
   DownloadStatus status;
-  
+
   @HiveField(9)
   String? error;
-  
+
   // Format info
   @HiveField(10)
   final String? formatId;
-  
+
   @HiveField(11)
   final String? audioFormatId;
-  
+
   @HiveField(12)
   final bool audioOnly;
 
   // New fields for history/stats
   @HiveField(13)
   final DateTime? completedDate;
-  
+
   @HiveField(14)
   final int? totalBytes;
-  
+
   @HiveField(15)
-  final String? videoQuality; // e.g., "1080p60"
+  final String? videoQuality; // e.g. "1080p60"
 
   @HiveField(16)
   final String? thumbnailPath; // Local path if we save it
 
   @HiveField(17)
   final String? savePath; // Actual final file path
+
+  // Per-download options (for execution, not necessarily persisted)
+  @HiveField(18)
+  final String? audioQuality;
+
+  @HiveField(19)
+  final List<String>? subtitleLanguages;
+
+  @HiveField(20)
+  final bool embedSubtitles;
+
+  @HiveField(21)
+  final bool sponsorBlock;
+
+  @HiveField(22)
+  final bool useDownloadArchive;
 
   DownloadItem({
     required this.id,
@@ -100,12 +116,19 @@ class DownloadItem {
     this.videoQuality,
     this.thumbnailPath,
     this.savePath,
+    this.audioQuality,
+    this.subtitleLanguages,
+    this.embedSubtitles = false,
+    this.sponsorBlock = false,
+    this.useDownloadArchive = false,
   });
 
   String get formattedSpeed {
     if (speed < 1024) return '${speed.toStringAsFixed(1)} B/s';
     if (speed < 1024 * 1024) return '${(speed / 1024).toStringAsFixed(1)} KB/s';
-    if (speed < 1024 * 1024 * 1024) return '${(speed / (1024 * 1024)).toStringAsFixed(1)} MB/s';
+    if (speed < 1024 * 1024 * 1024) {
+      return '${(speed / (1024 * 1024)).toStringAsFixed(1)} MB/s';
+    }
     return '${(speed / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB/s';
   }
 
@@ -114,7 +137,7 @@ class DownloadItem {
     final h = eta ~/ 3600;
     final m = (eta % 3600) ~/ 60;
     final s = eta % 60;
-    
+
     if (h > 0) {
       return '${h}h ${m}m ${s}s';
     } else if (m > 0) {
@@ -144,6 +167,11 @@ class DownloadItem {
     String? videoQuality,
     String? thumbnailPath,
     String? savePath,
+    String? audioQuality,
+    List<String>? subtitleLanguages,
+    bool? embedSubtitles,
+    bool? sponsorBlock,
+    bool? useDownloadArchive,
   }) {
     return DownloadItem(
       id: id ?? this.id,
@@ -164,6 +192,11 @@ class DownloadItem {
       videoQuality: videoQuality ?? this.videoQuality,
       thumbnailPath: thumbnailPath ?? this.thumbnailPath,
       savePath: savePath ?? this.savePath,
+      audioQuality: audioQuality ?? this.audioQuality,
+      subtitleLanguages: subtitleLanguages ?? this.subtitleLanguages,
+      embedSubtitles: embedSubtitles ?? this.embedSubtitles,
+      sponsorBlock: sponsorBlock ?? this.sponsorBlock,
+      useDownloadArchive: useDownloadArchive ?? this.useDownloadArchive,
     );
   }
 }

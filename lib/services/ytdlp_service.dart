@@ -8,6 +8,7 @@ import '../models/video_info.dart';
 import '../models/playlist_info.dart';
 import 'notification_service.dart';
 import 'logging_service.dart';
+import 'download_helper.dart';
 
 class YtdlpService {
   String _ytdlpPath;
@@ -19,10 +20,11 @@ class YtdlpService {
   bool _enableCookies = false;
   bool _isInitialized = false;
   final NotificationService? _notificationService;
+  String? _cachedLatestVersion;
+  final Map<String, VideoInfo> _videoInfoCache = {};
 
   static const String _windowsDownloadUrl =
       'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe';
-  // Fallback or other OS support can be added here, currently focusing on Windows per context.
 
   YtdlpService({
     String? ytdlpPath,
@@ -80,12 +82,13 @@ class YtdlpService {
       if (_ytdlpPath != 'yt-dlp' && _ytdlpPath != localPath) {
         // Verify if it exists, if not, try adding .exe on Windows
         if (!await File(_ytdlpPath).exists()) {
-           if (Platform.isWindows && !_ytdlpPath.toLowerCase().endsWith('.exe')) {
-             final withExe = '$_ytdlpPath.exe';
-             if (await File(withExe).exists()) {
-               _ytdlpPath = withExe;
-             }
-           }
+          if (Platform.isWindows &&
+              !_ytdlpPath.toLowerCase().endsWith('.exe')) {
+            final withExe = '$_ytdlpPath.exe';
+            if (await File(withExe).exists()) {
+              _ytdlpPath = withExe;
+            }
+          }
         }
         _isInitialized = true;
         return;
@@ -94,52 +97,63 @@ class YtdlpService {
       if (await localFile.exists()) {
         _ytdlpPath = localPath;
       } else {
-        // If not in managed local path, check if it's already available in system PATH
+        // If not in local path and not in system PATH, download it
         if (await isAvailable()) {
-          // Already available in system, we can use it as is
           _isInitialized = true;
           return;
         }
-        
-        // Not in local path and not in system PATH, download it
+
         await _downloadYtdlp(localFile);
         _ytdlpPath = localPath;
       }
 
       _isInitialized = true;
     } catch (e) {
-      // Fallback to system PATH if initialization fails, or rethrow if critical
-      // If we haven't set a path yet (and didn't crash), we rely on default 'yt-dlp' from constructor
+      // Fallback to system PATH if initialization fails
     }
   }
 
-  /// Download yt-dlp binary
+  /// Download yt-dlp binary (runs in a background isolate for full speed)
   Future<void> _downloadYtdlp(File targetFile) async {
     if (!await targetFile.parent.exists()) {
       await targetFile.parent.create(recursive: true);
     }
 
-    // Determine URL based on platform (assuming Windows for this specific request context, but making it slightly generic)
-    final url = Platform.isWindows
-        ? _windowsDownloadUrl
-        : _windowsDownloadUrl; // TODO: Add Linux/Mac URLs
+    final url = Platform.isWindows ? _windowsDownloadUrl : _windowsDownloadUrl;
+    final tempDir = await getTemporaryDirectory();
+    final tempPath = p.join(
+      tempDir.path,
+      'yt-dlp-temp-${DateTime.now().millisecondsSinceEpoch}.exe',
+    );
 
     try {
-      final response = await http.get(Uri.parse(url));
-      if (response.statusCode == 200) {
-        await targetFile.writeAsBytes(response.bodyBytes);
+      await downloadInBackground(url: url, destPath: tempPath);
 
-        if (!Platform.isWindows) {
-          // Make executable on Unix-like systems
-          await Process.run('chmod', ['+x', targetFile.path]);
+      // Safe replace
+      if (await targetFile.exists()) {
+        final backupFile = File('${targetFile.path}.bak');
+        await targetFile.rename(backupFile.path);
+        try {
+          await File(tempPath).copy(targetFile.path);
+          await backupFile.delete();
+        } catch (e) {
+          await backupFile.rename(targetFile.path);
+          throw YtdlpException('Failed to copy temp file: $e');
         }
       } else {
-        throw YtdlpException(
-          'Failed to download yt-dlp: HTTP ${response.statusCode}',
-        );
+        await File(tempPath).copy(targetFile.path);
+      }
+
+      if (!Platform.isWindows) {
+        await Process.run('chmod', ['+x', targetFile.path]);
       }
     } catch (e) {
       throw YtdlpException('Failed to download yt-dlp: $e');
+    } finally {
+      try {
+        final tmp = File(tempPath);
+        if (await tmp.exists()) await tmp.delete();
+      } catch (_) {}
     }
   }
 
@@ -173,7 +187,7 @@ class YtdlpService {
 
       // If it's still just 'yt-dlp', maybe it's in a different spot than PATH
       // But we handled local managed version in initialize()
-      
+
       return false;
     } catch (e) {
       // If error is "file not found" and we are on Windows, try with .exe
@@ -181,8 +195,8 @@ class YtdlpService {
         try {
           final result = await Process.run('$_ytdlpPath.exe', ['--version']);
           if (result.exitCode == 0) {
-             _ytdlpPath = '$_ytdlpPath.exe';
-             return true;
+            _ytdlpPath = '$_ytdlpPath.exe';
+            return true;
           }
         } catch (_) {}
       }
@@ -204,7 +218,12 @@ class YtdlpService {
   }
 
   /// Check if a newer version of yt-dlp is available on GitHub
-  Future<String?> getLatestVersion() async {
+  Future<String?> getLatestVersion({bool forceRefresh = false}) async {
+    // Return cached version if available and not forcing refresh
+    if (!forceRefresh && _cachedLatestVersion != null) {
+      return _cachedLatestVersion;
+    }
+
     try {
       final response = await http.get(
         Uri.parse('https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest'),
@@ -213,7 +232,7 @@ class YtdlpService {
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         String tagName = data['tag_name'] as String;
-        // yt-dlp tags are usually the version itself (e.g. 2024.12.23)
+        _cachedLatestVersion = tagName; // Cache the version
         return tagName;
       }
     } catch (e) {
@@ -238,8 +257,9 @@ class YtdlpService {
     final latestParts = normLatest.split('.');
 
     for (int i = 0; i < latestParts.length; i++) {
-      if (i >= currentParts.length)
+      if (i >= currentParts.length) {
         return true; // latest has more parts (e.g. .1)
+      }
       final c = int.tryParse(currentParts[i]) ?? 0;
       final l = int.tryParse(latestParts[i]) ?? 0;
       if (l > c) return true;
@@ -265,30 +285,38 @@ class YtdlpService {
   }) async {
     if (!_isInitialized) await initialize();
 
+    final cacheKey = _buildVideoInfoCacheKey(url);
+    final cachedInfo = _videoInfoCache[cacheKey];
+    if (cachedInfo != null) {
+      onProgress?.call('Using cached video metadata...');
+      return cachedInfo;
+    }
+
     onProgress?.call('Connecting to YouTube...');
-
-    // First attempt with current configuration
-    final args = _buildCommonArgs();
-    args.addAll(['--dump-json', url]);
-
     onProgress?.call('Fetching video metadata...');
+
+    final args = _buildVideoInfoArgs(url);
+
+    print('[YtdlpService] Executing info fetch: $_ytdlpPath ${args.join(' ')}');
     var result = await Process.run(_ytdlpPath, args);
 
     if (result.exitCode != 0) {
       final error = (result.stderr as String).trim();
-      final stdout = (result.stdout as String).trim();
 
       final authError = checkAuthenticationErrors(error);
 
       if (authError != null) {
-
         // Try with additional extractor arguments for YouTube
         if (error.contains('Sign in to confirm you') || error.contains('bot')) {
           onProgress?.call('Retrying with alternative method...');
 
+          // Use extended player client for retry (from working baseline)
           final retryArgs = <String>[
+            '--ignore-config',
             '--newline',
             '--no-playlist',
+            '--skip-download',
+            '--no-warnings',
             if (_ffmpegPath != null) ...['--ffmpeg-location', _ffmpegPath!],
             if (_userAgent != null) ...['--user-agent', _userAgent!],
             if (_cookiePath != null && File(_cookiePath!).existsSync()) ...[
@@ -296,8 +324,8 @@ class YtdlpService {
               _cookiePath!,
             ],
             '--extractor-args',
-            'youtube:player-client=web,mweb,android,ios;player-skip=webpage,configs',
-            '--dump-json',
+            'youtube:player_client=web,mweb,android,ios;player-skip=webpage,configs',
+            '--dump-single-json',
             url,
           ];
 
@@ -320,14 +348,17 @@ class YtdlpService {
         onProgress?.call('Retrying without browser cookies...');
 
         final argsWithoutBrowser = <String>[
+          '--ignore-config',
           '--newline',
           '--no-playlist',
+          '--skip-download',
+          '--no-warnings',
           if (_ffmpegPath != null) ...['--ffmpeg-location', _ffmpegPath!],
           if (_cookiePath != null && File(_cookiePath!).existsSync()) ...[
             '--cookies',
             _cookiePath!,
           ],
-          '--dump-json',
+          '--dump-single-json',
           url,
         ];
 
@@ -361,13 +392,79 @@ class YtdlpService {
     }
 
     try {
-      final json = jsonDecode(lines.first) as Map<String, dynamic>;
+      // Find the first line that starts with '{' (JSON object)
+      String? jsonLine;
+      for (final line in lines) {
+        final trimmed = line.trim();
+        if (trimmed.startsWith('{')) {
+          jsonLine = trimmed;
+          break;
+        }
+      }
+
+      if (jsonLine == null) {
+        throw YtdlpException(
+          'Failed to fetch video info: No JSON object found in output',
+        );
+      }
+
+      final json = jsonDecode(jsonLine) as Map<String, dynamic>;
       final info = VideoInfo.fromJson(json);
+      _videoInfoCache[cacheKey] = info;
       _notificationService?.show(title: 'Fetch Complete', body: info.title);
       return info;
     } catch (e) {
       throw YtdlpException('Failed to parse video info: $e');
     }
+  }
+
+  List<String> _buildVideoInfoArgs(String url) {
+    final args = <String>[
+      '--ignore-config',
+      '--newline',
+      '--no-playlist',
+      '--skip-download',
+      '--retries',
+      '2',
+      '--extractor-retries',
+      '1',
+      '--socket-timeout',
+      '10',
+      '--no-warnings',
+      '--dump-single-json',
+    ];
+
+    if (_ffmpegPath != null && _ffmpegPath != 'ffmpeg') {
+      args.addAll(['--ffmpeg-location', _ffmpegPath!]);
+    }
+
+    if (_userAgent != null) {
+      args.addAll(['--user-agent', _userAgent!]);
+    }
+
+    if (_enableCookies) {
+      if (_webViewPath != null) {
+        args.addAll(['--cookies-from-browser', 'edge:$_webViewPath']);
+      } else if (_cookiePath != null && File(_cookiePath!).existsSync()) {
+        args.addAll(['--cookies', _cookiePath!]);
+      } else if (_cookieBrowser != null && _cookieBrowser != 'none') {
+        args.addAll(['--cookies-from-browser', _cookieBrowser!.toLowerCase()]);
+      }
+    }
+
+    args.add(url);
+    return args;
+  }
+
+  String _buildVideoInfoCacheKey(String url) {
+    return [
+      url.trim(),
+      _enableCookies.toString(),
+      _cookiePath ?? '',
+      _cookieBrowser ?? '',
+      _webViewPath ?? '',
+      _userAgent ?? '',
+    ].join('|');
   }
 
   /// Fetch playlist information from URL
@@ -494,17 +591,35 @@ class YtdlpService {
     int? targetHeight,
     bool embedThumbnail = true,
     bool embedMetadata = true,
+    List<String>? subtitleLanguages,
+    bool embedSubtitles = false,
+    bool sponsorBlock = false,
+    String? archivePath,
     Function(double progress, double speed, int eta)? onProgress,
   }) async {
     if (!_isInitialized) await initialize();
 
-    final args = _buildCommonArgs();
+    final args = _buildCommonArgs(
+      sponsorBlock: sponsorBlock,
+      archivePath: archivePath,
+    );
     args.addAll(['-o', outputPath]);
 
     // Embed thumbnail and metadata (requires FFmpeg)
     if (_ffmpegPath != null) {
       if (embedThumbnail) args.add('--embed-thumbnail');
       if (embedMetadata) args.add('--embed-metadata');
+    }
+
+    // Subtitles
+    if (subtitleLanguages != null && subtitleLanguages.isNotEmpty) {
+      args.add('--write-subs');
+      if (embedSubtitles && _ffmpegPath != null) {
+        args.add('--embed-subs');
+      }
+      for (final lang in subtitleLanguages) {
+        args.addAll(['--sub-lang', lang]);
+      }
     }
 
     // Always write thumbnail to disk for History UI optimization
@@ -520,6 +635,12 @@ class YtdlpService {
     } else if (formatId != null && audioFormatId != null) {
       // Separate video and audio streams - strictly use selected formats
       args.addAll(['-f', '$formatId+$audioFormatId']);
+
+      // Ensure merge output format matches the destination extension if it's a standard container
+      final ext = p.extension(outputPath).replaceAll('.', '').toLowerCase();
+      if (ext.isNotEmpty && ['mp4', 'mkv', 'ogg', 'webm', 'flv'].contains(ext)) {
+        args.addAll(['--merge-output-format', ext]);
+      }
     } else if (formatId != null) {
       // Single format with fallback - skip if it's a live stream format (9x range)
       final isLikelyLiveFormat =
@@ -557,7 +678,10 @@ class YtdlpService {
   }
 
   /// Build common arguments for yt-dlp including cookies and ffmpeg location
-  List<String> _buildCommonArgs() {
+  List<String> _buildCommonArgs({
+    bool sponsorBlock = false,
+    String? archivePath,
+  }) {
     final args = <String>[
       '--newline',
       '--no-playlist',
@@ -580,6 +704,16 @@ class YtdlpService {
       args.addAll(['--user-agent', _userAgent!]);
     }
 
+    // SponsorBlock
+    if (sponsorBlock) {
+      args.add('--sponsorblock-remove');
+    }
+
+    // Download archive
+    if (archivePath != null && archivePath.isNotEmpty) {
+      args.addAll(['--download-archive', archivePath]);
+    }
+
     // Authentication logic: WebView profile > cookies file > browser cookies
     if (_enableCookies) {
       if (_webViewPath != null) {
@@ -588,38 +722,7 @@ class YtdlpService {
         final cookieFile = File(_cookiePath!);
 
         if (cookieFile.existsSync()) {
-          try {
-            final content = cookieFile.readAsStringSync();
-
-            // Check for critical YouTube auth cookies
-            final criticalCookies = [
-              'SAPISID',
-              'HSID',
-              'SSID',
-              'SID',
-              'LOGIN_INFO',
-              '__Secure-1PSID',
-              '__Secure-3PSID',
-            ];
-            final missingCookies = <String>[];
-
-            for (final cookie in criticalCookies) {
-              if (!content.contains(cookie)) {
-                missingCookies.add(cookie);
-              }
-            }
-
-            if (missingCookies.isNotEmpty) {
-              // Add additional flags to help with authentication issues
-              args.addAll([
-                '--extractor-args',
-                'youtube:player-client=web;webpage=no_cookie',
-              ]);
-            }
-          } catch (e) {
-            // Failed to read cookie file - continue without extra args
-          }
-
+          // Using 'web' client with cookies - no need for extra extractor args
           args.addAll(['--cookies', _cookiePath!]);
         }
       } else if (_cookieBrowser != null && _cookieBrowser != 'none') {
@@ -833,7 +936,9 @@ class YtdlpService {
         latestVersion: latestVersion,
         downloadUrl: _windowsDownloadUrl,
         publishedAt: DateTime.now(),
-        releaseNotes: hasUpdate ? 'New version available: $latestVersion' : 'Up to date',
+        releaseNotes: hasUpdate
+            ? 'New version available: $latestVersion'
+            : 'Up to date',
       );
     } catch (e, stackTrace) {
       logger.error(
@@ -846,33 +951,44 @@ class YtdlpService {
     }
   }
 
-  /// Download and install update with progress callback
+  /// Download and install update with progress callback.
+  /// The download runs in a background isolate for full network throughput.
   Future<bool> downloadAndInstallUpdate(
     String downloadUrl, {
     required Function(double progress) onProgress,
     required Function(String status) onStatus,
+    bool Function()? isCancelled,
   }) async {
     final logger = LoggingService();
+    File? tempFile;
 
     try {
       onStatus('Downloading latest yt-dlp...');
-      logger.info('Starting yt-dlp update download', component: 'YtdlpService');
+      logger.info(
+        'Starting yt-dlp update download (background isolate)',
+        component: 'YtdlpService',
+      );
 
-      final request = http.Request('GET', Uri.parse(downloadUrl));
-      final response = await http.Client().send(request);
+      final tempDir = await getTemporaryDirectory();
+      tempFile = File(
+        p.join(
+          tempDir.path,
+          'yt-dlp-update-${DateTime.now().millisecondsSinceEpoch}.exe',
+        ),
+      );
 
-      if (response.statusCode != 200) {
-        throw Exception('Download failed: HTTP ${response.statusCode}');
-      }
+      // Download via multi-connection curl (8 parallel connections)
+      await downloadInBackground(
+        url: downloadUrl,
+        destPath: tempFile.path,
+        onProgress: onProgress,
+        isCancelled: isCancelled,
+      );
+      logger.info('yt-dlp download complete', component: 'YtdlpService');
 
-      final contentLength = response.contentLength ?? 0;
-      final bytes = <int>[];
-
-      await for (final chunk in response.stream) {
-        bytes.addAll(chunk);
-        if (contentLength > 0) {
-          onProgress(bytes.length / contentLength);
-        }
+      if (isCancelled?.call() == true) {
+        onStatus('Update cancelled');
+        return false;
       }
 
       onStatus('Installing update...');
@@ -887,24 +1003,19 @@ class YtdlpService {
 
       if (await currentFile.exists()) {
         await currentFile.copy(backupPath);
-        logger.info('Created backup at $backupPath', component: 'YtdlpService');
       }
 
       try {
-        // Write new binary
-        await currentFile.writeAsBytes(bytes);
+        if (await currentFile.exists()) await currentFile.delete();
+        await tempFile.copy(_ytdlpPath);
         logger.info('Update installed successfully', component: 'YtdlpService');
 
-        // Clean up backup
         final backupFile = File(backupPath);
-        if (await backupFile.exists()) {
-          await backupFile.delete();
-        }
+        if (await backupFile.exists()) await backupFile.delete();
 
         onStatus('Update complete!');
         return true;
       } catch (e) {
-        // Restore backup on failure
         logger.error(
           'Failed to install update, restoring backup',
           component: 'YtdlpService',
@@ -918,6 +1029,10 @@ class YtdlpService {
         throw Exception('Failed to install update: $e');
       }
     } catch (e, stackTrace) {
+      if (e.toString().contains('Cancelled')) {
+        onStatus('Update cancelled');
+        return false;
+      }
       logger.error(
         'Update download/install failed',
         component: 'YtdlpService',
@@ -926,6 +1041,12 @@ class YtdlpService {
       );
       onStatus('Update failed: $e');
       return false;
+    } finally {
+      if (tempFile != null && await tempFile.exists()) {
+        try {
+          await tempFile.delete();
+        } catch (_) {}
+      }
     }
   }
 }

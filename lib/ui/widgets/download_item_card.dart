@@ -2,7 +2,6 @@ import 'dart:io';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import '../../models/download_item.dart';
-import 'wavy_progress_painter.dart';
 import 'animated_button.dart';
 
 class DownloadItemCard extends StatefulWidget {
@@ -25,23 +24,7 @@ class DownloadItemCard extends StatefulWidget {
   State<DownloadItemCard> createState() => _DownloadItemCardState();
 }
 
-class _DownloadItemCardState extends State<DownloadItemCard> with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 2),
-    )..repeat();
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
+class _DownloadItemCardState extends State<DownloadItemCard> {
 
   Future<void> _openContainingFolder() async {
     final path = widget.item.savePath ?? widget.item.outputPath;
@@ -66,15 +49,6 @@ class _DownloadItemCardState extends State<DownloadItemCard> with SingleTickerPr
     final isActive = widget.item.status == DownloadStatus.downloadingVideo ||
         widget.item.status == DownloadStatus.downloadingAudio ||
         widget.item.status == DownloadStatus.merging;
-    
-    // Stop controller if not active to save resources? 
-    // Or keep running for wavy effect if progress > 0?
-    // User wants "soulless" fix, so animation is good.
-    if (!isActive && widget.item.status != DownloadStatus.pending) {
-      if (_controller.isAnimating) _controller.stop();
-    } else if (!_controller.isAnimating) {
-     _controller.repeat();
-    }
 
     final theme = Theme.of(context);
     final isCompleted = widget.item.status == DownloadStatus.completed;
@@ -162,22 +136,20 @@ class _DownloadItemCardState extends State<DownloadItemCard> with SingleTickerPr
                       
                       // Progress Bar
                       if (isActive || (widget.item.progress > 0 && !isCompleted))
-                        AnimatedBuilder(
-                          animation: _controller,
-                          builder: (context, child) {
-                            return SizedBox(
-                              height: 6,
-                              width: double.infinity,
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(3),
-                                child: CustomPaint(
-                                  painter: WavyProgressPainter(
-                                    progress: widget.item.progress,
-                                    color: _getProgressColor(context),
-                                    backgroundColor: theme.colorScheme.surfaceContainerHighest,
-                                    thickness: 4.0,
-                                    animationValue: _controller.value,
-                                  ),
+                        TweenAnimationBuilder<double>(
+                          tween: Tween<double>(begin: 0, end: widget.item.progress),
+                          duration: const Duration(milliseconds: 180),
+                          curve: Curves.easeOutCubic,
+                          builder: (context, value, child) {
+                            return ClipRRect(
+                              borderRadius: BorderRadius.circular(999),
+                              child: LinearProgressIndicator(
+                                value: value.clamp(0.0, 1.0),
+                                minHeight: 6,
+                                backgroundColor:
+                                    theme.colorScheme.surfaceContainerHighest,
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  _getProgressColor(context),
                                 ),
                               ),
                             );

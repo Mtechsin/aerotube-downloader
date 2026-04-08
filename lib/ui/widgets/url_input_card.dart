@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import '../../core/utils/error_helper.dart';
-import 'glass_card.dart';
 
 class UrlInputCard extends StatefulWidget {
   final TextEditingController controller;
@@ -10,6 +9,8 @@ class UrlInputCard extends StatefulWidget {
   final bool isLoading;
   final String? statusMessage;
   final String? errorMessage;
+  final bool showPasteButton;
+  final FocusNode? focusNode;
 
   const UrlInputCard({
     super.key,
@@ -18,6 +19,8 @@ class UrlInputCard extends StatefulWidget {
     this.isLoading = false,
     this.errorMessage,
     this.statusMessage,
+    this.showPasteButton = true,
+    this.focusNode,
   });
 
   @override
@@ -25,12 +28,44 @@ class UrlInputCard extends StatefulWidget {
 }
 
 class _UrlInputCardState extends State<UrlInputCard> {
+  FocusNode? _internalFocusNode;
   bool _isFocused = false;
+
+  FocusNode get _effectiveFocusNode => widget.focusNode ?? _internalFocusNode!;
+
+  @override
+  void initState() {
+    super.initState();
+    _internalFocusNode = widget.focusNode == null ? FocusNode() : null;
+    widget.controller.addListener(_onControllerChanged);
+    _effectiveFocusNode.addListener(_onFocusChanged);
+  }
+
+  @override
+  void dispose() {
+    _effectiveFocusNode.removeListener(_onFocusChanged);
+    widget.controller.removeListener(_onControllerChanged);
+    _internalFocusNode?.dispose();
+    super.dispose();
+  }
+
+  void _onControllerChanged() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  void _onFocusChanged() {
+    if (mounted) {
+      setState(() => _isFocused = _effectiveFocusNode.hasFocus);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final hasError = widget.errorMessage != null;
+    final hasText = widget.controller.text.trim().isNotEmpty;
     final errorHelper = hasError
         ? ErrorHelper.parse(widget.errorMessage!)
         : null;
@@ -39,182 +74,175 @@ class _UrlInputCardState extends State<UrlInputCard> {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        // Main Input Card
-        Container(
+        AnimatedContainer(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+          constraints: const BoxConstraints(minHeight: 78),
           decoration: BoxDecoration(
-            color: theme.colorScheme.surface,
-            borderRadius: BorderRadius.circular(28),
-            boxShadow: [
-              BoxShadow(
-                color: theme.colorScheme.shadow.withValues(alpha: 0.08),
-                blurRadius: 30,
-                spreadRadius: -5,
-                offset: const Offset(0, 8),
-              ),
-            ],
+            color: theme.scaffoldBackgroundColor,
+            borderRadius: BorderRadius.circular(26),
             border: Border.all(
               color: hasError
-                  ? theme.colorScheme.error.withValues(alpha: 0.5)
+                  ? theme.colorScheme.error.withValues(alpha: 0.45)
                   : _isFocused
-                  ? theme.colorScheme.primary.withValues(alpha: 0.5)
-                  : theme.colorScheme.onSurface.withValues(alpha: 0.08),
+                  ? theme.colorScheme.primary.withValues(alpha: 0.45)
+                  : theme.colorScheme.onSurface.withValues(alpha: 0.18),
               width: hasError
-                  ? 2
+                  ? 1.6
                   : _isFocused
-                  ? 1.5
+                  ? 1.4
                   : 1,
             ),
           ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(28),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
             child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                const SizedBox(width: 8),
-                // URL Icon
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: hasError
-                        ? theme.colorScheme.error.withValues(alpha: 0.1)
-                        : _isFocused
-                        ? theme.colorScheme.primary.withValues(alpha: 0.1)
-                        : theme.colorScheme.onSurface.withValues(alpha: 0.05),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Icon(
-                    Icons.link_rounded,
-                    color: hasError
-                        ? theme.colorScheme.error
-                        : _isFocused
-                        ? theme.colorScheme.primary
-                        : theme.colorScheme.onSurface.withValues(alpha: 0.4),
-                    size: 22,
+                SizedBox(
+                  width: 52,
+                  height: 52,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: hasError
+                          ? theme.colorScheme.error.withValues(alpha: 0.1)
+                          : _isFocused
+                          ? theme.colorScheme.primary.withValues(alpha: 0.12)
+                          : theme.colorScheme.onSurface.withValues(alpha: 0.05),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Icon(
+                      Icons.link_rounded,
+                      color: hasError
+                          ? theme.colorScheme.error
+                          : _isFocused
+                          ? theme.colorScheme.primary
+                          : theme.colorScheme.onSurface.withValues(alpha: 0.45),
+                      size: 22,
+                    ),
                   ),
                 ),
-                const SizedBox(width: 12),
-                // Text Input
+                const SizedBox(width: 14),
                 Expanded(
-                  child: Focus(
-                    onFocusChange: (focused) {
-                      setState(() => _isFocused = focused);
-                    },
-                    child: TextField(
-                      controller: widget.controller,
-                      style: theme.textTheme.bodyLarge?.copyWith(
-                        color: theme.colorScheme.onSurface,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w500,
-                      ),
-                      decoration: InputDecoration(
-                        hintText: 'Paste YouTube URL here...',
-                        hintStyle: TextStyle(
-                          color: theme.colorScheme.onSurface.withValues(
-                            alpha: 0.35,
+                  child: SizedBox(
+                    height: 52,
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextField(
+                        controller: widget.controller,
+                        focusNode: _effectiveFocusNode,
+                        textInputAction: TextInputAction.go,
+                        style: theme.textTheme.bodyLarge?.copyWith(
+                          color: theme.colorScheme.onSurface,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600,
+                          height: 1.15,
+                        ),
+                        decoration: InputDecoration(
+                          hintText: 'Paste URL',
+                          hintStyle: TextStyle(
+                            color: theme.colorScheme.onSurface.withValues(
+                              alpha: 0.35,
+                            ),
+                            fontSize: 18,
+                            fontWeight: FontWeight.w500,
+                            height: 1.15,
                           ),
-                          fontSize: 16,
-                          fontWeight: FontWeight.normal,
+                          border: InputBorder.none,
+                          enabledBorder: InputBorder.none,
+                          focusedBorder: InputBorder.none,
+                          isDense: true,
+                          contentPadding: const EdgeInsets.symmetric(vertical: 10),
                         ),
-                        border: InputBorder.none,
-                        enabledBorder: InputBorder.none,
-                        focusedBorder: InputBorder.none,
-                        filled: false,
-                        contentPadding: const EdgeInsets.symmetric(
-                          vertical: 20,
-                        ),
-                        suffixIcon: widget.controller.text.isNotEmpty
-                            ? IconButton(
-                                icon: Icon(
-                                  Icons.clear_rounded,
-                                  color: theme.colorScheme.onSurface.withValues(
-                                    alpha: 0.4,
-                                  ),
-                                ),
-                                onPressed: () {
-                                  widget.controller.clear();
-                                  setState(() {});
-                                },
-                              )
-                            : null,
+                        onChanged: (_) => setState(() {}),
+                        onSubmitted: (_) {
+                          if (hasText) {
+                            widget.onFetch();
+                          }
+                        },
                       ),
-                      onChanged: (_) => setState(() {}),
-                      onSubmitted: (_) {
-                        if (widget.controller.text.isNotEmpty) {
-                          widget.onFetch();
-                        }
-                      },
                     ),
                   ),
                 ),
-                const SizedBox(width: 8),
-                // Action Buttons
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // Paste Button
-                    _buildIconButton(
-                      icon: Icons.content_paste_rounded,
-                      tooltip: 'Paste from clipboard',
-                      onPressed: () async {
-                        final data = await Clipboard.getData('text/plain');
-                        if (data?.text != null) {
-                          widget.controller.text = data!.text!;
-                          setState(() {});
-                        }
-                      },
+                if (hasText) ...[
+                  const SizedBox(width: 2),
+                  IconButton(
+                    icon: Icon(
+                      Icons.clear_rounded,
+                      color: theme.colorScheme.onSurface.withValues(
+                        alpha: 0.45,
+                      ),
+                      size: 20,
                     ),
-                    const SizedBox(width: 8),
-                    // Fetch Button
-                    AnimatedContainer(
-                      duration: const Duration(milliseconds: 200),
-                      child: FilledButton(
-                        onPressed:
-                            widget.isLoading || widget.controller.text.isEmpty
-                            ? null
-                            : widget.onFetch,
-                        style: FilledButton.styleFrom(
-                          backgroundColor: hasError
-                              ? theme.colorScheme.error
-                              : theme.colorScheme.primary,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 28,
-                            vertical: 16,
-                          ),
-                          minimumSize: const Size(0, 52),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          elevation: 0,
-                        ),
-                        child: widget.isLoading
-                            ? SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2.5,
-                                  color: Colors.white.withValues(alpha: 0.9),
-                                ),
-                              )
-                            : const Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(Icons.search_rounded, size: 18),
-                                  SizedBox(width: 8),
-                                  Text(
-                                    'Fetch',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 15,
-                                      letterSpacing: 0.5,
-                                    ),
-                                  ),
-                                ],
-                              ),
+                    tooltip: 'Clear URL',
+                    onPressed: () {
+                      widget.controller.clear();
+                      setState(() {});
+                    },
+                  ),
+                ],
+                if (widget.showPasteButton) ...[
+                  const SizedBox(width: 2),
+                  _buildIconButton(
+                    icon: Icons.content_paste_rounded,
+                    tooltip: 'Paste from clipboard',
+                    onPressed: () async {
+                      final data = await Clipboard.getData('text/plain');
+                      final text = data?.text?.trim();
+                      if (text != null && text.isNotEmpty) {
+                        if (!mounted) return;
+                        widget.controller.text = text;
+                        widget.controller.selection = TextSelection.collapsed(
+                          offset: text.length,
+                        );
+                        setState(() {});
+                        _effectiveFocusNode.requestFocus();
+                      }
+                    },
+                  ),
+                ],
+                const SizedBox(width: 8),
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  height: 52,
+                  child: FilledButton.icon(
+                    onPressed: widget.isLoading || !hasText
+                        ? null
+                        : widget.onFetch,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: hasError
+                          ? theme.colorScheme.error
+                          : theme.colorScheme.primary,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 14,
+                      ),
+                      minimumSize: const Size(118, 52),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      elevation: 0,
+                    ),
+                    icon: widget.isLoading
+                        ? SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: theme.colorScheme.onPrimary,
+                            ),
+                          )
+                        : const Icon(Icons.arrow_forward_rounded, size: 18),
+                    label: Text(
+                      widget.isLoading ? 'Loading' : 'Fetch',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 16,
                       ),
                     ),
-                  ],
+                  ),
                 ),
-                const SizedBox(width: 12),
               ],
             ),
           ),
@@ -343,41 +371,23 @@ class _UrlInputCardState extends State<UrlInputCard> {
     }
 
     return Container(
-      margin: const EdgeInsets.only(top: 16, left: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            theme.colorScheme.primary.withValues(alpha: 0.15),
-            theme.colorScheme.primary.withValues(alpha: 0.05),
-          ],
-        ),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: theme.colorScheme.primary.withValues(alpha: 0.2),
-        ),
-      ),
+      margin: const EdgeInsets.only(top: 12, left: 8),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          SizedBox(
-            width: 16,
-            height: 16,
-            child: CircularProgressIndicator(
-              strokeWidth: 2,
-              color: theme.colorScheme.primary,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Icon(icon, size: 18, color: theme.colorScheme.primary),
+          // Animated dot
+          _PulsingDot(color: theme.colorScheme.primary),
           const SizedBox(width: 10),
+          Icon(icon, size: 15, color: theme.colorScheme.primary),
+          const SizedBox(width: 8),
           Flexible(
             child: Text(
               status,
               style: TextStyle(
-                color: theme.colorScheme.onSurface.withValues(alpha: 0.9),
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.75),
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                letterSpacing: 0.2,
               ),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
@@ -386,5 +396,74 @@ class _UrlInputCardState extends State<UrlInputCard> {
         ],
       ),
     ).animate().fadeIn(duration: 200.ms).slideY(begin: -0.1, end: 0);
+  }
+}
+
+// A small pulsing dot used as the single loading indicator
+class _PulsingDot extends StatefulWidget {
+  final Color color;
+  const _PulsingDot({required this.color});
+
+  @override
+  State<_PulsingDot> createState() => _PulsingDotState();
+}
+
+class _PulsingDotState extends State<_PulsingDot>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _scale;
+  late final Animation<double> _opacity;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    )..repeat(reverse: true);
+    _scale = Tween<double>(
+      begin: 0.7,
+      end: 1.0,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
+    _opacity = Tween<double>(
+      begin: 0.4,
+      end: 1.0,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, _) {
+        return Opacity(
+          opacity: _opacity.value,
+          child: Transform.scale(
+            scale: _scale.value,
+            child: Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(
+                color: widget.color,
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: widget.color.withValues(alpha: 0.5),
+                    blurRadius: 6,
+                    spreadRadius: 1,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
 }

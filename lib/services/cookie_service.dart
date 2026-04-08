@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
 class CookieService {
   String? _cachedWebViewPath;
@@ -14,21 +15,41 @@ class CookieService {
   }
 
   Future<void> _checkLoginStatus() async {
-    final userDataPath = await webViewPath;
-    if (userDataPath != null) {
-       // WebView2 on Windows stores cookies in Default/Network/Cookies or similar
-       // But we just check if the directory has content which implies usage
-       final dir = Directory(userDataPath);
-       if (dir.existsSync() && dir.listSync().isNotEmpty) {
+    if (Platform.isAndroid || Platform.isIOS) {
+      // On mobile, check if we have YouTube cookies
+      final cookies = await CookieManager.instance().getCookies(
+        url: WebUri('https://youtube.com'),
+      );
+
+      _isLoggedIn = cookies.any(
+        (cookie) =>
+            cookie.name == 'LOGIN_INFO' ||
+            cookie.name == 'SID' ||
+            cookie.name == 'HSID',
+      );
+
+      if (_isLoggedIn) {
+        _lastLoginTime = DateTime.now();
+      } else {
+        _lastLoginTime = null;
+      }
+    } else {
+      final userDataPath = await webViewPath;
+      if (userDataPath != null) {
+        // WebView2 on Windows stores cookies in Default/Network/Cookies or similar
+        // But we just check if the directory has content which implies usage
+        final dir = Directory(userDataPath);
+        if (dir.existsSync() && dir.listSync().isNotEmpty) {
           _isLoggedIn = true;
           _lastLoginTime = dir.statSync().modified; // Approximation
-       } else {
-         _isLoggedIn = false;
-         _lastLoginTime = null;
-       }
-    } else {
-      _isLoggedIn = false;
-      _lastLoginTime = null;
+        } else {
+          _isLoggedIn = false;
+          _lastLoginTime = null;
+        }
+      } else {
+        _isLoggedIn = false;
+        _lastLoginTime = null;
+      }
     }
   }
 
@@ -44,7 +65,7 @@ class CookieService {
 
   Future<String?> get webViewPath async {
     if (_cachedWebViewPath != null) return _cachedWebViewPath;
-    
+
     try {
       final dir = await getApplicationSupportDirectory();
       // Use a consistent path for the cookies file
@@ -67,17 +88,25 @@ class CookieService {
     return 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
   }
 
-  Future<String?> get cookieFilePath async => webViewPath;
+  Future<String?> get cookieFilePath async {
+    final dir = await getApplicationSupportDirectory();
+    final cookieFile = File(p.join(dir.path, 'cookies.txt'));
+    return cookieFile.existsSync() ? cookieFile.path : null;
+  }
 
   Future<void> clearCookies() async {
-    final path = await webViewPath;
-    if (path != null) {
-      final dir = Directory(path);
-      if (await dir.exists()) {
-        try {
-          await dir.delete(recursive: true);
-        } catch (e) {
-          print('Error clearing cookies: $e');
+    if (Platform.isAndroid || Platform.isIOS) {
+      await CookieManager.instance().deleteAllCookies();
+    } else {
+      final path = await webViewPath;
+      if (path != null) {
+        final dir = Directory(path);
+        if (await dir.exists()) {
+          try {
+            await dir.delete(recursive: true);
+          } catch (e) {
+            print('Error clearing cookies: $e');
+          }
         }
       }
     }

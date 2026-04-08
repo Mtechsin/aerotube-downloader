@@ -11,8 +11,10 @@ import '../models/download_item.dart';
 import '../models/download_mode.dart';
 
 class DownloadProvider extends ChangeNotifier {
-  final YtdlpService _ytdlpService;
+  final dynamic _ytdlpService;
   final NotificationService? _notificationService;
+  final dynamic
+  _settingsProvider; // Can be SettingsProvider or PlatformSettingsProvider
 
   // Active downloads (in memory only while active)
   final List<DownloadItem> _activeDownloads = [];
@@ -25,7 +27,11 @@ class DownloadProvider extends ChangeNotifier {
   late Box<DownloadItem> _downloadsBox;
   bool _isInit = false;
 
-  DownloadProvider(this._ytdlpService, this._notificationService) {
+  DownloadProvider(
+    this._ytdlpService,
+    this._notificationService,
+    this._settingsProvider,
+  ) {
     _initHive();
   }
 
@@ -89,9 +95,13 @@ class DownloadProvider extends ChangeNotifier {
     String? audioQuality,
     bool embedThumbnail = true,
     bool embedMetadata = true,
+    List<String>? subtitleLanguages,
+    bool embedSubtitles = false,
+    bool sponsorBlock = false,
+    bool useDownloadArchive = false,
   }) async {
     LoggingService().info(
-      'Starting download: ${video.title} (${mode.name})',
+      'Queued download: ${video.title} (${mode.name})',
       component: 'DownloadProvider',
     );
 
@@ -101,29 +111,81 @@ class DownloadProvider extends ChangeNotifier {
       thumbnailUrl: video.thumbnailUrl,
       url: video.url,
       outputPath: outputPath,
-      status: DownloadStatus.pending,
+      status: DownloadStatus.queued,
       audioOnly: mode == DownloadMode.audioOnly,
       formatId: formatId,
       audioFormatId: audioFormatId,
       videoQuality: targetHeight != null ? '${targetHeight}p' : null,
+      audioQuality: audioQuality,
+      subtitleLanguages: subtitleLanguages,
+      embedSubtitles: embedSubtitles,
+      sponsorBlock: sponsorBlock,
+      useDownloadArchive: useDownloadArchive,
     );
 
     _activeDownloads.add(item);
     notifyListeners();
 
+    _processQueue();
+  }
+
+  /// Process the download queue, starting as many downloads as allowed by maxConcurrentDownloads
+  void _processQueue() {
+    final maxConcurrent = _settingsProvider.maxConcurrentDownloads;
+    final currentlyRunning = _activeDownloads
+        .where(
+          (item) =>
+              item.status == DownloadStatus.downloadingVideo ||
+              item.status == DownloadStatus.downloadingAudio ||
+              item.status == DownloadStatus.merging,
+        )
+        .length;
+
+    final availableSlots = maxConcurrent - currentlyRunning;
+    if (availableSlots <= 0) return;
+
+    // Start queued downloads
+    final queuedItems = _activeDownloads
+        .where((item) => item.status == DownloadStatus.queued)
+        .take(availableSlots)
+        .toList();
+
+    for (final item in queuedItems) {
+      _startDownloadInternal(item);
+    }
+  }
+
+  /// Internal method to actually start a download process
+  Future<void> _startDownloadInternal(DownloadItem item) async {
     try {
-      final templatePath = '$outputPath\\%(title)s.%(ext)s';
+      final templatePath = '${item.outputPath}\\%(title)s.%(ext)s';
+
+      // Build archive path if enabled
+      String? archivePath;
+      if (item.useDownloadArchive) {
+        final dir = Directory(item.outputPath);
+        if (!dir.existsSync()) {
+          dir.createSync(recursive: true);
+        }
+        archivePath = '${item.outputPath}\\download_archive.txt';
+      }
 
       final process = await _ytdlpService.downloadVideo(
-        url: video.url,
+        url: item.url,
         outputPath: templatePath,
-        formatId: formatId,
-        audioFormatId: audioFormatId,
-        audioOnly: mode == DownloadMode.audioOnly,
-        targetHeight: targetHeight,
-        audioQuality: audioQuality,
-        embedThumbnail: embedThumbnail,
-        embedMetadata: embedMetadata,
+        formatId: item.formatId,
+        audioFormatId: item.audioFormatId,
+        audioOnly: item.audioOnly,
+        targetHeight: item.videoQuality != null
+            ? int.tryParse(item.videoQuality!.replaceAll('p', ''))
+            : null,
+        audioQuality: item.audioQuality,
+        embedThumbnail: _settingsProvider.embedThumbnail,
+        embedMetadata: _settingsProvider.embedMetadata,
+        subtitleLanguages: item.subtitleLanguages,
+        embedSubtitles: item.embedSubtitles,
+        sponsorBlock: item.sponsorBlock,
+        archivePath: archivePath,
       );
 
       _activeProcesses[item.id] = process;
@@ -143,23 +205,23 @@ class DownloadProvider extends ChangeNotifier {
           if (line.trim().isEmpty) continue;
 
           // Check for thumbnail path
-          if (line.contains('Writing video thumbnail') || line.contains('Writing thumbnail')) {
-             final match = RegExp(r'Writing.*thumbnail.*to: (.+)').firstMatch(line);
-             if (match != null) {
-               final thumbPath = match.group(1)?.trim();
-               if (thumbPath != null) {
-                 final idx = _activeDownloads.indexWhere((d) => d.id == item.id);
-                 if (idx != -1) {
-                   _activeDownloads[idx] = _activeDownloads[idx].copyWith(
-                     thumbnailPath: thumbPath,
-                   );
-                   // Don't notify listeners just for this to avoid too many rebuilds, 
-                   // or do if you want to show it immediately. 
-                   // Since it happens early, it's fine.
-                   notifyListeners();
-                 }
-               }
-             }
+          if (line.contains('Writing video thumbnail') ||
+              line.contains('Writing thumbnail')) {
+            final match = RegExp(
+              r'Writing.*thumbnail.*to: (.+)',
+            ).firstMatch(line);
+            if (match != null) {
+              final thumbPath = match.group(1)?.trim();
+              if (thumbPath != null) {
+                final idx = _activeDownloads.indexWhere((d) => d.id == item.id);
+                if (idx != -1) {
+                  _activeDownloads[idx] = _activeDownloads[idx].copyWith(
+                    thumbnailPath: thumbPath,
+                  );
+                  notifyListeners();
+                }
+              }
+            }
           }
 
           final progress = YtdlpService.parseProgress(line);
@@ -181,7 +243,6 @@ class DownloadProvider extends ChangeNotifier {
       final stderrBuffer = StringBuffer();
       process.stderr.transform(const SystemEncoding().decoder).listen((data) {
         stderrBuffer.write(data);
-        // Print stderr in real-time for debugging
         if (data.trim().isNotEmpty) {
           print('[yt-dlp stderr] ${data.trim()}');
         }
@@ -200,10 +261,8 @@ class DownloadProvider extends ChangeNotifier {
             progress: 1.0,
             eta: 0,
             completedDate: DateTime.now(),
-            // We could parse file size from logs but for now let's leave it null or try to find file
           );
 
-          // Move to history
           _activeDownloads.removeAt(idx);
           _addToHistory(finalItem);
 
@@ -230,10 +289,6 @@ class DownloadProvider extends ChangeNotifier {
                   ? errorMsg
                   : 'Process exited with code $exitCode',
             );
-            // Move to history even if failed? Or keep in active to retry?
-            // User requested separate tabs. Failed usually implies functionality stops.
-            // Let's keep in active if failed to allow retry? Or move to history as failed.
-            // Prompt says: "History/Finished Tab ... ListView of persisted Hive items (completed, failed, cancelled)"
             _activeDownloads.removeAt(idx);
             _addToHistory(finalItem);
           } else {
@@ -244,6 +299,9 @@ class DownloadProvider extends ChangeNotifier {
         }
         notifyListeners();
       }
+
+      // Process queue after completion
+      _processQueue();
     } catch (e, stackTrace) {
       final logger = LoggingService();
       logger.error(
@@ -263,7 +321,6 @@ class DownloadProvider extends ChangeNotifier {
         _activeDownloads.removeAt(idx);
         _addToHistory(finalItem);
 
-        // Show user-facing error
         logger.showUserLog(
           'Download failed: ${finalItem.title}',
           isError: true,
@@ -277,6 +334,9 @@ class DownloadProvider extends ChangeNotifier {
       }
       _activeProcesses.remove(item.id);
       notifyListeners();
+
+      // Process queue after failure
+      _processQueue();
     }
   }
 
@@ -288,11 +348,13 @@ class DownloadProvider extends ChangeNotifier {
 
     final index = _activeDownloads.indexWhere((d) => d.id == id);
     if (index != -1) {
-      // Optimistic update
       _activeDownloads[index] = _activeDownloads[index].copyWith(
         status: DownloadStatus.cancelled,
       );
       notifyListeners();
+
+      // Process queue after cancellation
+      _processQueue();
     }
   }
 

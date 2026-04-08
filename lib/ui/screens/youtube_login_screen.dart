@@ -1,6 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:webview_windows/webview_windows.dart';
+import 'dart:io';
+import 'dart:collection';
+import 'package:path/path.dart' as p;
+import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_win_floating/webview_win_floating.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:provider/provider.dart';
+import '../../providers/platform_settings_provider.dart';
 
 class YoutubeLoginScreen extends StatefulWidget {
   const YoutubeLoginScreen({super.key});
@@ -10,58 +18,349 @@ class YoutubeLoginScreen extends StatefulWidget {
 }
 
 class _YoutubeLoginScreenState extends State<YoutubeLoginScreen> {
-  final _controller = WebviewController();
+  WinWebViewController? _windowsController;
+  InAppWebViewController? _mobileWebViewController;
   bool _isInitialized = false;
   String? _errorMessage;
+  bool _isLoggingIn = false;
+  String? _mobileError;
 
   @override
   void initState() {
     super.initState();
-    _initWebView();
+    if (Platform.isAndroid || Platform.isIOS) {
+      _initMobileWebView();
+    } else {
+      _initWindowsWebView();
+    }
   }
 
-  Future<void> _initWebView() async {
-    // final cookieService = context.read<CookieService>();
-    // final userDataPath = await cookieService.webViewPath;
-
+  Future<void> _initWindowsWebView() async {
     try {
-      // Check if WebView2 Runtime is installed
-      final webViewVersion = await WebviewController.getWebViewVersion();
-      if (webViewVersion == null) {
-        if (mounted) {
-          setState(() {
-            _errorMessage = 'WebView2 Runtime is not installed.\n\n'
-                'This is required for YouTube login functionality.\n\n'
-                'Please install it from Microsoft\'s website.';
-          });
-        }
-        return;
-      }
-
-      await _controller.initialize();
-      
-      // Listen for URL changes if needed
-      _controller.url.listen((url) {
-        // Optional: Could detect successful login redirection if desired
-      });
-
-      await _controller.loadUrl('https://accounts.google.com/ServiceLogin?service=youtube');
-      
+      _windowsController = WinWebViewController();
+      await _windowsController!.setJavaScriptMode(JavaScriptMode.unrestricted);
+      await _windowsController!.setNavigationDelegate(
+        WinNavigationDelegate(
+          onPageStarted: (url) {
+            if (url.contains('youtube.com')) {
+              _extractProfilePicture();
+            }
+          },
+        ),
+      );
+      await _windowsController!.loadRequest(Uri.parse('https://m.youtube.com'));
       if (mounted) {
         setState(() => _isInitialized = true);
       }
     } catch (e) {
       if (mounted) {
+        setState(() {
+          _errorMessage =
+              'Failed to initialize WebView: $e\n\n'
+              'Make sure Microsoft Edge WebView2 Runtime is installed.';
+        });
+      }
+    }
+  }
+
+  Future<void> _exportWindowsCookiesForYtdlp() async {
+    if (_windowsController == null) return;
+
+    try {
+      final cookiesResult = await _windowsController!
+          .runJavaScriptReturningResult('''
+        (function() {
+          try {
+            var cookies = document.cookie;
+            if (cookies) {
+              return cookies;
+            }
+            return '';
+          } catch(e) {
+            return '';
+          }
+        })();
+      ''');
+
+      if (cookiesResult == null || cookiesResult.toString().trim().isEmpty) {
+        // Fallback: enable browser cookies
+        final provider = context.read<PlatformSettingsProvider>();
+        if (!provider.enableCookies) {
+          await provider.setEnableCookies(true);
+        }
+        await provider.setCookieBrowser('edge');
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Will use Edge browser cookies for yt-dlp'),
+              duration: Duration(seconds: 3),
+            ),
+          );
+        }
+        return;
+      }
+
+      final cookieLines = <String>[];
+      final cookieParts = cookiesResult.toString().split(';');
+
+      for (final part in cookieParts) {
+        final trimmed = part.trim();
+        if (trimmed.isEmpty) continue;
+
+        final eqIndex = trimmed.indexOf('=');
+        if (eqIndex > 0) {
+          final name = trimmed.substring(0, eqIndex);
+          final value = trimmed.substring(eqIndex + 1);
+
+          if (name.isNotEmpty && value.isNotEmpty) {
+            cookieLines.add('.youtube.com\tTRUE\t/\tTRUE\t0\t$name\t$value');
+          }
+        }
+      }
+
+      final dir = await getApplicationSupportDirectory();
+      final cookiePath = p.join(dir.path, 'cookies.txt');
+      final cookieFile = File(cookiePath);
+
+      final content = [
+        '# Netscape HTTP Cookie File',
+        '# https://curl.haxx.se/docs/http-cookies.html',
+        '# This file was generated by youtube downloader',
+        '# Exported at: ${DateTime.now().toIso8601String()}',
+        '',
+        ...cookieLines,
+        '',
+      ].join('\n');
+
+      await cookieFile.writeAsString(content);
+
+      final provider = context.read<PlatformSettingsProvider>();
+      await provider.setCookiePath(cookiePath);
+      if (!provider.enableCookies) {
+        await provider.setEnableCookies(true);
+      }
+
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to initialize WebView: $e')),
+          SnackBar(
+            content: Text('Exported ${cookieLines.length} cookies for yt-dlp'),
+            duration: const Duration(seconds: 3),
+          ),
         );
       }
+    } catch (e) {
+      print('Failed to export Windows cookies: $e');
+      if (mounted) {
+        try {
+          final provider = context.read<PlatformSettingsProvider>();
+          if (!provider.enableCookies) {
+            await provider.setEnableCookies(true);
+          }
+          await provider.setCookieBrowser('edge');
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Using Edge browser cookies as fallback'),
+              duration: Duration(seconds: 3),
+            ),
+          );
+        } catch (_) {}
+      }
+    }
+  }
+
+  Future<void> _extractProfilePicture() async {
+    if (_windowsController == null) return;
+
+    try {
+      await Future.delayed(const Duration(seconds: 4));
+      if (!mounted) return;
+
+      final result = await _windowsController!.runJavaScriptReturningResult('''
+        (function() {
+          try {
+            var img = document.querySelector('button#avatar-btn img') || document.querySelector('img#img.style-scope.yt-img-shadow');
+            if (!img) {
+               var images = document.querySelectorAll('img[src*="yt3.ggpht.com"]');
+               for (var i=0; i<images.length; i++) {
+                 if(images[i].width > 16 && images[i].height > 16) return images[i].src;
+               }
+            }
+            if (!img) return null;
+            return img.src;
+          } catch(e) {
+            return null;
+          }
+        })();
+      ''');
+
+      if (result != null && result.toString().startsWith('http')) {
+        if (mounted) {
+          final provider = context.read<PlatformSettingsProvider>();
+          if (provider.youtubeProfileImageUrl != result.toString()) {
+            provider.setYoutubeProfileImageUrl(result.toString());
+          }
+        }
+      }
+    } catch (e) {
+      print('Profile picture extraction failed: $e');
+    }
+  }
+
+  Future<void> _initMobileWebView() async {
+    if (!mounted) return;
+    setState(() => _isLoggingIn = true);
+    _mobileError = null;
+
+    try {
+      setState(() => _isInitialized = true);
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoggingIn = false;
+          _mobileError = 'An error occurred during login: $e';
+        });
+      }
+    }
+  }
+
+  Future<void> _exportMobileCookiesForYtdlp() async {
+    if (_mobileWebViewController == null) return;
+
+    try {
+      final cookieManager = CookieManager.instance();
+
+      final youtubeCookies = await cookieManager.getCookies(
+        url: WebUri('https://.youtube.com'),
+      );
+      final googleCookies = await cookieManager.getCookies(
+        url: WebUri('https://.google.com'),
+      );
+
+      final cookieMap = <String, Cookie>{};
+      for (final cookie in [...youtubeCookies, ...googleCookies]) {
+        if (cookie.name.isNotEmpty && cookie.value.isNotEmpty) {
+          cookieMap[cookie.name] = cookie;
+        }
+      }
+
+      final allCookies = cookieMap.values.toList();
+      final cookieLines = <String>[];
+
+      for (final cookie in allCookies) {
+        if (cookie.name.isEmpty || cookie.value.isEmpty) continue;
+
+        final domain = cookie.domain ?? '.youtube.com';
+        final path = cookie.path ?? '/';
+        final secure = (cookie.isSecure ?? false) ? 'TRUE' : 'FALSE';
+        final expiry = cookie.expiresDate;
+        int expirySeconds = 0;
+        if (expiry != null) {
+          expirySeconds = expiry ~/ 1000;
+        }
+        final expiryStr = expirySeconds.toString();
+
+        cookieLines.add(
+          '${domain.startsWith('.') ? '' : '.'}$domain\tTRUE\t$path\t$secure\t$expiryStr\t${cookie.name}\t${cookie.value}',
+        );
+      }
+
+      final dir = await getApplicationSupportDirectory();
+      final cookiePath = p.join(dir.path, 'cookies.txt');
+      final cookieFile = File(cookiePath);
+
+      final content = [
+        '# Netscape HTTP Cookie File',
+        '# https://curl.haxx.se/docs/http-cookies.html',
+        '# This file was generated by youtube downloader',
+        '# Exported at: ${DateTime.now().toIso8601String()}',
+        '',
+        ...cookieLines,
+        '',
+      ].join('\n');
+
+      await cookieFile.writeAsString(content);
+
+      final provider = context.read<PlatformSettingsProvider>();
+      await provider.setCookiePath(cookiePath);
+      if (!provider.enableCookies) {
+        await provider.setEnableCookies(true);
+      }
+
+      final criticalCookies = [
+        'SID',
+        'HSID',
+        'SSID',
+        'APISID',
+        'SAPISID',
+        '__Secure-3PSID',
+      ];
+      final foundCritical = criticalCookies
+          .where((name) => cookieMap.containsKey(name))
+          .toList();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Exported ${cookieLines.length} cookies${foundCritical.isEmpty ? '\nMissing critical auth cookies' : ' ✓'}',
+            ),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to export cookies: $e')));
+      }
+    }
+  }
+
+  Future<void> _extractMobileProfilePicture() async {
+    try {
+      if (_mobileWebViewController == null || !mounted) return;
+
+      await Future.delayed(const Duration(seconds: 2));
+
+      final result = await _mobileWebViewController!.evaluateJavascript(
+        source: '''
+        (function() {
+          try {
+            var img = document.querySelector('button#avatar-btn img') || document.querySelector('img#img.style-scope.yt-img-shadow');
+            if (!img) {
+               var images = document.querySelectorAll('img[src*="yt3.ggpht.com"]');
+               for (var i=0; i<images.length; i++) {
+                 if(images[i].width > 16 && images[i].height > 16) return images[i].src;
+               }
+            }
+            if (!img) return null;
+            return img.src;
+          } catch(e) {
+            return null;
+          }
+        })();
+      ''',
+      );
+
+      if (result != null && result is String && result.startsWith('http')) {
+        if (mounted) {
+          final provider = context.read<PlatformSettingsProvider>();
+          if (provider.youtubeProfileImageUrl != result) {
+            provider.setYoutubeProfileImageUrl(result);
+          }
+        }
+      }
+    } catch (e) {
+      print('Profile picture extraction failed: $e');
     }
   }
 
   @override
   void dispose() {
-    _controller.dispose();
+    _windowsController?.dispose();
     super.dispose();
   }
 
@@ -72,11 +371,7 @@ class _YoutubeLoginScreenState extends State<YoutubeLoginScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(
-              Icons.error_outline,
-              size: 64,
-              color: Colors.orange,
-            ),
+            const Icon(Icons.error_outline, size: 64, color: Colors.orange),
             const SizedBox(height: 24),
             Text(
               _errorMessage ?? 'An error occurred',
@@ -87,7 +382,8 @@ class _YoutubeLoginScreenState extends State<YoutubeLoginScreen> {
             ElevatedButton.icon(
               onPressed: () async {
                 final url = Uri.parse(
-                    'https://developer.microsoft.com/en-us/microsoft-edge/webview2/');
+                  'https://developer.microsoft.com/en-us/microsoft-edge/webview2/',
+                );
                 if (await canLaunchUrl(url)) {
                   await launchUrl(url);
                 }
@@ -108,26 +404,131 @@ class _YoutubeLoginScreenState extends State<YoutubeLoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isMobile = Platform.isAndroid || Platform.isIOS;
     return Scaffold(
       appBar: AppBar(
         title: const Text('Login to YouTube'),
         actions: [
           if (_isInitialized)
             TextButton(
-              onPressed: () {
-                // When user says "Done", assume they logged in.
-                // The cookies are automatically saved by WebView2 in userDataFolder
-                Navigator.pop(context, true);
+              onPressed: () async {
+                final ctx = context;
+                if (isMobile) {
+                  await _extractMobileProfilePicture();
+                  await _exportMobileCookiesForYtdlp();
+                } else {
+                  await _extractProfilePicture();
+                  await _exportWindowsCookiesForYtdlp();
+                }
+                if (ctx.mounted) {
+                  Navigator.pop(ctx, true);
+                }
               },
-              child: const Text('Done', style: TextStyle(fontWeight: FontWeight.bold)),
+              child: const Text(
+                'Done',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
             ),
         ],
       ),
-      body: _errorMessage != null
-          ? _buildErrorWidget()
-          : _isInitialized
-              ? Webview(_controller)
-              : const Center(child: CircularProgressIndicator()),
+      body: Builder(
+        builder: (context) {
+          if (isMobile) {
+            if (_mobileError != null) {
+              return Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(32.0),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(
+                        Icons.error_outline,
+                        size: 64,
+                        color: Colors.orange,
+                      ),
+                      const SizedBox(height: 24),
+                      Text(
+                        _mobileError!,
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.bodyLarge,
+                      ),
+                      const SizedBox(height: 24),
+                      ElevatedButton.icon(
+                        onPressed: _initMobileWebView,
+                        icon: const Icon(Icons.refresh),
+                        label: const Text('Retry'),
+                      ),
+                      const SizedBox(height: 12),
+                      TextButton(
+                        onPressed: () => Navigator.pop(context, false),
+                        child: const Text('Cancel'),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            } else if (_isInitialized) {
+              return InAppWebView(
+                initialUrlRequest: URLRequest(
+                  url: WebUri('https://m.youtube.com'),
+                ),
+                initialSettings: InAppWebViewSettings(
+                  javaScriptEnabled: true,
+                  domStorageEnabled: true,
+                  cacheEnabled: false,
+                  useWideViewPort: true,
+                  loadWithOverviewMode: true,
+                  safeBrowsingEnabled: true,
+                  mixedContentMode: MixedContentMode.MIXED_CONTENT_ALWAYS_ALLOW,
+                  thirdPartyCookiesEnabled: true,
+                  allowsInlineMediaPlayback: true,
+                  mediaPlaybackRequiresUserGesture: false,
+                  disableDefaultErrorPage: false,
+                  supportMultipleWindows: false,
+                  javaScriptCanOpenWindowsAutomatically: false,
+                  userAgent:
+                      'Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36',
+                ),
+                initialUserScripts: UnmodifiableListView<UserScript>([
+                  UserScript(
+                    source: '''
+                      (function() {
+                        Object.defineProperty(navigator, 'webdriver', {
+                          get: function() { return undefined; }
+                        });
+                        window.navigator.chrome = window.navigator.chrome || {};
+                        Object.defineProperty(navigator, 'plugins', {
+                          get: function() { return [1, 2, 3, 4, 5]; }
+                        });
+                        Object.defineProperty(navigator, 'languages', {
+                          get: function() { return ['en-US', 'en']; }
+                        });
+                      })();
+                    ''',
+                    injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+                  ),
+                ]),
+                onWebViewCreated: (controller) {
+                  _mobileWebViewController = controller;
+                },
+                onLoadStop: (controller, url) async {
+                  if (url != null && url.toString().contains('youtube.com')) {
+                    _extractMobileProfilePicture();
+                  }
+                },
+              );
+            } else {
+              return const Center(child: CircularProgressIndicator());
+            }
+          } else {
+            return _errorMessage != null
+                ? _buildErrorWidget()
+                : _isInitialized && _windowsController != null
+                ? WinWebViewWidget(controller: _windowsController!)
+                : const Center(child: CircularProgressIndicator());
+          }
+        },
+      ),
     );
   }
 }

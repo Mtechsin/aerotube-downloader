@@ -5,6 +5,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import 'package:archive/archive.dart';
 import 'logging_service.dart';
+import 'download_helper.dart';
 
 /// FFmpeg update information
 class FfmpegUpdateInfo {
@@ -26,6 +27,7 @@ class FfmpegUpdateInfo {
 class FfmpegService {
   String? _ffmpegPath;
   bool isAvailable = false;
+  bool _isInitialized = false;
   String? _currentVersion;
 
   FfmpegService({String? ffmpegPath}) : _ffmpegPath = ffmpegPath;
@@ -38,7 +40,9 @@ class FfmpegService {
   String? get ffmpegPath => _ffmpegPath;
   String? get currentVersion => _currentVersion;
 
-  Future<void> initialize() async {
+  Future<void> initialize({bool force = false}) async {
+    if (_isInitialized && !force) return;
+
     // If path is not set, check for local managed version first
     if (_ffmpegPath == null) {
       try {
@@ -55,9 +59,14 @@ class FfmpegService {
     
     // Check if ffmpeg is available at path or in system
     await _checkAvailability();
+    _isInitialized = true;
   }
 
-  Future<bool> update() async {
+  Future<bool> update({
+    Function(double progress)? onProgress,
+    Function(String status)? onStatus,
+    bool Function()? isCancelled,
+  }) async {
     final logger = LoggingService();
     logger.info('Updating FFmpeg...', component: 'FfmpegService');
 
@@ -78,12 +87,13 @@ class FfmpegService {
         
         // Use the existing download method
         final success = await downloadAndInstall(
-          onProgress: (progress) {
+          onProgress: onProgress ?? (progress) {
             logger.info('FFmpeg download progress: ${(progress * 100).toStringAsFixed(1)}%', component: 'FfmpegService');
           },
-          onStatus: (status) {
+          onStatus: onStatus ?? (status) {
             logger.info('FFmpeg status: $status', component: 'FfmpegService');
-          }
+          },
+          isCancelled: isCancelled,
         );
         
         return success;
@@ -211,47 +221,48 @@ class FfmpegService {
     }
   }
 
-  /// Download and install FFmpeg with progress
-  /// Note: FFmpeg is distributed as a ZIP file that needs extraction
+  /// Download and install FFmpeg with progress.
+  /// The download runs in a background isolate for full network throughput.
+  /// Note: FFmpeg is distributed as a ZIP file that needs extraction.
   Future<bool> downloadAndInstall({
     required Function(double progress) onProgress,
     required Function(String status) onStatus,
+    bool Function()? isCancelled,
   }) async {
     final logger = LoggingService();
+    File? tempZipFile;
 
     try {
       onStatus('Downloading FFmpeg...');
-      logger.info('Starting FFmpeg download', component: 'FfmpegService');
 
-      // FFmpeg download URL from Gyan.dev (essentials build - smaller size)
-      // Using the essentials build which is smaller and sufficient for most use cases
+      // BtbN GitHub CDN — fast global CDN, much faster than gyan.dev
       const downloadUrl =
-          'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip';
+          'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip';
 
-      final request = http.Request('GET', Uri.parse(downloadUrl));
-      final response = await http.Client().send(request);
+      final tempDir = await getTemporaryDirectory();
+      tempZipFile = File(
+        p.join(tempDir.path, 'ffmpeg-update-${DateTime.now().millisecondsSinceEpoch}.zip'),
+      );
 
-      if (response.statusCode != 200) {
-        throw Exception('Download failed: HTTP ${response.statusCode}');
-      }
-
-      final contentLength = response.contentLength ?? 0;
-      final bytes = <int>[];
-
-      await for (final chunk in response.stream) {
-        bytes.addAll(chunk);
-        if (contentLength > 0) {
-          onProgress(bytes.length / contentLength);
-        }
-      }
-
-      onStatus('Extracting FFmpeg...');
+      await downloadInBackground(
+        url: downloadUrl,
+        destPath: tempZipFile.path,
+        onProgress: onProgress,
+        isCancelled: isCancelled,
+      );
       logger.info(
-        'Download complete, extracting FFmpeg',
+        'FFmpeg download complete',
         component: 'FfmpegService',
       );
 
-      // Get app directory
+      if (isCancelled?.call() == true) {
+        onStatus('Installation cancelled');
+        return false;
+      }
+
+      onStatus('Extracting FFmpeg...');
+      logger.info('Download complete, extracting FFmpeg', component: 'FfmpegService');
+
       final appDir = await getApplicationSupportDirectory();
       final ffmpegDir = Directory(p.join(appDir.path, 'ffmpeg'));
 
@@ -259,23 +270,33 @@ class FfmpegService {
         await ffmpegDir.create(recursive: true);
       }
 
-      // Extract ZIP
+      // Read the zip into memory for extraction
+      final bytes = await tempZipFile.readAsBytes();
+
+      if (isCancelled?.call() == true) {
+        throw Exception('Cancelled');
+      }
+
       final archive = ZipDecoder().decodeBytes(bytes);
 
       for (final file in archive) {
+        if (isCancelled?.call() == true) {
+          throw Exception('Cancelled');
+        }
         final filename = file.name;
         if (file.isFile) {
-          // Only extract ffmpeg.exe and ffprobe.exe from the bin folder
           if (filename.contains('bin/ffmpeg.exe') ||
               filename.contains('bin/ffprobe.exe')) {
             final data = file.content as List<int>;
             final outFile = File(p.join(ffmpegDir.path, p.basename(filename)));
+            if (await outFile.exists()) {
+              await outFile.delete();
+            }
             await outFile.writeAsBytes(data);
           }
         }
       }
 
-      // Update path
       final ffmpegExe = File(p.join(ffmpegDir.path, 'ffmpeg.exe'));
       if (await ffmpegExe.exists()) {
         _ffmpegPath = ffmpegExe.path;
@@ -283,7 +304,7 @@ class FfmpegService {
 
         onStatus('FFmpeg installed successfully!');
         logger.info(
-          'FFmpeg installed successfully at ${_ffmpegPath}',
+          'FFmpeg installed successfully at $_ffmpegPath',
           component: 'FfmpegService',
         );
         return true;
@@ -291,6 +312,10 @@ class FfmpegService {
         throw Exception('FFmpeg executable not found after extraction');
       }
     } catch (e, stackTrace) {
+      if (e.toString().contains('Cancelled')) {
+        onStatus('Installation cancelled');
+        return false;
+      }
       logger.error(
         'FFmpeg download/install failed',
         component: 'FfmpegService',
@@ -299,6 +324,12 @@ class FfmpegService {
       );
       onStatus('Installation failed: $e');
       return false;
+    } finally {
+      if (tempZipFile != null && await tempZipFile.exists()) {
+        try {
+          await tempZipFile.delete();
+        } catch (_) {}
+      }
     }
   }
 }

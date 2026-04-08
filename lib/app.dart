@@ -1,9 +1,8 @@
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'core/theme/app_theme.dart';
-import 'providers/settings_provider.dart';
+import 'providers/platform_settings_provider.dart';
 import 'providers/download_provider.dart';
 import 'providers/update_provider.dart';
 import 'providers/navigation_provider.dart';
@@ -13,10 +12,11 @@ import 'ui/screens/search_screen.dart';
 import 'ui/screens/downloads_screen.dart';
 import 'ui/screens/settings_screen.dart';
 import 'ui/screens/youtube_login_screen.dart';
-import 'ui/widgets/gradient_background.dart';
+import 'ui/screens/mobile_home_layout.dart';
+import 'ui/screens/mobile_fetch_screen.dart';
 import 'ui/widgets/update_dialog.dart';
-import 'ui/widgets/app_logo.dart';
-
+import 'core/utils/responsive_layout.dart';
+import 'core/utils/platform_utils.dart';
 
 class App extends StatefulWidget {
   const App({super.key});
@@ -29,34 +29,36 @@ class _AppState extends State<App> with TickerProviderStateMixin {
   int _previousBadgeCount = 0;
   bool _hasAnimatedIn = false;
 
-  late final AnimationController _indicatorController;
   late final AnimationController _entranceController;
-  
-  final _screens = const [HomeScreen(), SearchScreen(), DownloadsScreen(), SettingsScreen()];
-  
+
+  final _screens = const [
+    HomeScreen(),
+    SearchScreen(),
+    DownloadsScreen(),
+    SettingsScreen(),
+  ];
+
   // Navigation item configuration
   static const List<_NavItemConfig> _navItems = [
-    _NavItemConfig(icon: Icons.home_rounded, label: 'Home'),
-    _NavItemConfig(icon: Icons.search_rounded, label: 'Search'),
-    _NavItemConfig(icon: Icons.download_rounded, label: 'Library', showBadge: true),
-    _NavItemConfig(icon: Icons.settings_rounded, label: 'Settings'),
+    _NavItemConfig(icon: Icons.home_outlined, label: 'Home'),
+    _NavItemConfig(icon: Icons.search_outlined, label: 'Search'),
+    _NavItemConfig(
+      icon: Icons.download_outlined,
+      label: 'Library',
+      showBadge: true,
+    ),
+    _NavItemConfig(icon: Icons.settings_outlined, label: 'Settings'),
   ];
 
   @override
   void initState() {
     super.initState();
-    
-    // Animation controllers for smooth navigation transitions
-    _indicatorController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 400),
-    );
-    
+
     _entranceController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 800),
+      duration: const Duration(milliseconds: 420),
     );
-    
+
     // Check for updates after the app is initialized
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkForUpdates();
@@ -67,10 +69,9 @@ class _AppState extends State<App> with TickerProviderStateMixin {
       }
     });
   }
-  
+
   @override
   void dispose() {
-    _indicatorController.dispose();
     _entranceController.dispose();
     super.dispose();
   }
@@ -91,8 +92,10 @@ class _AppState extends State<App> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
-    final settingsProvider = context.watch<SettingsProvider>();
     final notificationService = context.read<NotificationService>();
+    final themeMode = context.select<PlatformSettingsProvider, ThemeMode>(
+      (provider) => provider.themeMode,
+    );
 
     return MaterialApp(
       scaffoldMessengerKey: notificationService.scaffoldMessengerKey,
@@ -100,27 +103,44 @@ class _AppState extends State<App> with TickerProviderStateMixin {
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
-      themeMode: settingsProvider.themeMode,
+      themeMode: themeMode,
       routes: {'/youtube_login': (context) => const YoutubeLoginScreen()},
       home: Builder(
         builder: (context) {
-          return GradientBackground(
-            child: Scaffold(
-              backgroundColor: Colors.transparent,
-              body: Row(
-                children: [
-                  // Custom Glassmorphic Navigation Rail
-                  _buildCustomNavigationRail(context),
+          // Use MobileShell for mobile platforms
+          if (PlatformUtils.isMobile) {
+            return MobileShell(
+              screens: const [
+                MobileFetchScreen(),
+                SearchScreen(),
+                DownloadsScreen(),
+                SettingsScreen(),
+              ],
+            );
+          }
 
-                  // Content
-                  Expanded(
-                    child: IndexedStack(
-                      index: context.watch<NavigationProvider>().currentIndex, 
-                      children: _screens,
-                    ),
+          // Desktop layout
+          return Scaffold(
+            backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+            body: Row(
+              children: [
+                if (ResponsiveLayout.shouldShowSidebar(context))
+                  _buildCustomNavigationRail(context)
+                else
+                  const SizedBox.shrink(),
+                // Content
+                Expanded(
+                  child: Selector<NavigationProvider, int>(
+                    selector: (_, provider) => provider.currentIndex,
+                    builder: (context, currentIndex, _) {
+                      return IndexedStack(
+                        index: currentIndex,
+                        children: _screens,
+                      );
+                    },
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           );
         },
@@ -131,136 +151,145 @@ class _AppState extends State<App> with TickerProviderStateMixin {
   Widget _buildCustomNavigationRail(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    
+
     // Calculate item height for indicator positioning
-    const double itemHeight = 56.0;
-    const double itemSpacing = 20.0;
-    const double containerPadding = 16.0;
-    
+    const double itemHeight = 48.0;
+    const double itemSpacing = 16.0;
+
     return Container(
-      width: 88,
-      padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 10),
-      child: Column(
-        children: [
-          // Brand Logo at the top
-          AppLogo(size: 52, showGlow: true)
-              .animate()
-              .fadeIn(duration: 600.ms)
-              .scale(delay: 200.ms, duration: 400.ms, curve: Curves.easeOutBack),
-          
-          const Spacer(),
-          
-          // Floating Glass Dock with sliding indicator
-          ClipRRect(
-            borderRadius: BorderRadius.circular(28),
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 25, sigmaY: 25),
-              child: Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: isDark
-                        ? [
-                            const Color(0xFF121212), // Solid dark
-                            const Color(0xFF121212),
-                          ]
-                        : [
-                            Colors.white, // Solid white
-                            Colors.white,
-                          ],
-                  ),
-                  borderRadius: BorderRadius.circular(28),
-                  border: Border.all(
-                    color: isDark
-                        ? Colors.white.withValues(alpha: 0.1)
-                        : Colors.black.withValues(alpha: 0.05),
-                    width: 1.5,
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: isDark ? 0.4 : 0.1),
-                      blurRadius: 20,
-                      offset: const Offset(0, 8),
-                    ),
-                  ],
-                ),
-                padding: const EdgeInsets.symmetric(
-                  vertical: containerPadding,
-                  horizontal: 10,
-                ),
-                child: Stack(
-                  clipBehavior: Clip.none,
-                  children: [
-                    // Sliding pill indicator
-                    AnimatedPositioned(
-                      duration: const Duration(milliseconds: 350),
-                      curve: Curves.easeOutCubic,
-                      top: containerPadding + (context.watch<NavigationProvider>().currentIndex * (itemHeight + itemSpacing)) - 8,
-                      left: 0,
-                      right: 0,
-                      child: Center(
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 350),
-                          curve: Curves.easeOutCubic,
-                          width: 52,
-                          height: itemHeight,
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                              colors: [
-                                theme.colorScheme.primary,
-                                theme.colorScheme.primary.withValues(alpha: 0.85),
-                              ],
-                            ),
-                            borderRadius: BorderRadius.circular(18),
-                            boxShadow: [
-                              BoxShadow(
-                                color: theme.colorScheme.primary.withValues(alpha: 0.4),
-                                blurRadius: 16,
-                                offset: const Offset(0, 6),
-                              ),
-                              BoxShadow(
-                                color: theme.colorScheme.primary.withValues(alpha: 0.2),
-                                blurRadius: 24,
-                                spreadRadius: 2,
-                              ),
-                            ],
-                          ),
+          width: 76,
+          margin: const EdgeInsets.fromLTRB(16, 24, 0, 24),
+          decoration: BoxDecoration(
+            color: theme.scaffoldBackgroundColor,
+            borderRadius: BorderRadius.circular(100),
+            border: Border.all(
+              color: isDark
+                  ? Colors.white.withValues(alpha: 0.14)
+                  : Colors.black.withValues(alpha: 0.14),
+              width: 1.0,
+            ),
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(100),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                vertical: 24.0,
+                horizontal: 0.0,
+              ),
+              child: Column(
+                children: [
+                  const Spacer(),
+
+                  // Navigation Items
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: List.generate(_navItems.length, (index) {
+                      return Padding(
+                        padding: EdgeInsets.only(
+                          bottom: index < _navItems.length - 1
+                              ? itemSpacing
+                              : 0,
                         ),
-                      ),
-                    ),
-                    // Navigation items
-                    Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: List.generate(_navItems.length, (index) {
-                        return Padding(
-                          padding: EdgeInsets.only(
-                            bottom: index < _navItems.length - 1 ? itemSpacing : 0,
-                          ),
-                            child: _buildNavItem(
-                            context: context,
-                            index: index,
-                            config: _navItems[index],
-                            itemHeight: itemHeight,
-                          ),
-                        );
-                      }),
-                    ),
-                  ],
-                ),
+                        child: _buildNavItem(
+                          context: context,
+                          index: index,
+                          config: _navItems[index],
+                          itemHeight: itemHeight,
+                        ),
+                      );
+                    }),
+                  ),
+
+                  // Bottom: User Profile Avatar
+                  const Spacer(),
+                  _buildUserAvatar(),
+                ],
               ),
             ),
           ),
-          
-          const Spacer(),
-        ],
-      ),
-    )
+        )
         .animate(controller: _entranceController)
-        .fadeIn(duration: 400.ms, curve: Curves.easeOut)
-        .slideX(begin: -0.3, end: 0, duration: 500.ms, curve: Curves.easeOutCubic);
+        .fadeIn(duration: 220.ms, curve: Curves.easeOut)
+        .slideX(
+          begin: -0.08,
+          end: 0,
+          duration: 280.ms,
+          curve: Curves.easeOutCubic,
+        );
+  }
+
+  Widget _buildUserAvatar() {
+    return Consumer<PlatformSettingsProvider>(
+      builder: (context, provider, _) {
+        final isAuth = provider.isCookieActive;
+        final theme = Theme.of(context);
+
+        return Tooltip(
+              message: isAuth ? 'YouTube Profile' : 'Guest Account',
+              preferBelow: false,
+              decoration: BoxDecoration(
+                color: theme.colorScheme.primary,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              textStyle: const TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+              child: Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: isAuth
+                      ? theme.colorScheme.primary.withValues(alpha: 0.18)
+                      : theme.colorScheme.onSurface.withValues(alpha: 0.1),
+                  border: Border.all(
+                    color: isAuth
+                        ? theme.colorScheme.primary.withValues(alpha: 0.45)
+                        : theme.colorScheme.onSurface.withValues(alpha: 0.2),
+                    width: 1,
+                  ),
+                ),
+                child: Center(
+                  child: isAuth
+                      ? (provider.youtubeProfileImageUrl != null
+                            ? ClipRRect(
+                                borderRadius: BorderRadius.circular(100),
+                                child: Image.network(
+                                  provider.youtubeProfileImageUrl!,
+                                  width: 42,
+                                  height: 42,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (context, error, stackTrace) =>
+                                      const Icon(
+                                        Icons.person,
+                                        color: Color(0xFF8B5CF6),
+                                        size: 20,
+                                      ),
+                                ),
+                              )
+                            : const Icon(
+                                Icons.person,
+                                color: Color(0xFF8B5CF6),
+                                size: 20,
+                              ))
+                      : const Text(
+                          'G',
+                          style: TextStyle(
+                            color: Color(0xFF9E9EA4),
+                            fontWeight: FontWeight.w700,
+                            fontSize: 14,
+                          ),
+                        ),
+                ),
+              ),
+            )
+            .animate(controller: _entranceController)
+            .fadeIn(delay: 500.ms, duration: 400.ms)
+            .scale(delay: 500.ms, duration: 400.ms, curve: Curves.easeOutBack);
+      },
+    );
   }
 
   Widget _buildNavItem({
@@ -269,46 +298,43 @@ class _AppState extends State<App> with TickerProviderStateMixin {
     required _NavItemConfig config,
     required double itemHeight,
   }) {
-    final currentIndex = context.watch<NavigationProvider>().currentIndex;
+    final currentIndex = context.select<NavigationProvider, int>(
+      (provider) => provider.currentIndex,
+    );
     final isSelected = currentIndex == index;
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
-    return Consumer<DownloadProvider>(
-      builder: (context, downloadProvider, child) {
-        final badgeCount = config.showBadge ? downloadProvider.activeCount : 0;
-        final badgeIncreased = badgeCount > _previousBadgeCount;
-        
-        // Update previous badge count after build
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted && config.showBadge) {
-            _previousBadgeCount = badgeCount;
-          }
-        });
+    final badgeCount = config.showBadge
+        ? context.select<DownloadProvider, int>((provider) => provider.activeCount)
+        : 0;
+    final badgeIncreased = badgeCount > _previousBadgeCount;
 
-        return _NavItemWidget(
-          index: index,
-          icon: config.icon,
-          label: config.label,
-          isSelected: isSelected,
-          isDark: isDark,
-          badgeCount: badgeCount,
-          badgeIncreased: badgeIncreased,
-          itemHeight: itemHeight,
-          theme: theme,
-          entranceController: _entranceController,
-          onTap: () {
-            final navProvider = context.read<NavigationProvider>();
-            if (navProvider.currentIndex != index) {
-              navProvider.setIndex(index);
-            }
-          },
-        );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && config.showBadge) {
+        _previousBadgeCount = badgeCount;
+      }
+    });
+
+    return _NavItemWidget(
+      index: index,
+      icon: config.icon,
+      label: config.label,
+      isSelected: isSelected,
+      isDark: isDark,
+      badgeCount: badgeCount,
+      badgeIncreased: badgeIncreased,
+      itemHeight: itemHeight,
+      theme: theme,
+      entranceController: _entranceController,
+      onTap: () {
+        final navProvider = context.read<NavigationProvider>();
+        if (navProvider.currentIndex != index) {
+          navProvider.setIndex(index);
+        }
       },
     );
   }
-
-
 }
 
 // Configuration class for nav items
@@ -387,107 +413,128 @@ class _NavItemWidgetState extends State<_NavItemWidget>
 
   @override
   Widget build(BuildContext context) {
-    return MouseRegion(
-      onEnter: (_) => setState(() => _isHovered = true),
-      onExit: (_) => setState(() => _isHovered = false),
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
-        behavior: HitTestBehavior.translucent,
-        onTap: () {
-          FocusScope.of(context).unfocus();
-          widget.onTap();
-        },
-        child: Tooltip(
-          message: widget.label,
-          waitDuration: const Duration(milliseconds: 500),
-          preferBelow: false,
-          decoration: BoxDecoration(
-            color: widget.theme.colorScheme.primary,
-            borderRadius: BorderRadius.circular(8),
-            boxShadow: [
-              BoxShadow(
-                color: widget.theme.colorScheme.primary.withValues(alpha: 0.3),
-                blurRadius: 8,
-              ),
-            ],
-          ),
-          textStyle: const TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.w600,
-            fontSize: 12,
-          ),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            curve: Curves.easeOutCubic,
-            width: 52,
-            height: widget.itemHeight,
-            decoration: BoxDecoration(
-              color: !widget.isSelected && _isHovered
-                  ? (widget.isDark
-                      ? Colors.white.withValues(alpha: 0.08)
-                      : Colors.black.withValues(alpha: 0.05))
-                  : Colors.transparent,
-              borderRadius: BorderRadius.circular(16),
-            ),
-            transform: Matrix4.diagonal3Values(
-              _isHovered && !widget.isSelected ? 1.08 : 1.0,
-              _isHovered && !widget.isSelected ? 1.08 : 1.0,
-              1.0,
-            ),
-            transformAlignment: Alignment.center,
-            child: Stack(
-              clipBehavior: Clip.none,
-              children: [
-                // Icon with animations
-                Center(
-                  child: AnimatedBuilder(
-                    animation: _iconBounceController,
-                    builder: (context, child) {
-                      final bounceValue = Curves.elasticOut
-                          .transform(_iconBounceController.value);
-                      final scale = 1.0 + (bounceValue * 0.15 * (1 - _iconBounceController.value));
-                      
-                      // Rotation for settings icon
-                      final rotation = widget.index == 2 && widget.isSelected
-                          ? bounceValue * 0.5
-                          : 0.0;
+    final activeColor = const Color(0xFF8B5CF6); // Vivid Violet
+    final Color inactiveColor = widget.isDark
+        ? const Color(0xFF9CA3AF)
+        : const Color(0xFF6B7280); // Neutral 400/500
+    final Color hoverColor = widget.isDark
+        ? const Color(0xFFD1D5DB)
+        : const Color(0xFF374151); // Neutral 300/700
 
-                      return Transform.scale(
-                        scale: scale,
-                        child: Transform.rotate(
-                          angle: rotation,
-                          child: child,
-                        ),
-                      );
-                    },
-                    child: Icon(
-                      widget.icon,
-                      color: widget.isSelected
-                          ? Colors.white // Always white on the purple pill
-                          : (widget.isDark
-                              ? Colors.white.withValues(alpha: 0.8) // White icons in dark mode
-                              : Colors.black.withValues(alpha: 0.65)), // Dark icons in white mode
-                      size: 26,
+    return MouseRegion(
+          onEnter: (_) => setState(() => _isHovered = true),
+          onExit: (_) => setState(() => _isHovered = false),
+          cursor: SystemMouseCursors.click,
+          child: GestureDetector(
+            behavior: HitTestBehavior.translucent,
+            onTap: () {
+              FocusScope.of(context).unfocus();
+              widget.onTap();
+            },
+            child: Tooltip(
+              message: widget.label,
+              waitDuration: const Duration(milliseconds: 500),
+              preferBelow: false,
+              decoration: BoxDecoration(
+                color: widget.theme.colorScheme.primary,
+                borderRadius: BorderRadius.circular(8),
+                boxShadow: [
+                  BoxShadow(
+                    color: widget.theme.colorScheme.primary.withValues(
+                      alpha: 0.3,
                     ),
+                    blurRadius: 8,
+                  ),
+                ],
+              ),
+              textStyle: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w600,
+                fontSize: 12,
+              ),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                curve: Curves.easeOutCubic,
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: widget.isSelected
+                      ? activeColor.withValues(alpha: 0.16)
+                      : (_isHovered
+                            ? (widget.isDark
+                                  ? Colors.white.withValues(alpha: 0.06)
+                                  : Colors.black.withValues(alpha: 0.04))
+                            : Colors.transparent),
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: widget.isSelected
+                        ? activeColor.withValues(alpha: 0.4)
+                        : Colors.transparent,
                   ),
                 ),
-                // Badge
-                if (widget.badgeCount > 0)
-                  Positioned(
-                    right: 2,
-                    top: 4,
-                    child: _AnimatedBadge(
-                      count: widget.badgeCount,
-                      increased: widget.badgeIncreased,
-                      theme: widget.theme,
+                transform: Matrix4.diagonal3Values(
+                  _isHovered && !widget.isSelected ? 1.05 : 1.0,
+                  _isHovered && !widget.isSelected ? 1.05 : 1.0,
+                  1.0,
+                ),
+                transformAlignment: Alignment.center,
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    // Icon with animations
+                    Center(
+                      child: AnimatedBuilder(
+                        animation: _iconBounceController,
+                        builder: (context, child) {
+                          final bounceValue = Curves.elasticOut.transform(
+                            _iconBounceController.value,
+                          );
+                          final scale =
+                              1.0 +
+                              (bounceValue *
+                                  0.15 *
+                                  (1 - _iconBounceController.value));
+
+                          // Rotation for settings icon
+                          final rotation =
+                              widget.index == 3 && widget.isSelected
+                              ? bounceValue * 0.5
+                              : 0.0;
+
+                          return Transform.scale(
+                            scale: scale,
+                            child: Transform.rotate(
+                              angle: rotation,
+                              child: child,
+                            ),
+                          );
+                        },
+                        child: Icon(
+                          widget.icon,
+                          color: widget.isSelected
+                              ? activeColor
+                              : (_isHovered ? hoverColor : inactiveColor),
+                          size: 24, // slightly sleeker outline
+                        ),
+                      ),
                     ),
-                  ),
-              ],
+                    // Badge
+                    if (widget.badgeCount > 0)
+                      Positioned(
+                        right: 4,
+                        top: 4,
+                        child: _AnimatedBadge(
+                          count: widget.badgeCount,
+                          increased: widget.badgeIncreased,
+                          theme: widget.theme,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
             ),
           ),
-        ),
-      ),
-    )
+        )
         .animate(controller: widget.entranceController)
         .fadeIn(
           delay: Duration(milliseconds: 100 + (widget.index * 80)),
@@ -520,10 +567,7 @@ class _AnimatedBadge extends StatelessWidget {
     return AnimatedSwitcher(
       duration: const Duration(milliseconds: 200),
       transitionBuilder: (child, animation) {
-        return ScaleTransition(
-          scale: animation,
-          child: child,
-        );
+        return ScaleTransition(scale: animation, child: child);
       },
       child: Container(
         key: ValueKey(count),
@@ -545,15 +589,9 @@ class _AnimatedBadge extends StatelessWidget {
               offset: const Offset(0, 2),
             ),
           ],
-          border: Border.all(
-            color: Colors.white,
-            width: 1.5,
-          ),
+          border: Border.all(color: Colors.white, width: 1.5),
         ),
-        constraints: const BoxConstraints(
-          minWidth: 18,
-          minHeight: 18,
-        ),
+        constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
         child: Center(
           child: Text(
             count > 9 ? '9+' : '$count',
@@ -568,4 +606,3 @@ class _AnimatedBadge extends StatelessWidget {
     );
   }
 }
-
