@@ -2,7 +2,7 @@ name: youtube_downloader
 description: "A new Flutter project."
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
-publish_to: 'none' # Remove this line if you wish to publish to pub.dev
+publish_to: "none" # Remove this line if you wish to publish to pub.dev
 
 # The following defines the version and build number for your application.
 # A version number is three numbers separated by dots, like 1.2.43
@@ -33,41 +33,52 @@ dependencies:
 
   # State Management
   provider: ^6.1.2
-  
+
   # Persistence
   shared_preferences: ^2.3.3
-  
+
   # File System
   file_picker: ^8.1.6
   path_provider: ^2.1.5
   path: ^1.9.0
-  
+
   # Desktop Window Management (temporarily disabled)
   # window_manager: ^0.4.3
-  
+
   # UI/UX
   google_fonts: ^6.2.1
   flutter_animate: ^4.5.2
   cached_network_image: ^3.4.1
-  
+
   # HTTP for thumbnails
   http: ^1.2.2
+
+  # Android-compatible packages
+  flutter_web_auth_2: ^4.1.0 # Authentication for Android (compatible with modern Android embedding)
+  flutter_local_notifications: ^17.0.0 # Notifications for Android
+  permission_handler: ^11.0.0 # Runtime permissions for Android
+  flutter_secure_storage: ^9.0.0 # Secure storage for auth tokens
+  flutter_inappwebview: ^6.1.5 # Embedded Android WebView with cookie access (latest stable)
+
+  # Windows WebView2 (using floating package which works in 2025-2026)
+  webview_win_floating: ^3.0.2
+  webview_flutter: ^4.13.0  # Required by webview_win_floating
+
+  # Desktop notifications (Windows/Linux/macOS)
+  local_notifier: ^0.1.3
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
   archive: ^4.0.7
-  
-  # WebView for embedded YouTube login
-  webview_windows: ^0.4.0
 
   # Storage
   hive: ^2.2.3
   hive_flutter: ^1.1.0
 
   url_launcher: ^6.3.2
-  local_notifier: ^0.1.6
   youtube_explode_dart: ^3.0.5
+  crypto: ^3.0.3
 
 dev_dependencies:
   flutter_test:
@@ -88,6 +99,8 @@ dev_dependencies:
 # Launcher icons configuration
 flutter_launcher_icons:
   image_path: "assets/images/logo.png"
+  android: true
+  ios: false
   windows:
     generate: true
     image_path: "assets/images/logo.png"
@@ -98,7 +111,6 @@ flutter_launcher_icons:
 
 # The following section is specific to Flutter packages.
 flutter:
-
   # The following line ensures that the Material Icons font is
   # included with your application, so that you can use the icons in
   # the material Icons class.

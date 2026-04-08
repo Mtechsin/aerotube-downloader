@@ -1,11 +1,14 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'mobile_home_layout.dart';
+import '../../core/utils/responsive_layout.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
 import '../../models/download_mode.dart';
 import '../../providers/video_provider.dart';
 import '../../providers/download_provider.dart';
-import '../../providers/settings_provider.dart';
+import '../../providers/platform_settings_provider.dart';
 import '../../providers/playlist_provider.dart';
 import '../../models/video_info.dart';
 import '../widgets/video_configuration_widget.dart';
@@ -22,6 +25,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final _urlController = TextEditingController();
+  final _urlFocusNode = FocusNode();
   VideoProvider? _videoProvider;
 
   @override
@@ -37,14 +41,16 @@ class _HomeScreenState extends State<HomeScreen> {
   void dispose() {
     _videoProvider?.removeListener(_onVideoProviderChange);
     _urlController.dispose();
+    _urlFocusNode.dispose();
     super.dispose();
   }
 
   void _onVideoProviderChange() {
     if (_videoProvider == null) return;
-    
+
     // Sync URL controller
-    if (_urlController.text != _videoProvider!.currentUrl && _videoProvider!.currentUrl.isNotEmpty) {
+    if (_urlController.text != _videoProvider!.currentUrl &&
+        _videoProvider!.currentUrl.isNotEmpty) {
       _urlController.text = _videoProvider!.currentUrl;
     }
 
@@ -80,81 +86,91 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final videoProvider = context.watch<VideoProvider>();
-    final settingsProvider = context.watch<SettingsProvider>();
+    final settingsProvider = context.watch<PlatformSettingsProvider>();
+    final screenType = ResponsiveLayout.getScreenType(context);
+    if (screenType == ScreenType.mobile) {
+      return const MobileHomeLayout();
+    } else {
+      return Stack(
+        children: [
+          // Content Area - No scroll needed
+          Positioned.fill(
+            top: (videoProvider.hasVideo || videoProvider.isLoading) ? 100 : 0,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // Status Banners - Compact
+                  if (!settingsProvider.isInitialized)
+                    _buildInitializingBanner(context)
+                  else ...[
+                    if (!settingsProvider.isYtdlpAvailable)
+                      _buildCompactStatusBanner(
+                        context,
+                        title: 'yt-dlp Not Found',
+                        message: 'Configure in Settings',
+                        icon: Icons.warning_amber_rounded,
+                        color: Colors.red,
+                      ),
 
-    return Stack(
-      children: [
-        // Content Area - No scroll needed
-        Positioned.fill(
-          top: 100,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // Status Banners - Compact
-                if (!settingsProvider.isInitialized)
-                  _buildInitializingBanner(context)
-                else ...[
-                  if (!settingsProvider.isYtdlpAvailable)
-                    _buildCompactStatusBanner(
-                      context,
-                      title: 'yt-dlp Not Found',
-                      message: 'Configure in Settings',
-                      icon: Icons.warning_amber_rounded,
-                      color: Colors.red,
-                    ),
+                    if (settingsProvider.isYtdlpAvailable &&
+                        !settingsProvider.isFfmpegAvailable)
+                      _buildCompactStatusBanner(
+                        context,
+                        title: 'FFmpeg Not Found',
+                        message: 'Some features limited',
+                        icon: Icons.info_outline_rounded,
+                        color: Colors.orange,
+                      ),
+                  ],
 
-                  if (settingsProvider.isYtdlpAvailable &&
-                      !settingsProvider.isFfmpegAvailable)
-                    _buildCompactStatusBanner(
-                      context,
-                      title: 'FFmpeg Not Found',
-                      message: 'Some features limited',
-                      icon: Icons.info_outline_rounded,
-                      color: Colors.orange,
-                    ),
+                  const SizedBox(height: 12),
+
+                  // Loaded State OR Empty State - Expanded to fill space
+                  Expanded(
+                    child: videoProvider.hasVideo || videoProvider.isLoading
+                        ? VideoConfigurationWidget(
+                            onDownload: _startDownload,
+                            onClear: () {
+                              videoProvider.clear();
+                              _urlController.clear();
+                            },
+                          )
+                        : !videoProvider.isLoading && !videoProvider.hasError
+                        ? _buildAeroTubeEmptyState(context, videoProvider)
+                        : const SizedBox.shrink(),
+                  ),
                 ],
+              ),
+            ),
+          ),
 
-                const SizedBox(height: 12),
-
-                // Loaded State OR Empty State - Expanded to fill space
-                Expanded(
-                  child: videoProvider.hasVideo || videoProvider.isLoading
-                      ? VideoConfigurationWidget(
-                          onDownload: _startDownload,
-                          onClear: () {
-                            videoProvider.clear();
-                            _urlController.clear();
-                          },
-                        )
-                      : !videoProvider.isLoading && !videoProvider.hasError
-                      ? _buildCompactEmptyState(context, videoProvider)
-                      : const SizedBox.shrink(),
+          // Floating Command Capsule (Top) conditionally shown
+          if (videoProvider.hasVideo || videoProvider.isLoading)
+            Positioned(
+              top: 24,
+              left: 24,
+              right: 24,
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 900),
+                  child: _buildCommandCapsule(context, videoProvider),
                 ),
-              ],
+              ),
+            ),
+
+          Positioned(
+            right: 24,
+            bottom: 24,
+            child: SafeArea(
+              minimum: const EdgeInsets.only(right: 0, bottom: 0),
+              child: _buildPasteButton(),
             ),
           ),
-        ),
-
-        // Floating Command Capsule (Top)
-        Positioned(
-          top: 24,
-          left: 24,
-          right: 24,
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 900),
-              child: _buildCommandCapsule(context, videoProvider),
-            ),
-          ),
-        ),
-
-        // Professional Initialization Overlay
-        if (!settingsProvider.isInitialized)
-          _buildInitializationOverlay(context, settingsProvider),
-      ],
-    );
+        ],
+      );
+    }
   }
 
   Widget _buildCommandCapsule(
@@ -163,6 +179,8 @@ class _HomeScreenState extends State<HomeScreen> {
   ) {
     return UrlInputCard(
       controller: _urlController,
+      focusNode: _urlFocusNode,
+      showPasteButton: false,
       onFetch: () => _handleFetch(videoProvider),
       isLoading: videoProvider.isLoading,
       statusMessage: videoProvider.loadingStatus.isEmpty
@@ -174,7 +192,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildInitializationOverlay(
     BuildContext context,
-    SettingsProvider settingsProvider,
+    PlatformSettingsProvider settingsProvider,
   ) {
     final theme = Theme.of(context);
 
@@ -193,7 +211,10 @@ class _HomeScreenState extends State<HomeScreen> {
               AppLogo(size: 140)
                   .animate()
                   .fadeIn(duration: 800.ms)
-                  .scale(begin: const Offset(0.8, 0.8), curve: Curves.easeOutBack),
+                  .scale(
+                    begin: const Offset(0.8, 0.8),
+                    curve: Curves.easeOutBack,
+                  ),
 
               const SizedBox(height: 40),
 
@@ -366,15 +387,10 @@ class _HomeScreenState extends State<HomeScreen> {
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            theme.colorScheme.primary.withValues(alpha: 0.1),
-            theme.colorScheme.primary.withValues(alpha: 0.05),
-          ],
-        ),
+        color: theme.scaffoldBackgroundColor,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: theme.colorScheme.primary.withValues(alpha: 0.2),
+          color: theme.colorScheme.primary.withValues(alpha: 0.35),
         ),
       ),
       child: Row(
@@ -480,13 +496,9 @@ class _HomeScreenState extends State<HomeScreen> {
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [color.withValues(alpha: 0.1), color.withValues(alpha: 0.05)],
-        ),
+        color: theme.scaffoldBackgroundColor,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withValues(alpha: 0.2)),
+        border: Border.all(color: color.withValues(alpha: 0.35)),
       ),
       child: Row(
         children: [
@@ -500,7 +512,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   title,
                   style: TextStyle(
                     color: color,
-                    fontWeight: FontWeight.bold,
+                    fontWeight: FontWeight.w700,
                     fontSize: 14,
                   ),
                 ),
@@ -508,7 +520,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   message,
                   style: TextStyle(
                     color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
-                    fontSize: 12,
+                    fontSize: 11.5,
                   ),
                 ),
               ],
@@ -519,281 +531,141 @@ class _HomeScreenState extends State<HomeScreen> {
     ).animate().fadeIn(duration: 400.ms).slideY(begin: -0.1, end: 0);
   }
 
-  Widget _buildModernEmptyState(
-    BuildContext context,
-    VideoProvider videoProvider,
-  ) {
-    final theme = Theme.of(context);
-
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 100),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          // Animated Illustration Container
-          const AppLogo(size: 160),
-
-          const SizedBox(height: 48),
-
-          // Title
-          Text(
-                'Ready to Download',
-                style: theme.textTheme.displaySmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: theme.colorScheme.onSurface,
-                  letterSpacing: -0.5,
-                ),
-              )
-              .animate()
-              .fadeIn(duration: 600.ms, delay: 200.ms)
-              .slideY(begin: 0.2, end: 0),
-
-          const SizedBox(height: 16),
-
-          // Subtitle
-          Text(
-                'Paste a YouTube link to start downloading videos or music',
-                style: theme.textTheme.bodyLarge?.copyWith(
-                  color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-                  height: 1.5,
-                ),
-                textAlign: TextAlign.center,
-              )
-              .animate()
-              .fadeIn(duration: 600.ms, delay: 400.ms)
-              .slideY(begin: 0.2, end: 0),
-
-          const SizedBox(height: 56),
-
-          // Feature Cards
-          Wrap(
-            spacing: 16,
-            runSpacing: 16,
-            alignment: WrapAlignment.center,
-            children: [
-              _buildFeatureCard(
-                context,
-                icon: Icons.four_k_rounded,
-                title: 'Up to 4K',
-                description: 'High quality video',
-                delay: 600.ms,
-              ),
-              _buildFeatureCard(
-                context,
-                icon: Icons.audiotrack_rounded,
-                title: 'Audio Only',
-                description: 'Extract music tracks',
-                isActive: videoProvider.audioOnly,
-                onTap: () {},
-                delay: 700.ms,
-              ),
-              _buildFeatureCard(
-                context,
-                icon: Icons.playlist_play_rounded,
-                title: 'Playlists',
-                description: 'Download multiple videos',
-                delay: 800.ms,
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildCompactEmptyState(
+  Widget _buildAeroTubeEmptyState(
     BuildContext context,
     VideoProvider videoProvider,
   ) {
     final theme = Theme.of(context);
 
     return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Compact Logo
-          const AppLogo(size: 80, showGlow: false),
+      child: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 760),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                AppLogo(size: 104, showGlow: true)
+                    .animate()
+                    .fadeIn(duration: 450.ms, delay: 50.ms)
+                    .scale(
+                      begin: const Offset(0.92, 0.92),
+                      curve: Curves.easeOutCubic,
+                    ),
 
-          const SizedBox(height: 28),
+                const SizedBox(height: 22),
 
-          // Title
-          Text(
-                'Ready to Download',
-                style: theme.textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: theme.colorScheme.onSurface,
-                ),
-              )
-              .animate()
-              .fadeIn(duration: 500.ms, delay: 200.ms)
-              .slideY(begin: 0.2, end: 0),
+                Text(
+                      'Paste URL',
+                      style: theme.textTheme.displaySmall?.copyWith(
+                        fontSize: 28,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: -0.4,
+                        height: 1.05,
+                      ),
+                      textAlign: TextAlign.center,
+                    )
+                    .animate()
+                    .fadeIn(duration: 300.ms, delay: 140.ms)
+                    .slideY(begin: 0.08, end: 0),
 
-          const SizedBox(height: 8),
+                const SizedBox(height: 8),
 
-          // Subtitle
-          Text(
-                'Paste a YouTube link to start',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-                ),
-                textAlign: TextAlign.center,
-              )
-              .animate()
-              .fadeIn(duration: 500.ms, delay: 300.ms)
-              .slideY(begin: 0.2, end: 0),
+                Text(
+                  'Paste and fetch.',
+                  style: TextStyle(
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.55),
+                    fontSize: 12,
+                    height: 1.4,
+                  ),
+                  textAlign: TextAlign.center,
+                ).animate().fadeIn(duration: 240.ms, delay: 180.ms),
 
-          const SizedBox(height: 32),
+                const SizedBox(height: 22),
 
-          // Compact Feature Chips
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _buildCompactFeatureChip(
-                context,
-                icon: Icons.four_k_rounded,
-                label: '4K',
-              ),
-              const SizedBox(width: 8),
-              _buildCompactFeatureChip(
-                context,
-                icon: Icons.audiotrack_rounded,
-                label: 'Audio',
-              ),
-              const SizedBox(width: 8),
-              _buildCompactFeatureChip(
-                context,
-                icon: Icons.playlist_play_rounded,
-                label: 'Playlists',
-              ),
-            ],
-          ).animate().fadeIn(duration: 400.ms, delay: 400.ms),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildCompactFeatureChip(
-    BuildContext context, {
-    required IconData icon,
-    required String label,
-  }) {
-    final theme = Theme.of(context);
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.onSurface.withValues(alpha: 0.05),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: theme.colorScheme.onSurface.withValues(alpha: 0.1),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 760),
+                  child: UrlInputCard(
+                    controller: _urlController,
+                    focusNode: _urlFocusNode,
+                    showPasteButton: false,
+                    onFetch: () => _handleFetch(videoProvider),
+                    isLoading: videoProvider.isLoading,
+                    statusMessage: videoProvider.loadingStatus.isEmpty
+                        ? null
+                        : videoProvider.loadingStatus,
+                    errorMessage: videoProvider.hasError
+                        ? videoProvider.errorMessage
+                        : null,
+                  ),
+                ).animate().fadeIn(duration: 250.ms, delay: 220.ms),
+              ],
+            ),
+          ),
         ),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
+    );
+  }
+
+  Widget _buildInfoCard({required String title, required String description}) {
+    return Container(
+      width: 336,
+      decoration: BoxDecoration(
+        color: const Color(0xFF121212),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Stack(
         children: [
-          Icon(icon, size: 14, color: theme.colorScheme.primary),
-          const SizedBox(width: 6),
-          Text(
-            label,
-            style: TextStyle(
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
+          Positioned(
+            left: 0,
+            top: 0,
+            bottom: 0,
+            child: Container(
+              width: 3,
+              decoration: const BoxDecoration(
+                color: Color(0xFFBA97FF),
+                borderRadius: BorderRadius.only(
+                  topLeft: Radius.circular(10),
+                  bottomLeft: Radius.circular(10),
+                ),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: Color(0xFFBA97FF),
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 2,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  description,
+                  style: const TextStyle(
+                    color: Color(0xFF9E9E9E),
+                    fontSize: 12,
+                    height: 1.6,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
       ),
     );
-  }
-
-  Widget _buildFeatureCard(
-    BuildContext context, {
-    required IconData icon,
-    required String title,
-    required String description,
-    bool isActive = false,
-    VoidCallback? onTap,
-    Duration delay = Duration.zero,
-  }) {
-    final theme = Theme.of(context);
-
-    return MouseRegion(
-          cursor: onTap != null
-              ? SystemMouseCursors.click
-              : SystemMouseCursors.basic,
-          child: GestureDetector(
-            onTap: onTap,
-            child: Container(
-              width: 160,
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: isActive
-                    ? theme.colorScheme.primary.withValues(alpha: 0.1)
-                    : theme.colorScheme.surface,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(
-                  color: isActive
-                      ? theme.colorScheme.primary.withValues(alpha: 0.3)
-                      : theme.colorScheme.onSurface.withValues(alpha: 0.08),
-                  width: 1.5,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: theme.colorScheme.shadow.withValues(alpha: 0.05),
-                    blurRadius: 20,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: isActive
-                          ? theme.colorScheme.primary.withValues(alpha: 0.15)
-                          : theme.colorScheme.primary.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Icon(
-                      icon,
-                      size: 28,
-                      color: theme.colorScheme.primary,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    title,
-                    style: TextStyle(
-                      color: theme.colorScheme.onSurface,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 15,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    description,
-                    style: TextStyle(
-                      color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
-                      fontSize: 12,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ],
-              ),
-            ),
-          ),
-        )
-        .animate()
-        .fadeIn(duration: 500.ms, delay: delay)
-        .slideY(begin: 0.3, end: 0);
   }
 
   Future<void> _handleFetch(VideoProvider videoProvider) async {
-    final url = _urlController.text;
+    final url = _urlController.text.trim();
     if (url.isEmpty) return;
 
     if (url.contains('list=') || url.contains('/playlist')) {
@@ -810,10 +682,44 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Widget _buildPasteButton() {
+    final theme = Theme.of(context);
+
+    return FloatingActionButton.extended(
+      onPressed: _pasteUrl,
+      backgroundColor: theme.colorScheme.surface,
+      foregroundColor: theme.colorScheme.onSurface,
+      elevation: 0,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      icon: Icon(Icons.content_paste_rounded, color: theme.colorScheme.primary),
+      label: Text(
+        'Paste',
+        style: TextStyle(
+          color: theme.colorScheme.onSurface,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pasteUrl() async {
+    final data = await Clipboard.getData('text/plain');
+    final text = data?.text?.trim();
+    if (text == null || text.isEmpty) return;
+
+    if (!mounted) return;
+    setState(() {
+      _urlController.text = text;
+      _urlController.selection = TextSelection.collapsed(offset: text.length);
+    });
+
+    _urlFocusNode.requestFocus();
+  }
+
   Future<void> _startDownload() async {
     final videoProvider = context.read<VideoProvider>();
     final downloadProvider = context.read<DownloadProvider>();
-    final settingsProvider = context.read<SettingsProvider>();
+    final settingsProvider = context.read<PlatformSettingsProvider>();
 
     if (videoProvider.videoInfo == null) return;
 
@@ -838,6 +744,12 @@ class _HomeScreenState extends State<HomeScreen> {
       audioQuality: videoProvider.selectedAudioQuality.ytdlpValue,
       embedThumbnail: settingsProvider.settings.embedThumbnail,
       embedMetadata: settingsProvider.settings.embedMetadata,
+      subtitleLanguages: videoProvider.selectedSubtitles
+          .map((s) => s.languageCode)
+          .toList(),
+      embedSubtitles: videoProvider.embedSubtitles,
+      sponsorBlock: settingsProvider.sponsorBlockEnabled,
+      useDownloadArchive: settingsProvider.useDownloadArchive,
     );
 
     ScaffoldMessenger.of(context).showSnackBar(

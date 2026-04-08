@@ -1,4 +1,3 @@
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
@@ -33,8 +32,9 @@ class _VideoConfigurationWidgetState extends State<VideoConfigurationWidget> {
   Widget build(BuildContext context) {
     final videoProvider = context.watch<VideoProvider>();
     // If video info is null (cleared), show nothing or empty container
-    if (!videoProvider.hasVideo && !videoProvider.isLoading)
+    if (!videoProvider.hasVideo && !videoProvider.isLoading) {
       return const SizedBox.shrink();
+    }
     if (videoProvider.isLoading) return _buildSkeleton(context);
 
     final video = videoProvider.videoInfo!;
@@ -58,17 +58,15 @@ class _VideoConfigurationWidgetState extends State<VideoConfigurationWidget> {
                 CachedNetworkImage(
                   imageUrl: video.thumbnailUrl,
                   fit: BoxFit.cover,
-                  memCacheWidth:
-                      100, // Background is blurred, high res not needed
+                  memCacheWidth: 160,
+                  fadeInDuration: Duration.zero,
+                  fadeOutDuration: Duration.zero,
+                  filterQuality: FilterQuality.low,
                   errorWidget: (_, __, ___) =>
                       Container(color: theme.colorScheme.surface),
                 ),
-                // Blur Effect
-                BackdropFilter(
-                  filter: ImageFilter.blur(sigmaX: 50, sigmaY: 50),
-                  child: Container(
-                    color: theme.colorScheme.surface.withValues(alpha: 0.9),
-                  ),
+                Container(
+                  color: theme.colorScheme.surface.withValues(alpha: 0.9),
                 ),
                 // Gradient for extra depth
                 Container(
@@ -112,28 +110,12 @@ class _VideoConfigurationWidgetState extends State<VideoConfigurationWidget> {
           _buildCloseButton(context),
         ],
       ),
-    ).animate().fadeIn(duration: 500.ms).slideY(begin: 0.05, end: 0);
+    ).animate().fadeIn(duration: 220.ms).slideY(begin: 0.02, end: 0);
   }
 
   Widget _buildSkeleton(BuildContext context) {
-    // A simple skeleton loader for the entire widget
-    final theme = Theme.of(context);
-    return Container(
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(24),
-      ),
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const CircularProgressIndicator(),
-            const SizedBox(height: 16),
-            Text('Fetching video info...', style: theme.textTheme.bodyMedium),
-          ],
-        ),
-      ),
-    );
+    // Loading state is handled by the top command capsule's status pill
+    return const SizedBox.shrink();
   }
 
   Widget _buildCloseButton(BuildContext context) {
@@ -154,7 +136,7 @@ class _VideoConfigurationWidgetState extends State<VideoConfigurationWidget> {
         ),
         icon: const Icon(Icons.close_rounded),
         tooltip: 'Close',
-      ).animate().fadeIn(delay: 600.ms),
+      ).animate().fadeIn(delay: 180.ms, duration: 180.ms),
     );
   }
 
@@ -784,7 +766,7 @@ class _VideoConfigurationWidgetState extends State<VideoConfigurationWidget> {
                       ),
                       const SizedBox(width: 8),
                       Text(
-                        '${format.audioBitrate}kbps (${format.formattedFilesize})',
+                        '${format.audioBitrate}kbps (${format.formattedFilesize})${format.language != null ? ' [${format.language!.toUpperCase()}]' : ''}',
                         style: TextStyle(
                           color: Theme.of(context).colorScheme.onSurface,
                         ),
@@ -990,16 +972,6 @@ class _VideoConfigurationWidgetState extends State<VideoConfigurationWidget> {
     return Container(
       padding: const EdgeInsets.all(32),
       decoration: BoxDecoration(
-        color: Theme.of(context).scaffoldBackgroundColor,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(
-              alpha: 0.2,
-            ), // Shadow can remain black
-            blurRadius: 20,
-            offset: const Offset(0, -10),
-          ),
-        ],
         border: Border(
           top: BorderSide(
             color: Theme.of(
@@ -1313,7 +1285,7 @@ class _VideoConfigurationWidgetState extends State<VideoConfigurationWidget> {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            '${(format.audioBitrate ?? 0)} kbps • ${format.formattedFilesize}',
+                            '${(format.audioBitrate ?? 0)} kbps • ${format.formattedFilesize}${format.language != null ? ' • ${format.language!.toUpperCase()} DUB' : ''}',
                             style: TextStyle(
                               color: isSelected
                                   ? Theme.of(context).colorScheme.tertiary

@@ -20,39 +20,31 @@ class AnimatedButton extends StatefulWidget {
   State<AnimatedButton> createState() => _AnimatedButtonState();
 }
 
-class _AnimatedButtonState extends State<AnimatedButton> with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  late Animation<double> _scaleAnimation;
+class _AnimatedButtonState extends State<AnimatedButton> {
+  bool _isPressed = false;
 
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: widget.duration,
-    );
-    _scaleAnimation = Tween<double>(begin: 1.0, end: widget.scale).animate(
-      CurvedAnimation(parent: _controller, curve: widget.curve),
-    );
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
   }
 
   void _handleTapDown(TapDownDetails details) {
-    _controller.forward();
+    if (!_isPressed) {
+      setState(() => _isPressed = true);
+    }
   }
 
   void _handleTapUp(TapUpDetails details) {
-    _controller.reverse();
+    if (_isPressed) {
+      setState(() => _isPressed = false);
+    }
     widget.onPressed?.call();
   }
 
   void _handleTapCancel() {
-    _controller.reverse();
+    if (_isPressed) {
+      setState(() => _isPressed = false);
+    }
   }
 
   @override
@@ -61,8 +53,10 @@ class _AnimatedButtonState extends State<AnimatedButton> with SingleTickerProvid
       onTapDown: _handleTapDown,
       onTapUp: _handleTapUp,
       onTapCancel: _handleTapCancel,
-      child: ScaleTransition(
-        scale: _scaleAnimation,
+      child: AnimatedScale(
+        scale: _isPressed ? widget.scale : 1.0,
+        duration: widget.duration,
+        curve: widget.curve,
         child: widget.child,
       ),
     );

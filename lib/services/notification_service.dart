@@ -13,12 +13,12 @@ class NotificationService {
     );
   }
 
-  void show({
+  Future<void> show({
     required String title,
     required String body,
     bool isError = false,
     VoidCallback? onTap,
-  }) {
+  }) async {
     // 1. Show System Notification
     final notification = LocalNotification(
       title: title,

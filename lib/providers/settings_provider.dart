@@ -44,6 +44,7 @@ class SettingsProvider extends ChangeNotifier {
   DateTime? get cookieFileLastModified => _cookieFileLastModified;
   String? get cookieFileName => _cookieFileName;
   bool get isYouTubeLoggedIn => _isYouTubeLoggedIn;
+  String? get youtubeProfileImageUrl => settings.youtubeProfileImageUrl;
   DateTime? get youTubeLoginTime => _youTubeLoginTime;
   CookieService get cookieService => _cookieService;
   YtdlpService get ytdlpService => _ytdlpService;
@@ -144,6 +145,7 @@ class SettingsProvider extends ChangeNotifier {
     await _cookieService.clearCookies();
     _isYouTubeLoggedIn = false;
     _youTubeLoginTime = null;
+    await setYoutubeProfileImageUrl(null);
     
     // Clear cookie path from ytdlp and settings if it was using the WebView cookies
     final cookiePath = await _cookieService.cookieFilePath;
@@ -234,6 +236,11 @@ class SettingsProvider extends ChangeNotifier {
     if (browser != null) {
       _ytdlpService.cookiePath = null;
     }
+    notifyListeners();
+  }
+
+  Future<void> setYoutubeProfileImageUrl(String? url) async {
+    await _settingsService.setYoutubeProfileImageUrl(url);
     notifyListeners();
   }
 

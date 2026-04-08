@@ -8,7 +8,7 @@ import '../../models/video_info.dart';
 import '../../models/download_mode.dart';
 import '../../providers/video_provider.dart';
 import '../../providers/download_provider.dart';
-import '../../providers/settings_provider.dart';
+import '../../providers/platform_settings_provider.dart';
 import '../widgets/glass_card.dart';
 
 class PlaylistPreviewScreen extends StatelessWidget {
@@ -21,9 +21,7 @@ class PlaylistPreviewScreen extends StatelessWidget {
     final theme = Theme.of(context);
 
     if (playlist == null) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
     return Scaffold(
@@ -74,39 +72,47 @@ class PlaylistPreviewScreen extends StatelessWidget {
           SliverPadding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             sliver: SliverList(
-              delegate: SliverChildBuilderDelegate(
-                (context, index) {
-                  final video = playlist.videos[index];
-                  return _buildModernVideoCard(
-                    context,
-                    video,
-                    index,
-                    videoProvider,
-                    theme,
-                  ).animate().fadeIn(delay: (50 * index).ms).slideX(begin: 0.1, end: 0);
-                },
-                childCount: playlist.videos.length,
-              ),
+              delegate: SliverChildBuilderDelegate((context, index) {
+                final video = playlist.videos[index];
+                return _buildModernVideoCard(
+                      context,
+                      video,
+                      index,
+                      videoProvider,
+                      theme,
+                    )
+                    .animate()
+                    .fadeIn(delay: (50 * index).ms)
+                    .slideX(begin: 0.1, end: 0);
+              }, childCount: playlist.videos.length),
             ),
           ),
-          
+
           // Bottom Padding for Action Bar
-           const SliverToBoxAdapter(child: SizedBox(height: 100)),
+          const SliverToBoxAdapter(child: SizedBox(height: 100)),
         ],
       ),
-      
+
       // Bottom Action Bar
       bottomSheet: _buildBottomActionBar(context, playlist, theme),
     );
   }
 
-  Widget _buildBatchSettings(BuildContext context, VideoProvider provider, ThemeData theme) {
+  Widget _buildBatchSettings(
+    BuildContext context,
+    VideoProvider provider,
+    ThemeData theme,
+  ) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: GlassCard(
         borderRadius: 20,
-        backgroundColor: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
-        border: Border.all(color: theme.colorScheme.onSurface.withValues(alpha: 0.1)),
+        backgroundColor: theme.colorScheme.surfaceContainerHighest.withValues(
+          alpha: 0.3,
+        ),
+        border: Border.all(
+          color: theme.colorScheme.onSurface.withValues(alpha: 0.1),
+        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -123,7 +129,7 @@ class PlaylistPreviewScreen extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 16),
-             Row(
+            Row(
               children: [
                 Expanded(
                   child: _buildModernDropdown<int>(
@@ -133,7 +139,7 @@ class PlaylistPreviewScreen extends StatelessWidget {
                     icon: Icons.high_quality_rounded,
                     items: [2160, 1440, 1080, 720, 480, 360],
                     displayItem: (item) => '${item}p',
-                     onChanged: (val) => provider.setSelectedHeight(val!),
+                    onChanged: (val) => provider.setSelectedHeight(val!),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -151,30 +157,34 @@ class PlaylistPreviewScreen extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 12),
-             Container(
+            Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               decoration: BoxDecoration(
                 color: theme.colorScheme.surface.withValues(alpha: 0.5),
                 borderRadius: BorderRadius.circular(12),
               ),
-               child: Row(
+              child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                   Row(
+                  Row(
                     children: [
-                      Icon(Icons.headphones_rounded, size: 18, color: theme.colorScheme.secondary),
+                      Icon(
+                        Icons.headphones_rounded,
+                        size: 18,
+                        color: theme.colorScheme.secondary,
+                      ),
                       const SizedBox(width: 8),
                       const Text('Audio Only Mode'),
                     ],
-                   ),
-                   Switch(
+                  ),
+                  Switch(
                     value: provider.audioOnly,
                     onChanged: (val) => provider.setAudioOnly(val),
                     activeThumbColor: theme.colorScheme.secondary,
                   ),
                 ],
-               ),
-             ),
+              ),
+            ),
           ],
         ),
       ),
@@ -193,19 +203,26 @@ class PlaylistPreviewScreen extends StatelessWidget {
     final theme = Theme.of(context);
     return DropdownButtonFormField<T>(
       initialValue: value,
-      items: items.map((item) => DropdownMenuItem(
-        value: item,
-        child: Text(
-          displayItem(item),
-          style: const TextStyle(fontSize: 13),
-           overflow: TextOverflow.ellipsis,
-        ),
-      )).toList(),
+      items: items
+          .map(
+            (item) => DropdownMenuItem(
+              value: item,
+              child: Text(
+                displayItem(item),
+                style: const TextStyle(fontSize: 13),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          )
+          .toList(),
       onChanged: onChanged,
-       decoration: InputDecoration(
+      decoration: InputDecoration(
         labelText: label,
         prefixIcon: Icon(icon, size: 18, color: theme.colorScheme.primary),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 12,
+          vertical: 12,
+        ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide.none,
@@ -227,7 +244,7 @@ class PlaylistPreviewScreen extends StatelessWidget {
     ThemeData theme,
   ) {
     final isSelected = video.isSelected;
-    
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: InkWell(
@@ -236,13 +253,15 @@ class PlaylistPreviewScreen extends StatelessWidget {
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
           decoration: BoxDecoration(
-            color: isSelected 
-                ? theme.colorScheme.primaryContainer.withValues(alpha: 0.1) 
-                : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+            color: isSelected
+                ? theme.colorScheme.primaryContainer.withValues(alpha: 0.1)
+                : theme.colorScheme.surfaceContainerHighest.withValues(
+                    alpha: 0.5,
+                  ),
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
-              color: isSelected 
-                  ? theme.colorScheme.primary.withValues(alpha: 0.5) 
+              color: isSelected
+                  ? theme.colorScheme.primary.withValues(alpha: 0.5)
                   : Colors.transparent,
               width: 1.5,
             ),
@@ -251,22 +270,24 @@ class PlaylistPreviewScreen extends StatelessWidget {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-               // Checkbox Area
+              // Checkbox Area
               SizedBox(
-                width: 30, 
+                width: 30,
                 child: Checkbox(
-                   value: isSelected,
-                   onChanged: (v) => provider.toggleVideoSelection(index),
-                   activeColor: theme.colorScheme.primary,
-                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                  value: isSelected,
+                  onChanged: (v) => provider.toggleVideoSelection(index),
+                  activeColor: theme.colorScheme.primary,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(4),
+                  ),
                 ),
               ),
-               
+
               // Thumbnail
               Stack(
                 alignment: Alignment.center,
                 children: [
-                   ClipRRect(
+                  ClipRRect(
                     borderRadius: BorderRadius.circular(8),
                     child: video.thumbnailUrl != null
                         ? Image.network(
@@ -274,11 +295,17 @@ class PlaylistPreviewScreen extends StatelessWidget {
                             width: 100,
                             height: 56,
                             fit: BoxFit.cover,
-                            errorBuilder: (_,__,___) => Container(
-                              width: 100, height: 56, color: Colors.grey[900]
+                            errorBuilder: (_, __, ___) => Container(
+                              width: 100,
+                              height: 56,
+                              color: Colors.grey[900],
                             ),
                           )
-                        : Container(width: 100, height: 56, color: Colors.grey[900]),
+                        : Container(
+                            width: 100,
+                            height: 56,
+                            color: Colors.grey[900],
+                          ),
                   ),
                   Container(
                     width: 100,
@@ -293,13 +320,13 @@ class PlaylistPreviewScreen extends StatelessWidget {
                       ),
                     ),
                   ),
-                   if (isSelected)
+                  if (isSelected)
                     Icon(Icons.play_circle_fill, color: Colors.white, size: 24),
                 ],
               ),
-              
+
               const SizedBox(width: 12),
-              
+
               // Info
               Expanded(
                 child: Column(
@@ -311,41 +338,55 @@ class PlaylistPreviewScreen extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodyMedium?.copyWith(
                         fontWeight: FontWeight.bold,
-                        color: isSelected ? theme.colorScheme.primary : theme.colorScheme.onSurface,
+                        color: isSelected
+                            ? theme.colorScheme.primary
+                            : theme.colorScheme.onSurface,
                       ),
                     ),
                     const SizedBox(height: 4),
                     Text(
                       video.uploader,
-                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
-                       ),
-                       maxLines: 1,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurface.withValues(
+                          alpha: 0.5,
+                        ),
+                      ),
+                      maxLines: 1,
                     ),
                   ],
                 ),
               ),
-              
+
               const SizedBox(width: 8),
-              
+
               // Duration/Index
               Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   Text(
                     video.formattedDuration,
-                    style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurface.withValues(alpha: 0.5)),
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                    ),
                   ),
                   const SizedBox(height: 4),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
                     decoration: BoxDecoration(
                       color: theme.colorScheme.onSurface.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: Text(
                       '#${index + 1}',
-                      style: TextStyle(fontSize: 10, color: theme.colorScheme.onSurface.withValues(alpha: 0.7)),
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: theme.colorScheme.onSurface.withValues(
+                          alpha: 0.7,
+                        ),
+                      ),
                     ),
                   ),
                 ],
@@ -357,20 +398,30 @@ class PlaylistPreviewScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildBottomActionBar(BuildContext context, PlaylistInfo playlist, ThemeData theme) {
+  Widget _buildBottomActionBar(
+    BuildContext context,
+    PlaylistInfo playlist,
+    ThemeData theme,
+  ) {
     if (playlist.selectedCount == 0) return const SizedBox.shrink();
 
     return Container(
-      padding: const EdgeInsets.all(16) + const EdgeInsets.only(bottom: 16), // Extra bottom padding
+      padding:
+          const EdgeInsets.all(16) +
+          const EdgeInsets.only(bottom: 16), // Extra bottom padding
       decoration: BoxDecoration(
         color: theme.scaffoldBackgroundColor,
-        border: Border(top: BorderSide(color: theme.colorScheme.onSurface.withValues(alpha: 0.1))),
+        border: Border(
+          top: BorderSide(
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.1),
+          ),
+        ),
         boxShadow: [
-           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.2), 
-            blurRadius: 10, 
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.2),
+            blurRadius: 10,
             offset: const Offset(0, -5),
-           ),
+          ),
         ],
       ),
       child: Row(
@@ -389,7 +440,9 @@ class PlaylistPreviewScreen extends StatelessWidget {
               ),
               Text(
                 'Ready to download',
-                style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurface.withValues(alpha: 0.5)),
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                ),
               ),
             ],
           ),
@@ -405,19 +458,25 @@ class PlaylistPreviewScreen extends StatelessWidget {
           ),
         ],
       ),
-    ).animate().slideY(begin: 1.0, end: 0, duration: 300.ms, curve: Curves.easeOut);
+    ).animate().slideY(
+      begin: 1.0,
+      end: 0,
+      duration: 300.ms,
+      curve: Curves.easeOut,
+    );
   }
 
   void _startBatchDownload(BuildContext context) {
     final videoProvider = context.read<VideoProvider>();
     final downloadProvider = context.read<DownloadProvider>();
-    final settingsProvider = context.read<SettingsProvider>();
+    final settingsProvider = context.read<PlatformSettingsProvider>();
     final playlist = videoProvider.playlistInfo!;
 
     final selectedVideos = playlist.videos.where((v) => v.isSelected).toList();
     if (selectedVideos.isEmpty) return;
 
-    final outputPath = settingsProvider.settings.outputPath ?? 
+    final outputPath =
+        settingsProvider.settings.outputPath ??
         '${Platform.environment['USERPROFILE']}Downloads';
 
     // Start each download
@@ -440,8 +499,8 @@ class PlaylistPreviewScreen extends StatelessWidget {
       downloadProvider.startDownload(
         video: videoInfo,
         outputPath: outputPath,
-        mode: videoProvider.audioOnly 
-            ? DownloadMode.audioOnly 
+        mode: videoProvider.audioOnly
+            ? DownloadMode.audioOnly
             : DownloadMode.videoWithAudio,
         targetHeight: videoProvider.selectedHeight,
         audioQuality: videoProvider.selectedAudioQuality.ytdlpValue,

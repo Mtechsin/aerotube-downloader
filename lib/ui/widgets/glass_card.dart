@@ -11,6 +11,7 @@ class GlassCard extends StatelessWidget {
   final Border? border;
   final double? opacity;
   final Color? borderColor;
+  final bool enableBlur;
 
   const GlassCard({
     super.key,
@@ -23,12 +24,40 @@ class GlassCard extends StatelessWidget {
     this.border,
     this.opacity,
     this.borderColor,
+    this.enableBlur = false,
   });
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    
+
+    final decoration = BoxDecoration(
+      color: backgroundColor ??
+          (isDark
+              ? Colors.white.withValues(alpha: opacity ?? 0.05)
+              : Colors.white.withValues(alpha: opacity ?? 0.7)),
+      borderRadius: BorderRadius.circular(borderRadius),
+      border: border ??
+          Border.all(
+            color: borderColor ??
+                (isDark
+                    ? Colors.white.withValues(alpha: 0.1)
+                    : Colors.white.withValues(alpha: 0.3)),
+            width: 1,
+          ),
+    );
+
+    Widget card = Container(
+      margin: margin,
+      padding: padding ?? const EdgeInsets.all(16),
+      decoration: decoration,
+      child: child,
+    );
+
+    if (!enableBlur) {
+      return card;
+    }
+
     return Container(
       margin: margin,
       child: ClipRRect(
@@ -37,19 +66,7 @@ class GlassCard extends StatelessWidget {
           filter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
           child: Container(
             padding: padding ?? const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: backgroundColor ?? 
-                  (isDark 
-                      ? Colors.white.withValues(alpha:opacity ?? 0.05)
-                      : Colors.white.withValues(alpha:opacity ?? 0.7)),
-              borderRadius: BorderRadius.circular(borderRadius),
-              border: border ?? Border.all(
-                color: borderColor ?? (isDark 
-                    ? Colors.white.withValues(alpha:0.1)
-                    : Colors.white.withValues(alpha:0.3)),
-                width: 1,
-              ),
-            ),
+            decoration: decoration,
             child: child,
           ),
         ),

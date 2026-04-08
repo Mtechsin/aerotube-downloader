@@ -3,7 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:url_launcher/url_launcher.dart';
-import '../../providers/settings_provider.dart';
+import '../../providers/platform_settings_provider.dart';
 import '../../providers/update_provider.dart';
 import '../../providers/tool_update_provider.dart';
 import '../widgets/update_dialog.dart';
@@ -20,70 +20,87 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final provider = context.read<PlatformSettingsProvider>();
+      if (provider.isAndroid) {
+        provider.refreshBatteryOptimizationStatus();
+      }
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final settingsProvider = context.watch<SettingsProvider>();
+    final settingsProvider = context.watch<PlatformSettingsProvider>();
 
-    return Stack(
-      children: [
-        CustomScrollView(
-          slivers: [
-            SliverAppBar(
-              floating: true,
-              snap: true,
-              title: const Text('Settings'),
-              centerTitle: true,
-              backgroundColor: Colors.transparent,
-              surfaceTintColor: Colors.transparent,
-            ),
-            SliverPadding(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-              sliver: SliverList(
-                delegate: SliverChildListDelegate([
-                  _buildSectionHeader('TOOLS MANAGEMENT'),
-                  const SizedBox(height: 16),
-                  _buildToolsSection(context, settingsProvider),
-
-                  const SizedBox(height: 32),
-                  _buildSectionHeader('DOWNLOAD PREFERENCES'),
-                  const SizedBox(height: 16),
-                  _buildDownloadSection(context, settingsProvider),
-
-                  const SizedBox(height: 32),
-                  _buildSectionHeader('APPEARANCE'),
-                  const SizedBox(height: 16),
-                  _buildAppearanceSection(context, settingsProvider),
-
-                  const SizedBox(height: 32),
-                  _buildSectionHeader('AUTHENTICATION & COOKIES'),
-                  const SizedBox(height: 16),
-                  _buildAuthSection(context, settingsProvider),
-
-                  const SizedBox(height: 32),
-                  _buildSectionHeader('ADVANCED'),
-                  const SizedBox(height: 16),
-                  _buildAdvancedSection(context, settingsProvider),
-
-                  const SizedBox(height: 32),
-                  _buildSectionHeader('LOGS & DEBUGGING'),
-                  const SizedBox(height: 16),
-                  _buildLogsSection(context),
-
-                  const SizedBox(height: 32),
-                  _buildSectionHeader('APP UPDATES'),
-                  const SizedBox(height: 16),
-                  _buildUpdateSection(context),
-
-                  const SizedBox(height: 48),
-                  _buildAboutSection(context, settingsProvider),
-                  const SizedBox(height: 48),
-                ]),
+    return SafeArea(
+      child: Stack(
+        children: [
+          CustomScrollView(
+            slivers: [
+              SliverAppBar(
+                floating: true,
+                snap: true,
+                title: const Text('Settings'),
+                centerTitle: true,
+                backgroundColor: Colors.transparent,
+                surfaceTintColor: Colors.transparent,
               ),
-            ),
-          ],
-        ),
-        // Floating progress overlay
-        const FloatingProgressOverlay(),
-      ],
+              SliverPadding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 16,
+                ),
+                sliver: SliverList(
+                  delegate: SliverChildListDelegate([
+                    _buildSectionHeader('TOOLS MANAGEMENT'),
+                    const SizedBox(height: 16),
+                    _buildToolsSection(context, settingsProvider),
+
+                    const SizedBox(height: 32),
+                    _buildSectionHeader('DOWNLOAD PREFERENCES'),
+                    const SizedBox(height: 16),
+                    _buildDownloadSection(context, settingsProvider),
+
+                    const SizedBox(height: 32),
+                    _buildSectionHeader('APPEARANCE'),
+                    const SizedBox(height: 16),
+                    _buildAppearanceSection(context, settingsProvider),
+
+                    const SizedBox(height: 32),
+                    _buildSectionHeader('AUTHENTICATION & COOKIES'),
+                    const SizedBox(height: 16),
+                    _buildAuthSection(context, settingsProvider),
+
+                    const SizedBox(height: 32),
+                    _buildSectionHeader('ADVANCED'),
+                    const SizedBox(height: 16),
+                    _buildAdvancedSection(context, settingsProvider),
+
+                    const SizedBox(height: 32),
+                    _buildSectionHeader('LOGS & DEBUGGING'),
+                    const SizedBox(height: 16),
+                    _buildLogsSection(context),
+
+                    const SizedBox(height: 32),
+                    _buildSectionHeader('APP UPDATES'),
+                    const SizedBox(height: 16),
+                    _buildUpdateSection(context),
+
+                    const SizedBox(height: 48),
+                    _buildAboutSection(context, settingsProvider),
+                    const SizedBox(height: 48),
+                  ]),
+                ),
+              ),
+            ],
+          ),
+          // Floating progress overlay
+          const FloatingProgressOverlay(),
+        ],
+      ),
     );
   }
 
@@ -229,8 +246,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   // --- Tools Section ---
-  Widget _buildToolsSection(BuildContext context, SettingsProvider provider) {
-    final theme = Theme.of(context);
+  Widget _buildToolsSection(
+    BuildContext context,
+    PlatformSettingsProvider provider,
+  ) {
     return Consumer<ToolUpdateProvider>(
       builder: (context, toolProvider, child) {
         final ytdlpState = toolProvider.ytdlpState;
@@ -247,9 +266,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
               onUpdate: ytdlpState.hasUpdate
                   ? () => toolProvider.updateYtdlp()
                   : null,
+              onCancel: ytdlpState.isBusy
+                  ? () => toolProvider.cancelYtdlpUpdate()
+                  : null,
               onInstall: () => toolProvider.installYtdlp(),
-              onAdvanced: () =>
-                  _showToolAdvancedSheet(context, provider, toolProvider, 'yt-dlp'),
+              onAdvanced: () => _showToolAdvancedSheet(
+                context,
+                provider,
+                toolProvider,
+                'yt-dlp',
+              ),
             ),
             _buildToolTile(
               context,
@@ -260,9 +286,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
               onUpdate: ffmpegState.hasUpdate
                   ? () => toolProvider.updateFfmpeg()
                   : null,
+              onCancel: ffmpegState.isBusy
+                  ? () => toolProvider.cancelFfmpegUpdate()
+                  : null,
               onInstall: () => toolProvider.installFfmpeg(),
-              onAdvanced: () =>
-                  _showToolAdvancedSheet(context, provider, toolProvider, 'FFmpeg'),
+              onAdvanced: () => _showToolAdvancedSheet(
+                context,
+                provider,
+                toolProvider,
+                'FFmpeg',
+              ),
               isOptional: true,
               showDivider: false,
             ),
@@ -281,6 +314,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     VoidCallback? onUpdate,
     required VoidCallback onInstall,
     required VoidCallback onAdvanced,
+    VoidCallback? onCancel,
     bool isOptional = false,
     bool showDivider = true,
   }) {
@@ -290,17 +324,45 @@ class _SettingsScreenState extends State<SettingsScreen> {
     Color iconColor;
     Widget? trailing;
 
-    if (state.isBusy) {
+    if (state.status == ToolUpdateStatus.error) {
+      subtitle =
+          state.errorMessage ??
+          state.statusMessage ??
+          'Operation failed. Tap Check to retry.';
+      iconColor = Colors.red;
+      trailing = Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _buildSmallButton('Check', onCheckUpdate),
+          const SizedBox(width: 8),
+          _buildAdvancedButton(onAdvanced),
+        ],
+      );
+    } else if (state.isBusy) {
       subtitle = state.statusMessage ?? 'Working...';
       iconColor = theme.colorScheme.primary;
-      trailing = SizedBox(
-        width: 20,
-        height: 20,
-        child: CircularProgressIndicator(
-          strokeWidth: 2,
-          value: state.progress > 0 ? state.progress : null,
-          color: theme.colorScheme.primary,
-        ),
+      trailing = Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              value: state.progress > 0 ? state.progress : null,
+              color: theme.colorScheme.primary,
+            ),
+          ),
+          if (onCancel != null) ...[
+            const SizedBox(width: 8),
+            IconButton(
+              onPressed: onCancel,
+              icon: Icon(Icons.close_rounded, size: 20, color: Colors.red),
+              visualDensity: VisualDensity.compact,
+              tooltip: 'Cancel',
+            ),
+          ],
+        ],
       );
     } else if (state.hasUpdate) {
       subtitle = 'Update available: ${state.latestVersion}';
@@ -311,7 +373,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
             decoration: BoxDecoration(
-              color: Colors.orange.withOpacity(0.2),
+              color: Colors.orange.withValues(alpha: 0.2),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Row(
@@ -330,6 +392,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ],
             ),
           ),
+          const SizedBox(width: 8),
+          _buildSmallButton('Update', onUpdate!),
           const SizedBox(width: 8),
           _buildAdvancedButton(onAdvanced),
         ],
@@ -502,9 +566,77 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  Widget _buildStatusChip(String label, {required Color color}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.25)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontWeight: FontWeight.w700,
+          fontSize: 11,
+          letterSpacing: 0.2,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBatteryOptimizationTile(PlatformSettingsProvider provider) {
+    final theme = Theme.of(context);
+    final isEnabled = provider.isBatteryOptimizationIgnored;
+    final isChecking = provider.isCheckingBatteryOptimization;
+    final color = isEnabled ? Colors.green : Colors.orange;
+
+    return _buildSettingsTile(
+      title: 'Battery Optimization',
+      subtitle: isEnabled
+          ? 'Background downloads can keep running when the screen turns off'
+          : 'Allow AeroTube to ignore battery optimizations for smoother downloads',
+      icon: isEnabled
+          ? Icons.battery_charging_full_rounded
+          : Icons.battery_alert_rounded,
+      iconColor: color,
+      trailing: isChecking
+          ? SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: theme.colorScheme.primary,
+              ),
+            )
+          : _buildStatusChip(isEnabled ? 'Enabled' : 'Set up', color: color),
+      onTap: isChecking
+          ? null
+          : () async {
+              final messenger = ScaffoldMessenger.of(context);
+              final granted = await provider
+                  .requestBatteryOptimizationExemption();
+              if (!mounted) return;
+
+              messenger.showSnackBar(
+                SnackBar(
+                  content: Text(
+                    granted
+                        ? 'Battery optimization is now disabled for AeroTube.'
+                        : 'Battery optimization is still enabled. Tap again to retry.',
+                  ),
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
+            },
+      showDivider: true,
+    );
+  }
+
   Future<void> _updateTool(
     BuildContext context,
-    SettingsProvider provider,
+    PlatformSettingsProvider provider,
     String toolName,
   ) async {
     final messenger = ScaffoldMessenger.of(context);
@@ -527,12 +659,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-
-
   // --- Download Preferences Section ---
   Widget _buildDownloadSection(
     BuildContext context,
-    SettingsProvider provider,
+    PlatformSettingsProvider provider,
   ) {
     final theme = Theme.of(context);
     return _buildSettingsSection(
@@ -546,6 +676,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
             color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
           ),
           onTap: () => _showQualitySheet(context, provider),
+        ),
+        _buildSettingsTile(
+          title: 'Default Subtitle Language',
+          subtitle: _subtitleLanguageLabel(provider.defaultSubtitleLanguage),
+          icon: Icons.subtitles_rounded,
+          trailing: Icon(
+            Icons.chevron_right_rounded,
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+          ),
+          onTap: () => _showDefaultSubtitleLanguageSheet(context, provider),
         ),
         _buildSettingsTile(
           title: 'Download Location',
@@ -605,7 +745,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  void _showQualitySheet(BuildContext context, SettingsProvider provider) {
+  void _showQualitySheet(
+    BuildContext context,
+    PlatformSettingsProvider provider,
+  ) {
     final qualities = ['Best', '4K', '1080p', '720p', '480p', 'Audio Only'];
 
     showModalBottomSheet(
@@ -649,10 +792,82 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  void _showDefaultSubtitleLanguageSheet(
+    BuildContext context,
+    PlatformSettingsProvider provider,
+  ) {
+    const subtitleLanguages = <Map<String, String>>[
+      {'code': 'auto', 'label': 'Auto (video default)'},
+      {'code': 'en', 'label': 'English'},
+      {'code': 'ar', 'label': 'Arabic'},
+      {'code': 'es', 'label': 'Spanish'},
+      {'code': 'fr', 'label': 'French'},
+      {'code': 'de', 'label': 'German'},
+      {'code': 'it', 'label': 'Italian'},
+      {'code': 'pt', 'label': 'Portuguese'},
+      {'code': 'ru', 'label': 'Russian'},
+      {'code': 'hi', 'label': 'Hindi'},
+      {'code': 'tr', 'label': 'Turkish'},
+      {'code': 'ja', 'label': 'Japanese'},
+      {'code': 'ko', 'label': 'Korean'},
+      {'code': 'zh', 'label': 'Chinese'},
+    ];
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => _buildBottomSheet(
+        title: 'Default Subtitle Language',
+        children: subtitleLanguages
+            .map(
+              (lang) => _buildSheetOption(
+                label: lang['label']!,
+                subtitle: lang['code'] == 'auto'
+                    ? 'Pick first available subtitle automatically'
+                    : 'Code: ${lang['code']}',
+                isSelected: provider.defaultSubtitleLanguage == lang['code'],
+                icon: _getSubtitleLanguageIcon(lang['code']!),
+                onTap: () {
+                  provider.setDefaultSubtitleLanguage(lang['code']!);
+                  Navigator.pop(context);
+                },
+              ),
+            )
+            .toList(),
+      ),
+    );
+  }
+
+  String _subtitleLanguageLabel(String code) {
+    const labels = <String, String>{
+      'auto': 'Auto (video default)',
+      'en': 'English',
+      'ar': 'Arabic',
+      'es': 'Spanish',
+      'fr': 'French',
+      'de': 'German',
+      'it': 'Italian',
+      'pt': 'Portuguese',
+      'ru': 'Russian',
+      'hi': 'Hindi',
+      'tr': 'Turkish',
+      'ja': 'Japanese',
+      'ko': 'Korean',
+      'zh': 'Chinese',
+    };
+    return labels[code] ?? code.toUpperCase();
+  }
+
+  IconData _getSubtitleLanguageIcon(String code) {
+    if (code == 'auto') return Icons.auto_awesome_rounded;
+    if (code == 'ar') return Icons.language_rounded;
+    return Icons.translate_rounded;
+  }
+
   // --- Appearance Section ---
   Widget _buildAppearanceSection(
     BuildContext context,
-    SettingsProvider provider,
+    PlatformSettingsProvider provider,
   ) {
     return _buildSettingsSection(
       children: [
@@ -693,7 +908,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _buildThemeChips(SettingsProvider provider) {
+  Widget _buildThemeChips(PlatformSettingsProvider provider) {
     return Row(
       children: [
         _buildThemeChip(
@@ -780,7 +995,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   // --- Auth Section ---
-  Widget _buildAuthSection(BuildContext context, SettingsProvider provider) {
+  Widget _buildAuthSection(
+    BuildContext context,
+    PlatformSettingsProvider provider,
+  ) {
     final isAuthData = provider.isCookieActive;
     final theme = Theme.of(context);
 
@@ -867,7 +1085,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // --- Tool Advanced Sheet ---
   void _showToolAdvancedSheet(
     BuildContext context,
-    SettingsProvider provider,
+    PlatformSettingsProvider provider,
     ToolUpdateProvider toolProvider,
     String toolName,
   ) {
@@ -875,7 +1093,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final currentPath = isYtdlp
         ? provider.activeYtdlpPath
         : (provider.activeFfmpegPath ?? 'System PATH');
-    final version = isYtdlp ? provider.ytdlpVersion : provider.ffmpegVersion;
+
+    // Use version from ToolUpdateProvider state (updated during check)
+    final toolState = isYtdlp
+        ? toolProvider.ytdlpState
+        : toolProvider.ffmpegState;
+    final currentVersion = toolState.currentVersion;
+    final latestVersion = toolState.latestVersion;
 
     showModalBottomSheet(
       context: context,
@@ -891,7 +1115,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
               children: [
                 _buildInfoRow('Current Path', currentPath),
                 const SizedBox(height: 12),
-                _buildInfoRow('Version', version ?? 'Unknown'),
+                _buildInfoRow('Installed Version', currentVersion ?? 'Unknown'),
+                if (latestVersion != null) ...[
+                  const SizedBox(height: 12),
+                  _buildInfoRow('Latest Version', latestVersion),
+                ],
               ],
             ),
           ),
@@ -1007,7 +1235,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  void _showBrowserSheet(BuildContext context, SettingsProvider provider) {
+  void _showBrowserSheet(
+    BuildContext context,
+    PlatformSettingsProvider provider,
+  ) {
     final browsers = ['chrome', 'firefox', 'edge', 'opera', 'brave', 'vivaldi'];
 
     showModalBottomSheet(
@@ -1207,34 +1438,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // --- Advanced Section ---
   Widget _buildAdvancedSection(
     BuildContext context,
-    SettingsProvider provider,
+    PlatformSettingsProvider provider,
   ) {
-    return _buildSettingsSection(
-      children: [
-        _buildToggleTile(
-          title: 'Notifications',
-          subtitle: 'Show download notifications',
-          icon: Icons.notifications_rounded,
-          value: provider.enableNotifications,
-          onChanged: provider.setEnableNotifications,
-        ),
-        _buildToggleTile(
-          title: 'SponsorBlock',
-          subtitle: 'Skip sponsored segments automatically',
-          icon: Icons.skip_next_rounded,
-          value: provider.sponsorBlockEnabled,
-          onChanged: provider.setSponsorBlockEnabled,
-        ),
-        _buildToggleTile(
-          title: 'Download Archive',
-          subtitle: 'Avoid re-downloading videos',
-          icon: Icons.history_rounded,
-          value: provider.useDownloadArchive,
-          onChanged: provider.setUseDownloadArchive,
-          showDivider: false,
-        ),
-      ],
-    );
+    final children = <Widget>[
+      _buildToggleTile(
+        title: 'Notifications',
+        subtitle: 'Show download notifications',
+        icon: Icons.notifications_rounded,
+        value: provider.enableNotifications,
+        onChanged: provider.setEnableNotifications,
+      ),
+      _buildToggleTile(
+        title: 'SponsorBlock',
+        subtitle: 'Skip sponsored segments automatically',
+        icon: Icons.skip_next_rounded,
+        value: provider.sponsorBlockEnabled,
+        onChanged: provider.setSponsorBlockEnabled,
+      ),
+      if (provider.isAndroid) _buildBatteryOptimizationTile(provider),
+      _buildToggleTile(
+        title: 'Download Archive',
+        subtitle: 'Avoid re-downloading videos',
+        icon: Icons.history_rounded,
+        value: provider.useDownloadArchive,
+        onChanged: provider.setUseDownloadArchive,
+        showDivider: false,
+      ),
+    ];
+
+    return _buildSettingsSection(children: children);
   }
 
   Widget _buildUpdateSection(BuildContext context) {
@@ -1319,7 +1551,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _buildAboutSection(BuildContext context, SettingsProvider provider) {
+  Widget _buildAboutSection(
+    BuildContext context,
+    PlatformSettingsProvider provider,
+  ) {
     return Center(
       child: Column(
         children: [

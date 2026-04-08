@@ -4,6 +4,8 @@ import 'package:provider/provider.dart';
 import '../../providers/download_provider.dart';
 import '../../providers/tool_update_provider.dart';
 import '../../services/logging_service.dart';
+import '../../providers/mobile_download_provider.dart';
+import '../../core/utils/platform_utils.dart';
 
 /// Floating widget that shows download progress and user logs
 class FloatingProgressOverlay extends StatelessWidget {
@@ -123,124 +125,243 @@ class _UserLogsWidget extends StatelessWidget {
 class _DownloadProgressWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return Consumer<DownloadProvider>(
-      builder: (context, provider, child) {
-        final activeCount = provider.activeCount;
+    if (PlatformUtils.isMobile) {
+      return Consumer<MobileDownloadProvider>(
+        builder: (context, provider, child) {
+          final activeCount = provider.activeDownloadsCount;
 
-        if (activeCount == 0) return const SizedBox.shrink();
+          if (activeCount == 0) return const SizedBox.shrink();
 
-        final theme = Theme.of(context);
+          final theme = Theme.of(context);
 
-        return Material(
-              color: Colors.transparent,
-              child: Container(
-                width: 280,
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.surface.withOpacity(0.95),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(
-                    color: theme.colorScheme.primary.withOpacity(0.2),
+          return Material(
+                color: Colors.transparent,
+                child: Container(
+                  width: 280,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surface.withOpacity(0.95),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: theme.colorScheme.primary.withOpacity(0.2),
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.15),
+                        blurRadius: 20,
+                        offset: const Offset(0, 8),
+                      ),
+                    ],
                   ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.15),
-                      blurRadius: 20,
-                      offset: const Offset(0, 8),
-                    ),
-                  ],
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.download_rounded,
-                          color: theme.colorScheme.primary,
-                          size: 20,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          activeCount == 1
-                              ? 'Downloading...'
-                              : '$activeCount downloads active',
-                          style: TextStyle(
-                            color: theme.colorScheme.onSurface,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 14,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.download_rounded,
+                            color: theme.colorScheme.primary,
+                            size: 20,
                           ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    // Show first 3 active downloads
-                    ...provider.activeDownloads.take(3).map((item) {
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              item.title.length > 30
-                                  ? '${item.title.substring(0, 30)}...'
-                                  : item.title,
-                              style: TextStyle(
-                                color: theme.colorScheme.onSurface.withOpacity(
-                                  0.8,
-                                ),
-                                fontSize: 12,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
+                          const SizedBox(width: 8),
+                          Text(
+                            activeCount == 1
+                                ? 'Downloading...'
+                                : '$activeCount downloads active',
+                            style: TextStyle(
+                              color: theme.colorScheme.onSurface,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
                             ),
-                            const SizedBox(height: 4),
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(4),
-                              child: LinearProgressIndicator(
-                                value: item.progress,
-                                backgroundColor: theme.colorScheme.onSurface
-                                    .withOpacity(0.1),
-                                valueColor: AlwaysStoppedAnimation<Color>(
-                                  theme.colorScheme.primary,
-                                ),
-                                minHeight: 6,
-                              ),
-                            ),
-                            if (item.speed != null && item.speed! > 0) ...[
-                              const SizedBox(height: 2),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      // Show first 3 active downloads
+                      ...provider.activeDownloads.take(3).map((item) {
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
                               Text(
-                                '${_formatSpeed(item.speed!)} • ${_formatEta(item.eta)}',
+                                item.title.length > 30
+                                    ? '${item.title.substring(0, 30)}...'
+                                    : item.title,
                                 style: TextStyle(
                                   color: theme.colorScheme.onSurface
-                                      .withOpacity(0.5),
-                                  fontSize: 10,
+                                      .withOpacity(0.8),
+                                  fontSize: 12,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              const SizedBox(height: 4),
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(4),
+                                child: LinearProgressIndicator(
+                                  value: item.progress,
+                                  backgroundColor: theme.colorScheme.onSurface
+                                      .withOpacity(0.1),
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                    theme.colorScheme.primary,
+                                  ),
+                                  minHeight: 6,
                                 ),
                               ),
+                              if (item.speed > 0) ...[
+                                const SizedBox(height: 2),
+                                Text(
+                                  '${_formatSpeed(item.speed)} • ${_formatEta(item.eta)}',
+                                  style: TextStyle(
+                                    color: theme.colorScheme.onSurface
+                                        .withOpacity(0.5),
+                                    fontSize: 10,
+                                  ),
+                                ),
+                              ],
                             ],
-                          ],
+                          ),
+                        );
+                      }),
+                      if (provider.activeDownloads.length > 3)
+                        Text(
+                          '+${provider.activeDownloads.length - 3} more',
+                          style: TextStyle(
+                            color: theme.colorScheme.onSurface.withOpacity(0.5),
+                            fontSize: 11,
+                            fontStyle: FontStyle.italic,
+                          ),
                         ),
-                      );
-                    }),
-                    if (provider.activeDownloads.length > 3)
-                      Text(
-                        '+${provider.activeDownloads.length - 3} more',
-                        style: TextStyle(
-                          color: theme.colorScheme.onSurface.withOpacity(0.5),
-                          fontSize: 11,
-                          fontStyle: FontStyle.italic,
-                        ),
-                      ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-            )
-            .animate()
-            .slideY(begin: 1, end: 0, duration: 400.ms, curve: Curves.easeOut)
-            .fadeIn(duration: 300.ms);
-      },
-    );
+              )
+              .animate()
+              .slideY(begin: 1, end: 0, duration: 400.ms, curve: Curves.easeOut)
+              .fadeIn(duration: 300.ms);
+        },
+      );
+    } else {
+      return Consumer<DownloadProvider>(
+        builder: (context, provider, child) {
+          final activeCount = provider.activeCount;
+
+          if (activeCount == 0) return const SizedBox.shrink();
+
+          final theme = Theme.of(context);
+
+          return Material(
+                color: Colors.transparent,
+                child: Container(
+                  width: 280,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surface.withOpacity(0.95),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: theme.colorScheme.primary.withOpacity(0.2),
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.15),
+                        blurRadius: 20,
+                        offset: const Offset(0, 8),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.download_rounded,
+                            color: theme.colorScheme.primary,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            activeCount == 1
+                                ? 'Downloading...'
+                                : '$activeCount downloads active',
+                            style: TextStyle(
+                              color: theme.colorScheme.onSurface,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      // Show first 3 active downloads
+                      ...provider.activeDownloads.take(3).map((item) {
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                item.title.length > 30
+                                    ? '${item.title.substring(0, 30)}...'
+                                    : item.title,
+                                style: TextStyle(
+                                  color: theme.colorScheme.onSurface
+                                      .withOpacity(0.8),
+                                  fontSize: 12,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              const SizedBox(height: 4),
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(4),
+                                child: LinearProgressIndicator(
+                                  value: item.progress,
+                                  backgroundColor: theme.colorScheme.onSurface
+                                      .withOpacity(0.1),
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                    theme.colorScheme.primary,
+                                  ),
+                                  minHeight: 6,
+                                ),
+                              ),
+                              if (item.speed > 0) ...[
+                                const SizedBox(height: 2),
+                                Text(
+                                  '${_formatSpeed(item.speed)} • ${_formatEta(item.eta)}',
+                                  style: TextStyle(
+                                    color: theme.colorScheme.onSurface
+                                        .withOpacity(0.5),
+                                    fontSize: 10,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        );
+                      }),
+                      if (provider.activeDownloads.length > 3)
+                        Text(
+                          '+${provider.activeDownloads.length - 3} more',
+                          style: TextStyle(
+                            color: theme.colorScheme.onSurface.withOpacity(0.5),
+                            fontSize: 11,
+                            fontStyle: FontStyle.italic,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              )
+              .animate()
+              .slideY(begin: 1, end: 0, duration: 400.ms, curve: Curves.easeOut)
+              .fadeIn(duration: 300.ms);
+        },
+      );
+    }
   }
 
   String _formatSpeed(double bytesPerSecond) {
@@ -386,6 +507,8 @@ class CompactDownloadProgress extends StatelessWidget {
     return Consumer<DownloadProvider>(
       builder: (context, provider, child) {
         final activeCount = provider.activeCount;
+        final hasValidActive =
+            activeCount > 0 && provider.activeDownloads.isNotEmpty;
 
         if (activeCount == 0 && !showWhenEmpty) {
           return const SizedBox.shrink();
@@ -394,6 +517,7 @@ class CompactDownloadProgress extends StatelessWidget {
         final theme = Theme.of(context);
 
         return Container(
+          constraints: const BoxConstraints(maxWidth: 150),
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: BoxDecoration(
             color: theme.colorScheme.primary.withOpacity(0.1),
@@ -401,6 +525,8 @@ class CompactDownloadProgress extends StatelessWidget {
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Icon(
                 Icons.download_rounded,
@@ -408,13 +534,16 @@ class CompactDownloadProgress extends StatelessWidget {
                 size: 16,
               ),
               const SizedBox(width: 8),
-              if (activeCount > 0) ...[
+              if (hasValidActive) ...[
                 SizedBox(
                   width: 60,
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(2),
                     child: LinearProgressIndicator(
-                      value: provider.activeDownloads.first.progress,
+                      value: provider.activeDownloads.first.progress.clamp(
+                        0.0,
+                        1.0,
+                      ),
                       backgroundColor: theme.colorScheme.onSurface.withOpacity(
                         0.1,
                       ),
@@ -426,20 +555,28 @@ class CompactDownloadProgress extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 8),
-                Text(
-                  '${(provider.activeDownloads.first.progress * 100).toStringAsFixed(0)}%',
-                  style: TextStyle(
-                    color: theme.colorScheme.primary,
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
+                Flexible(
+                  child: Text(
+                    '${(provider.activeDownloads.first.progress * 100).toStringAsFixed(0)}%',
+                    style: TextStyle(
+                      color: theme.colorScheme.primary,
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
                   ),
                 ),
               ] else ...[
-                Text(
-                  'No active downloads',
-                  style: TextStyle(
-                    color: theme.colorScheme.onSurface.withOpacity(0.5),
-                    fontSize: 11,
+                Flexible(
+                  child: Text(
+                    'No active downloads',
+                    style: TextStyle(
+                      color: theme.colorScheme.onSurface.withOpacity(0.5),
+                      fontSize: 11,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
                   ),
                 ),
               ],

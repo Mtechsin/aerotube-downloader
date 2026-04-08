@@ -16,20 +16,26 @@ class AppLogo extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    
+
     Widget logoBody = Image.asset(
       'assets/images/logo.png',
       width: size,
       height: size,
       fit: BoxFit.contain,
+      filterQuality: FilterQuality.medium,
+      cacheWidth: (size * MediaQuery.of(context).devicePixelRatio).round(),
     );
 
     if (useAnimations) {
       logoBody = logoBody
-          .animate(onPlay: (c) => c.repeat(reverse: true))
-          .moveY(begin: -5, end: 5, duration: 2500.ms, curve: Curves.easeInOut)
-          .animate(onPlay: (c) => c.repeat())
-          .shimmer(delay: 5000.ms, duration: 2000.ms, color: Colors.white.withValues(alpha: 0.3));
+          .animate()
+          .fadeIn(duration: 260.ms)
+          .scale(
+            begin: const Offset(0.96, 0.96),
+            end: const Offset(1, 1),
+            duration: 260.ms,
+            curve: Curves.easeOutCubic,
+          );
     }
 
     return Center(
@@ -50,9 +56,8 @@ class AppLogo extends StatelessWidget {
                   ),
                 ],
               ),
-            ).animate(onPlay: (c) => c.repeat(reverse: true))
-             .scale(begin: const Offset(0.8, 0.8), end: const Offset(1.2, 1.2), duration: 2000.ms),
-          
+            ).animate().fadeIn(duration: 220.ms),
+
           logoBody,
         ],
       ),

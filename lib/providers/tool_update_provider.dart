@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
-import '../services/ytdlp_service.dart';
+
 import '../services/ffmpeg_service.dart';
+import '../services/ffmpeg_service_android.dart';
 import '../services/logging_service.dart';
+import '../core/utils/platform_utils.dart';
 
 export '../services/ytdlp_service.dart' show YtdlpUpdateInfo;
 export '../services/ffmpeg_service.dart' show FfmpegUpdateInfo;
@@ -68,17 +70,25 @@ class ToolUpdateState {
 }
 
 class ToolUpdateProvider extends ChangeNotifier {
-  final YtdlpService _ytdlpService;
-  final FfmpegService _ffmpegService;
+  final dynamic _ytdlpService; // Can be YtdlpService or YtdlpServiceAndroid
+  final dynamic _ffmpegService; // Can be FfmpegService or FfmpegServiceAndroid
   final LoggingService _logger = LoggingService();
 
   ToolUpdateState _ytdlpState;
   ToolUpdateState _ffmpegState;
   bool _autoCheckEnabled = true;
 
+  bool _ytdlpCancelToken = false;
+  bool _ffmpegCancelToken = false;
+
+  // Throttling: track last notifyListeners call time per tool
+  DateTime _lastYtdlpNotify = DateTime.fromMillisecondsSinceEpoch(0);
+  DateTime _lastFfmpegNotify = DateTime.fromMillisecondsSinceEpoch(0);
+  static const _progressThrottleMs = 100; // max 10 UI updates/sec
+
   ToolUpdateProvider({
-    required YtdlpService ytdlpService,
-    required FfmpegService ffmpegService,
+    required dynamic ytdlpService,
+    required dynamic ffmpegService,
   }) : _ytdlpService = ytdlpService,
        _ffmpegService = ffmpegService,
        _ytdlpState = ToolUpdateState(tool: ToolType.ytdlp),
@@ -93,25 +103,31 @@ class ToolUpdateProvider extends ChangeNotifier {
   bool get isAnyBusy => _ytdlpState.isBusy || _ffmpegState.isBusy;
 
   /// Initialize and check tool availability
+  /// Now lazy-loads update checks to avoid blocking cold boot
   Future<void> init() async {
     _logger.info(
       'Initializing ToolUpdateProvider',
       component: 'ToolUpdateProvider',
     );
 
-    // Check initial availability
+    // Don't block - just schedule background work
+    _checkAvailabilityAsync();
+  }
+
+  /// Async version that doesn't block - called on first user interaction
+  Future<void> _checkAvailabilityAsync() async {
+    // Run availability check in background
     await _checkAvailability();
 
-    // Auto-check for updates if enabled
+    // Auto-check for updates if enabled - defer to after app is interactive
     if (_autoCheckEnabled) {
-      // Defer update check to avoid blocking app startup
-      Future.delayed(const Duration(seconds: 3), () {
+      Future.delayed(const Duration(seconds: 10), () {
         checkAllForUpdates();
       });
     }
   }
 
-  /// Check availability of both tools
+  /// Check availability of both tools - now runs async without blocking
   Future<void> _checkAvailability() async {
     // Check yt-dlp
     final ytdlpAvailable = await _ytdlpService.isAvailable();
@@ -123,15 +139,28 @@ class ToolUpdateProvider extends ChangeNotifier {
     );
 
     // Check FFmpeg
-    await _ffmpegService.initialize();
-    final ffmpegVersion = await _ffmpegService.getVersion();
+    if (_ffmpegService is FfmpegServiceAndroid) {
+      await (_ffmpegService).initialize();
+      final ffmpegVersion = (_ffmpegService).version;
 
-    _ffmpegState = _ffmpegState.copyWith(
-      isAvailable: _ffmpegService.isAvailable,
-      currentVersion: ffmpegVersion,
-    );
+      _ffmpegState = _ffmpegState.copyWith(
+        isAvailable: (_ffmpegService).isAvailable,
+        currentVersion: ffmpegVersion,
+      );
+    } else {
+      await (_ffmpegService as FfmpegService).initialize();
+      final ffmpegVersion = await (_ffmpegService).getVersion();
 
-    notifyListeners();
+      _ffmpegState = _ffmpegState.copyWith(
+        isAvailable: (_ffmpegService).isAvailable,
+        currentVersion: ffmpegVersion,
+      );
+    }
+
+    // Notify listeners only if needed - don't block cold boot
+    if (ytdlpAvailable || _ffmpegState.isAvailable) {
+      notifyListeners();
+    }
   }
 
   /// Check both tools for updates
@@ -160,17 +189,19 @@ class ToolUpdateProvider extends ChangeNotifier {
       if (updateInfo != null) {
         // yt-dlp is available - check if update is needed
         final hasUpdate = updateInfo.currentVersion != updateInfo.latestVersion;
-        
+
         _ytdlpState = _ytdlpState.copyWith(
-          status: hasUpdate ? ToolUpdateStatus.updateAvailable : ToolUpdateStatus.upToDate,
+          status: hasUpdate
+              ? ToolUpdateStatus.updateAvailable
+              : ToolUpdateStatus.upToDate,
           currentVersion: updateInfo.currentVersion,
           latestVersion: updateInfo.latestVersion,
-          statusMessage: hasUpdate 
+          statusMessage: hasUpdate
               ? 'Update available: ${updateInfo.latestVersion}'
               : 'Up to date (v${updateInfo.currentVersion})',
           isAvailable: true,
         );
-        
+
         if (hasUpdate) {
           _logger.info(
             'yt-dlp update available: ${updateInfo.currentVersion} -> ${updateInfo.latestVersion}',
@@ -202,8 +233,20 @@ class ToolUpdateProvider extends ChangeNotifier {
   }
 
   /// Check FFmpeg for updates
+  /// On Android, FFmpeg is bundled - always return upToDate
   Future<void> checkFfmpegForUpdate() async {
     if (_ffmpegState.isBusy) return;
+
+    // On Android, FFmpeg is bundled with the library, no updates needed
+    if (_ffmpegService is FfmpegServiceAndroid) {
+      _ffmpegState = _ffmpegState.copyWith(
+        status: ToolUpdateStatus.upToDate,
+        statusMessage: 'Bundled with app',
+        isAvailable: true,
+      );
+      notifyListeners();
+      return;
+    }
 
     _ffmpegState = _ffmpegState.copyWith(
       status: ToolUpdateStatus.checking,
@@ -218,12 +261,14 @@ class ToolUpdateProvider extends ChangeNotifier {
       if (updateInfo != null && updateInfo.latestVersion != null) {
         // Check if we actually have an update available
         final hasUpdate = updateInfo.currentVersion != updateInfo.latestVersion;
-        
+
         _ffmpegState = _ffmpegState.copyWith(
-          status: hasUpdate ? ToolUpdateStatus.updateAvailable : ToolUpdateStatus.upToDate,
+          status: hasUpdate
+              ? ToolUpdateStatus.updateAvailable
+              : ToolUpdateStatus.upToDate,
           currentVersion: updateInfo.currentVersion,
           latestVersion: updateInfo.latestVersion,
-          statusMessage: hasUpdate 
+          statusMessage: hasUpdate
               ? 'Update available: ${updateInfo.latestVersion}'
               : 'Up to date (v${updateInfo.currentVersion})',
         );
@@ -252,6 +297,7 @@ class ToolUpdateProvider extends ChangeNotifier {
   Future<bool> updateYtdlp() async {
     if (_ytdlpState.status != ToolUpdateStatus.updateAvailable) return false;
 
+    _ytdlpCancelToken = false;
     _ytdlpState = _ytdlpState.copyWith(
       status: ToolUpdateStatus.downloading,
       progress: 0.0,
@@ -259,17 +305,64 @@ class ToolUpdateProvider extends ChangeNotifier {
     );
     notifyListeners();
 
-    final success = await _ytdlpService.downloadAndInstallUpdate(
-      'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe',
-      onProgress: (progress) {
-        _ytdlpState = _ytdlpState.copyWith(progress: progress);
-        notifyListeners();
-      },
-      onStatus: (status) {
-        _ytdlpState = _ytdlpState.copyWith(statusMessage: status);
-        notifyListeners();
-      },
-    );
+    String? lastStatusMessage;
+    final bool success;
+    if (PlatformUtils.isAndroid) {
+      final downloadUrl =
+          'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp';
+
+      success = await _ytdlpService.downloadAndInstallUpdate(
+        downloadUrl,
+        onProgress: (progress) {
+          final now = DateTime.now();
+          if (now.difference(_lastYtdlpNotify).inMilliseconds >=
+              _progressThrottleMs) {
+            _lastYtdlpNotify = now;
+            _ytdlpState = _ytdlpState.copyWith(progress: progress);
+            notifyListeners();
+          }
+        },
+        onStatus: (status) {
+          lastStatusMessage = status;
+          _lastYtdlpNotify = DateTime.now();
+          _ytdlpState = _ytdlpState.copyWith(statusMessage: status);
+          notifyListeners();
+        },
+        isCancelled: () => _ytdlpCancelToken,
+      );
+
+      if (success) {
+        _ytdlpState = _ytdlpState.copyWith(
+          progress: 1.0,
+          currentVersion: await _ytdlpService.getVersion(),
+          latestVersion: await _ytdlpService.getLatestVersion(),
+          isAvailable: true,
+        );
+      }
+    } else {
+      final downloadUrl =
+          'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe';
+
+      success = await _ytdlpService.downloadAndInstallUpdate(
+        downloadUrl,
+        onProgress: (progress) {
+          final now = DateTime.now();
+          if (now.difference(_lastYtdlpNotify).inMilliseconds >=
+              _progressThrottleMs) {
+            _lastYtdlpNotify = now;
+            _ytdlpState = _ytdlpState.copyWith(progress: progress);
+            notifyListeners();
+          }
+        },
+        onStatus: (status) {
+          lastStatusMessage = status;
+          _lastYtdlpNotify = DateTime.now();
+          _ytdlpState = _ytdlpState.copyWith(statusMessage: status);
+          notifyListeners();
+        },
+        isCancelled: () => _ytdlpCancelToken,
+      );
+    }
 
     if (success) {
       _ytdlpState = _ytdlpState.copyWith(
@@ -282,10 +375,20 @@ class ToolUpdateProvider extends ChangeNotifier {
         'yt-dlp updated to version ${_ytdlpState.latestVersion}',
       );
     } else {
-      _ytdlpState = _ytdlpState.copyWith(
-        status: ToolUpdateStatus.error,
-        errorMessage: 'Update failed',
-      );
+      if (_ytdlpCancelToken) {
+        _ytdlpState = _ytdlpState.copyWith(
+          status: ToolUpdateStatus.idle,
+          statusMessage: 'Cancelled',
+        );
+      } else {
+        final message = lastStatusMessage ?? 'Update failed';
+        _ytdlpState = _ytdlpState.copyWith(
+          status: ToolUpdateStatus.error,
+          statusMessage: message,
+          errorMessage: message,
+        );
+        _logger.showUserLog(message, isError: true);
+      }
     }
 
     notifyListeners();
@@ -296,6 +399,7 @@ class ToolUpdateProvider extends ChangeNotifier {
   Future<bool> updateFfmpeg() async {
     if (_ffmpegState.status != ToolUpdateStatus.updateAvailable) return false;
 
+    _ffmpegCancelToken = false;
     _ffmpegState = _ffmpegState.copyWith(
       status: ToolUpdateStatus.downloading,
       progress: 0.0,
@@ -303,7 +407,23 @@ class ToolUpdateProvider extends ChangeNotifier {
     );
     notifyListeners();
 
-    final success = await _ffmpegService.update();
+    final success = await _ffmpegService.update(
+      onProgress: (progress) {
+        final now = DateTime.now();
+        if (now.difference(_lastFfmpegNotify).inMilliseconds >=
+            _progressThrottleMs) {
+          _lastFfmpegNotify = now;
+          _ffmpegState = _ffmpegState.copyWith(progress: progress);
+          notifyListeners();
+        }
+      },
+      onStatus: (status) {
+        _lastFfmpegNotify = DateTime.now();
+        _ffmpegState = _ffmpegState.copyWith(statusMessage: status);
+        notifyListeners();
+      },
+      isCancelled: () => _ffmpegCancelToken,
+    );
 
     if (success) {
       await _checkAvailability();
@@ -313,12 +433,21 @@ class ToolUpdateProvider extends ChangeNotifier {
         progress: 1.0,
         statusMessage: 'Update complete!',
       );
-      _logger.showUserLog('FFmpeg updated to version ${_ffmpegState.latestVersion}');
-    } else {
-      _ffmpegState = _ffmpegState.copyWith(
-        status: ToolUpdateStatus.error,
-        errorMessage: 'Update failed',
+      _logger.showUserLog(
+        'FFmpeg updated to version ${_ffmpegState.latestVersion}',
       );
+    } else {
+      if (_ffmpegCancelToken) {
+        _ffmpegState = _ffmpegState.copyWith(
+          status: ToolUpdateStatus.idle,
+          statusMessage: 'Cancelled',
+        );
+      } else {
+        _ffmpegState = _ffmpegState.copyWith(
+          status: ToolUpdateStatus.error,
+          errorMessage: 'Update failed',
+        );
+      }
     }
 
     notifyListeners();
@@ -329,6 +458,7 @@ class ToolUpdateProvider extends ChangeNotifier {
   Future<bool> installFfmpeg() async {
     if (_ffmpegState.isBusy) return false;
 
+    _ffmpegCancelToken = false;
     _ffmpegState = _ffmpegState.copyWith(
       status: ToolUpdateStatus.downloading,
       progress: 0.0,
@@ -338,13 +468,20 @@ class ToolUpdateProvider extends ChangeNotifier {
 
     final success = await _ffmpegService.downloadAndInstall(
       onProgress: (progress) {
-        _ffmpegState = _ffmpegState.copyWith(progress: progress);
-        notifyListeners();
+        final now = DateTime.now();
+        if (now.difference(_lastFfmpegNotify).inMilliseconds >=
+            _progressThrottleMs) {
+          _lastFfmpegNotify = now;
+          _ffmpegState = _ffmpegState.copyWith(progress: progress);
+          notifyListeners();
+        }
       },
       onStatus: (status) {
+        _lastFfmpegNotify = DateTime.now();
         _ffmpegState = _ffmpegState.copyWith(statusMessage: status);
         notifyListeners();
       },
+      isCancelled: () => _ffmpegCancelToken,
     );
 
     if (success) {
@@ -356,10 +493,17 @@ class ToolUpdateProvider extends ChangeNotifier {
       );
       _logger.showUserLog('FFmpeg installed successfully');
     } else {
-      _ffmpegState = _ffmpegState.copyWith(
-        status: ToolUpdateStatus.error,
-        errorMessage: 'Installation failed',
-      );
+      if (_ffmpegCancelToken) {
+        _ffmpegState = _ffmpegState.copyWith(
+          status: ToolUpdateStatus.idle,
+          statusMessage: 'Cancelled',
+        );
+      } else {
+        _ffmpegState = _ffmpegState.copyWith(
+          status: ToolUpdateStatus.error,
+          errorMessage: 'Installation failed',
+        );
+      }
     }
 
     notifyListeners();
@@ -370,6 +514,7 @@ class ToolUpdateProvider extends ChangeNotifier {
   Future<bool> installYtdlp() async {
     if (_ytdlpState.isBusy) return false;
 
+    _ytdlpCancelToken = false;
     _ytdlpState = _ytdlpState.copyWith(
       status: ToolUpdateStatus.downloading,
       progress: 0.0,
@@ -378,15 +523,81 @@ class ToolUpdateProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // Force initialization to trigger download/setup
-      await _ytdlpService.initialize(force: true);
-      
+      String? lastStatusMessage;
+      final bool installSucceeded;
+
+      if (PlatformUtils.isAndroid) {
+        final downloadUrl =
+            'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp';
+
+        installSucceeded = await _ytdlpService.downloadAndInstallUpdate(
+          downloadUrl,
+          onProgress: (progress) {
+            final now = DateTime.now();
+            if (now.difference(_lastYtdlpNotify).inMilliseconds >=
+                _progressThrottleMs) {
+              _lastYtdlpNotify = now;
+              _ytdlpState = _ytdlpState.copyWith(progress: progress);
+              notifyListeners();
+            }
+          },
+          onStatus: (status) {
+            lastStatusMessage = status;
+            _lastYtdlpNotify = DateTime.now();
+            _ytdlpState = _ytdlpState.copyWith(statusMessage: status);
+            notifyListeners();
+          },
+          isCancelled: () => _ytdlpCancelToken,
+        );
+      } else {
+        const downloadUrl =
+            'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe';
+
+        installSucceeded = await _ytdlpService.downloadAndInstallUpdate(
+          downloadUrl,
+          onProgress: (progress) {
+            final now = DateTime.now();
+            if (now.difference(_lastYtdlpNotify).inMilliseconds >=
+                _progressThrottleMs) {
+              _lastYtdlpNotify = now;
+              _ytdlpState = _ytdlpState.copyWith(progress: progress);
+              notifyListeners();
+            }
+          },
+          onStatus: (status) {
+            lastStatusMessage = status;
+            _lastYtdlpNotify = DateTime.now();
+            _ytdlpState = _ytdlpState.copyWith(statusMessage: status);
+            notifyListeners();
+          },
+          isCancelled: () => _ytdlpCancelToken,
+        );
+      }
+
+      if (!installSucceeded) {
+        if (_ytdlpCancelToken) {
+          _ytdlpState = _ytdlpState.copyWith(
+            status: ToolUpdateStatus.idle,
+            statusMessage: 'Cancelled',
+          );
+        } else {
+          final message = lastStatusMessage ?? 'Installation failed';
+          _ytdlpState = _ytdlpState.copyWith(
+            status: ToolUpdateStatus.error,
+            statusMessage: message,
+            errorMessage: message,
+          );
+          _logger.showUserLog(message, isError: true);
+        }
+        return false;
+      }
+
       // Refresh status
       await checkYtdlpForUpdate();
-      
+
       // Check if it's now available
       final isAvailable = await _ytdlpService.isAvailable();
-      
+
       if (isAvailable) {
         _ytdlpState = _ytdlpState.copyWith(
           status: ToolUpdateStatus.upToDate,
@@ -409,6 +620,25 @@ class ToolUpdateProvider extends ChangeNotifier {
     } finally {
       notifyListeners();
     }
+  }
+
+  /// Cancel ongoing operations
+  void cancelYtdlpUpdate() {
+    _ytdlpCancelToken = true;
+    _ytdlpState = _ytdlpState.copyWith(
+      status: ToolUpdateStatus.idle,
+      statusMessage: 'Cancelled',
+    );
+    notifyListeners();
+  }
+
+  void cancelFfmpegUpdate() {
+    _ffmpegCancelToken = true;
+    _ffmpegState = _ffmpegState.copyWith(
+      status: ToolUpdateStatus.idle,
+      statusMessage: 'Cancelled',
+    );
+    notifyListeners();
   }
 
   /// Refresh tool availability (call after manual path changes)
