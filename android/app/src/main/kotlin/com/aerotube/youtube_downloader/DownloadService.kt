@@ -242,8 +242,10 @@ class DownloadService : Service() {
 
                 // Reliability fixes
                 request.addOption("--force-ipv4")
-                request.addOption("--socket-timeout", "15")
-                request.addOption("--retries", "3")
+                request.addOption("--socket-timeout", "60")
+                request.addOption("--retries", "10")
+                request.addOption("--fragment-retries", "10")
+                request.addOption("--no-mtime")
 
                 // Use media endpoint for consistent format access
                 request.addOption("--extractor-args", "youtube:player_client=media")
@@ -251,34 +253,66 @@ class DownloadService : Service() {
                 // Ensure merging to MP4 container (required for bestvideo+bestaudio)
                 request.addOption("--merge-output-format", "mp4")
 
-// Execute download with progress callback
+            // Emit started event
+            MainActivity.emitDownloadEvent(
+                mapOf(
+                    "event" to "started",
+                    "process_id" to downloadId,
+                    "output_path" to outputPath
+                )
+            )
+
+            // Execute download with progress callback
             YoutubeDL.getInstance().execute(request, downloadId) { progressValue, eta, line ->
                 if (isCancelled) {
-                    YoutubeDL.getInstance().destroyProcessById(downloadId)
                     return@execute
                 }
 
                 progress = progressValue / 100.0f // Convert to 0.0-1.0 range
-                statusText = if (eta > 0) {
-                    // Use the raw line as the status text, which contains progress info
-                    line
-                } else {
-                    "Downloading..."
-                }
+                statusText = line ?: "Downloading..."
 
                 onProgress(progress, statusText)
+
+                // Also emit to Flutter
+                MainActivity.emitDownloadEvent(
+                    mapOf(
+                        "event" to "progress",
+                        "process_id" to downloadId,
+                        "progress" to progressValue.toDouble(),
+                        "eta" to eta.toInt(),
+                        "line" to line,
+                        "output_path" to outputPath
+                    )
+                )
             }
 
-                if (!isCancelled) {
-                    progress = 1.0f
-                    statusText = "Completed"
-                    onProgress(progress, statusText)
-                }
+            if (!isCancelled) {
+                progress = 1.0f
+                statusText = "Completed"
+                onProgress(progress, statusText)
+
+                MainActivity.emitDownloadEvent(
+                    mapOf(
+                        "event" to "completed",
+                        "process_id" to downloadId,
+                        "output_path" to outputPath
+                    )
+                )
+            }
 
             } catch (e: Exception) {
                 Log.e(TAG, "Download failed for $downloadId", e)
                 statusText = "Failed: ${e.message}"
                 onProgress(progress, statusText)
+
+                MainActivity.emitDownloadEvent(
+                    mapOf(
+                        "event" to "error",
+                        "process_id" to downloadId,
+                        "output_path" to outputPath,
+                        "error" to (e.message ?: "Unknown error")
+                    )
+                )
             }
         }
 

@@ -27,11 +27,26 @@ class MainActivity : FlutterActivity() {
     
     // Store active download processes by ID
     private val activeDownloads = ConcurrentHashMap<String, Boolean>()
-    @Volatile
-    private var downloadEventSink: EventChannel.EventSink? = null
     
     companion object {
         private const val TAG = "MainActivity"
+
+        @Volatile
+        var downloadEventSink: EventChannel.EventSink? = null
+
+        /**
+         * Emits a download event to the Flutter EventChannel.
+         * Safe to call from any thread.
+         */
+        fun emitDownloadEvent(event: Map<String, Any?>) {
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                try {
+                    downloadEventSink?.success(event)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to emit download event", e)
+                }
+            }
+        }
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -160,8 +175,16 @@ class MainActivity : FlutterActivity() {
                             }
 
                             val id = processId ?: "download_${System.currentTimeMillis()}"
-                            val downloadResult = downloadVideo(url, outputPath, format, cookiesPath, userAgent, id)
-                            android.os.Handler(android.os.Looper.getMainLooper()).post { result.success(downloadResult) }
+
+                            // Return success immediately to Flutter to avoid blocking the UI
+                            val response = JSONObject()
+                            response.put("success", true)
+                            response.put("process_id", id)
+                            response.put("message", "Download started")
+                            android.os.Handler(android.os.Looper.getMainLooper()).post { result.success(response.toString()) }
+
+                            // Start actual download in the background thread
+                            downloadVideo(url, outputPath, format, cookiesPath, userAgent, id)
                         }
                         "cancelDownload" -> {
                             val processId = call.argument<String>("process_id")
@@ -176,6 +199,9 @@ class MainActivity : FlutterActivity() {
                             val updateChannel = call.argument<String>("update_channel") ?: "stable"
                             val updateResult = updateYoutubeDL(updateChannel)
                             android.os.Handler(android.os.Looper.getMainLooper()).post { result.success(updateResult) }
+                        }
+                        "getApiLevel" -> {
+                            android.os.Handler(android.os.Looper.getMainLooper()).post { result.success(android.os.Build.VERSION.SDK_INT) }
                         }
                         else -> {
                             android.os.Handler(android.os.Looper.getMainLooper()).post { result.notImplemented() }
@@ -332,7 +358,10 @@ class MainActivity : FlutterActivity() {
             
             // Add cookies if provided
             if (cookiesPath != null && cookiesPath.isNotEmpty()) {
-                request.addOption("--cookies", cookiesPath)
+                val cookieFile = File(cookiesPath)
+                if (cookieFile.exists()) {
+                    request.addOption("--cookies", cookiesPath)
+                }
             }
             
             // Add custom user agent if provided
@@ -410,11 +439,13 @@ class MainActivity : FlutterActivity() {
             
             // Reliability fixes
             request.addOption("--force-ipv4") 
-            request.addOption("--socket-timeout", "15")
-            request.addOption("--retries", "3")
+            request.addOption("--socket-timeout", "60")
+            request.addOption("--retries", "10")
+            request.addOption("--fragment-retries", "10")
             request.addOption("--no-playlist")
             request.addOption("--no-warnings")
             request.addOption("--newline")
+            request.addOption("--no-mtime")
             
             // Use media endpoint for consistent format access
             request.addOption("--extractor-args", "youtube:player_client=media")
@@ -429,19 +460,20 @@ class MainActivity : FlutterActivity() {
             
             // Execute download with progress callback
             YoutubeDL.getInstance().execute(request, processId) { progress, eta, line ->
-                Log.d(TAG, "Download progress: $progress% - ETA: ${eta}s - Speed: $line bytes/s")
+                Log.d(TAG, "Download progress: $progress% - ETA: ${eta}s")
                 emitDownloadEvent(
                     mapOf(
                         "event" to "progress",
                         "process_id" to processId,
-                        "progress" to progress,
-                        "eta" to eta,
+                        "progress" to progress.toDouble(),
+                        "eta" to eta.toInt(),
                         "line" to line,
                         "output_path" to outputPath
                     )
                 )
             }
 
+            activeDownloads.remove(processId)
             emitDownloadEvent(
                 mapOf(
                     "event" to "completed",
@@ -453,7 +485,7 @@ class MainActivity : FlutterActivity() {
             val json = JSONObject()
             json.put("success", true)
             json.put("process_id", processId)
-            json.put("message", "Download started")
+            json.put("message", "Download completed")
             json.toString()
         } catch (e: Exception) {
             val errorMsg = e.message ?: "Unknown error"
@@ -489,16 +521,6 @@ class MainActivity : FlutterActivity() {
         } catch (e: Exception) {
             Log.e(TAG, "Failed to cancel download", e)
             false
-        }
-    }
-
-    private fun emitDownloadEvent(event: Map<String, Any?>) {
-        runOnUiThread {
-            try {
-                downloadEventSink?.success(event)
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to emit download event", e)
-            }
         }
     }
 

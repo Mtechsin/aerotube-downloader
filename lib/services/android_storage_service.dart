@@ -104,8 +104,13 @@ class AndroidStorageService {
 
   /// Get Android API level
   Future<int> _getAndroidApiLevel() async {
+    if (!PlatformUtils.isAndroid) return 0;
     try {
-      // Read from build properties
+      const channel = MethodChannel('com.aerotube.youtube_downloader/ytdlp_android');
+      final version = await channel.invokeMethod<int>('getApiLevel');
+      if (version != null) return version;
+
+      // Fallback: Read from build properties
       final result = await Process.run('getprop', ['ro.build.version.sdk']);
       if (result.exitCode == 0) {
         return int.parse(result.stdout.toString().trim());

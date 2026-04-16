@@ -68,11 +68,11 @@ dependencies {
     // Kotlin Coroutines for background tasks
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
 
-    // youtubedl-android library - keep current stable version
-    val youtubedlAndroid = "0.18.1"
+    // youtubedl-android library
+    val youtubedlAndroid = "0.19.4" // Upgraded from 0.18.1 for better stability and features
     implementation("io.github.junkfood02.youtubedl-android:library:$youtubedlAndroid")
     implementation("io.github.junkfood02.youtubedl-android:ffmpeg:$youtubedlAndroid")
-    implementation("io.github.junkfood02.youtubedl-android:aria2c:$youtubedlAndroid") // optional
+    implementation("io.github.junkfood02.youtubedl-android:aria2c:$youtubedlAndroid")
 }
 
 flutter {

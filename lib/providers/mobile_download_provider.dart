@@ -257,66 +257,56 @@ class MobileDownloadProvider extends ChangeNotifier {
             : DownloadStatus.downloadingVideo,
       );
 
+      _progressControllers[item.id] = StreamController<double>.broadcast();
+      _processToDownloadId[item.id] = item.id;
+
+      // START DOWNLOAD via Foreground Service ONLY
+      // This will trigger DownloadService.kt which handles the actual yt-dlp call
+      // and emits events back to Flutter.
       try {
         await _foregroundService.startDownload(
           downloadId: item.id,
           url: item.url,
           outputPath: item.outputPath,
           title: item.title,
-          format: null,
-          cookiesPath: null,
+          format: item.audioOnly
+              ? (item.audioFormatId ?? 'bestaudio')
+              : (item.formatId ?? 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best'),
+          cookiesPath: null, // Could be added if needed
           userAgent: null,
         );
-      } catch (e) {
-        _logger.warning(
-          'Foreground service notification failed (non-fatal): $e',
+
+        _logger.info(
+          'Download started via foreground service: ${item.id}',
           component: 'MobileDownloadProvider',
         );
-      }
-
-      _progressControllers[item.id] = StreamController<double>.broadcast();
-      _processToDownloadId[item.id] = item.id;
-
-      if (ytdlpService is! YtdlpServiceAndroid) {
-        throw UnsupportedError(
-          'Only YtdlpServiceAndroid is supported on mobile',
+      } catch (e) {
+        _logger.error(
+          'Failed to start download via foreground service',
+          component: 'MobileDownloadProvider',
+          error: e,
         );
-      }
 
-      final service = ytdlpService as YtdlpServiceAndroid;
-
-      _logger.info(
-        'Calling yt-dlp: format=${item.formatId} -> dir=${item.outputPath}',
-        component: 'MobileDownloadProvider',
-      );
-
-      final processId = await service.downloadVideo(
-        url: item.url,
-        outputPath: item.outputPath,
-        processId: item.id,
-        formatId: item.formatId,
-        audioFormatId: item.audioFormatId,
-        audioOnly: item.audioOnly,
-        targetHeight: _parseTargetHeight(item.videoQuality),
-        audioQuality: item.audioQuality,
-        sponsorBlock: item.sponsorBlock,
-        archivePath: item.useDownloadArchive ? item.outputPath : null,
-        embedSubtitles: item.embedSubtitles,
-        subtitleLanguages: item.subtitleLanguages,
-      );
-
-      if (processId != null) {
-        _processToDownloadId[processId] = item.id;
-
-        final latest = _downloads.firstWhere(
-          (d) => d.id == item.id,
-          orElse: () => item,
-        );
-        if (!_isTerminalStatus(latest.status)) {
-          await _completeDownload(item.id);
+        // Fallback to direct download if service fails (though service is preferred)
+        if (ytdlpService is YtdlpServiceAndroid) {
+          final service = ytdlpService as YtdlpServiceAndroid;
+          await service.downloadVideo(
+            url: item.url,
+            outputPath: item.outputPath,
+            processId: item.id,
+            formatId: item.formatId,
+            audioFormatId: item.audioFormatId,
+            audioOnly: item.audioOnly,
+            targetHeight: _parseTargetHeight(item.videoQuality),
+            audioQuality: item.audioQuality,
+            sponsorBlock: item.sponsorBlock,
+            archivePath: item.useDownloadArchive ? item.outputPath : null,
+            embedSubtitles: item.embedSubtitles,
+            subtitleLanguages: item.subtitleLanguages,
+          );
+        } else {
+          rethrow;
         }
-      } else {
-        throw Exception('yt-dlp returned failure - check device logs');
       }
     } catch (e, stackTrace) {
       _logger.error(

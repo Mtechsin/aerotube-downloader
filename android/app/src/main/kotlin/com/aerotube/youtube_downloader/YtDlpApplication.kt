@@ -3,6 +3,8 @@ package com.aerotube.youtube_downloader
 import android.app.Application
 import android.util.Log
 import com.yausername.youtubedl_android.YoutubeDL
+import com.yausername.ffmpeg_android_installer.FFmpeg
+import com.yausername.aria2c_android_installer.Aria2c
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -20,9 +22,14 @@ class YtDlpApplication : Application() {
     private fun initializeYoutubeDL() {
         try {
             Log.d(TAG, "Initializing youtubedl-android library...")
-            YoutubeDL.getInstance().init(applicationContext)
-            Log.d(TAG, "YoutubeDL initialized successfully")
-            Log.d(TAG, "yt-dlp version: ${YoutubeDL.getInstance().version(applicationContext)}")
+
+            // Initialize all components
+            YoutubeDL.getInstance().init(this)
+            FFmpeg.getInstance().init(this)
+            Aria2c.getInstance().init(this)
+
+            Log.d(TAG, "YoutubeDL, FFmpeg, and Aria2c initialized successfully")
+            Log.d(TAG, "yt-dlp version: ${YoutubeDL.getInstance().version(this)}")
             
             // CRITICAL: Update yt-dlp to latest stable version on startup
             // This ensures we have the latest format extraction capabilities
