@@ -69,7 +69,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
 
     // youtubedl-android library
-    val youtubedlAndroid = "0.19.4" // Upgraded from 0.18.1 for better stability and features
+    val youtubedlAndroid = "0.18.1"
     implementation("io.github.junkfood02.youtubedl-android:library:$youtubedlAndroid")
     implementation("io.github.junkfood02.youtubedl-android:ffmpeg:$youtubedlAndroid")
     implementation("io.github.junkfood02.youtubedl-android:aria2c:$youtubedlAndroid")
