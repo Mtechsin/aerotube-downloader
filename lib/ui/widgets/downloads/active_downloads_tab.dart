@@ -49,6 +49,12 @@ class ActiveDownloadsTab extends StatelessWidget {
                  // Confirm dialog if needed, for now direct action
                  context.read<DownloadProvider>().cancelDownload(item.id);
               },
+              onPause: () {
+                 context.read<DownloadProvider>().pauseDownload(item.id);
+              },
+              onResume: () {
+                 context.read<DownloadProvider>().resumeDownload(item.id);
+              },
             ).animate(delay: (index * 50).ms).fadeIn().slideY(begin: 0.1);
           },
         );

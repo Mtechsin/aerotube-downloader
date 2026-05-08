@@ -24,37 +24,16 @@ class YtDlpApplication : Application() {
             Log.d(TAG, "YoutubeDL initialized successfully")
             Log.d(TAG, "yt-dlp version: ${YoutubeDL.getInstance().version(applicationContext)}")
             
-            // CRITICAL: Update yt-dlp to latest stable version on startup
-            // This ensures we have the latest format extraction capabilities
-            updateYtDlpInBackground()
+            // Auto-update disabled - now handled manually from Settings
+            // The manual update from Settings works more reliably
+            Log.d(TAG, "Auto-update disabled - use Settings to update yt-dlp")
         } catch (e: Throwable) {
             Log.e(TAG, "Failed to initialize youtubedl-android", e)
         }
     }
     
     private fun updateYtDlpInBackground() {
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                Log.d(TAG, "Checking for yt-dlp updates...")
-                val status = YoutubeDL.getInstance().updateYoutubeDL(
-                    applicationContext,
-                    YoutubeDL.UpdateChannel.STABLE
-                )
-                when (status?.name) {
-                    "DONE", "SUCCESS" -> {
-                        Log.d(TAG, "yt-dlp updated successfully!")
-                        Log.d(TAG, "New version: ${YoutubeDL.getInstance().version(applicationContext)}")
-                    }
-                    "ALREADY_UP_TO_DATE" -> {
-                        Log.d(TAG, "yt-dlp is already up to date")
-                    }
-                    else -> {
-                        Log.w(TAG, "yt-dlp update status: ${status?.name}")
-                    }
-                }
-            } catch (e: Throwable) {
-                Log.e(TAG, "Failed to update yt-dlp", e)
-            }
-        }
+        // Disabled - manual update from Settings now handles this
+        Log.d(TAG, "Background update disabled")
     }
 }

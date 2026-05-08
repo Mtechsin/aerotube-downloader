@@ -3,6 +3,7 @@ import '../models/video_info.dart';
 import '../models/playlist_info.dart';
 import '../services/ytdlp_service.dart';
 import '../services/ytdlp_service_android.dart';
+import '../services/logging_service.dart';
 
 class VideoProvider extends ChangeNotifier {
   final dynamic
@@ -25,6 +26,10 @@ class VideoProvider extends ChangeNotifier {
   ResolutionOption? _selectedResolution;
   // Override specific format selection (e.g. AV1 vs VP9)
   FormatInfo? _selectedVideoFormatOverride;
+
+  // Cache for processed resolutions to avoid redundant computation
+  List<ResolutionOption>? _cachedResolutions;
+  String? _cachedVideoId;
 
   // We keep track of the specific audio format we want to merge with
   FormatInfo? _selectedAudioMergeStream;
@@ -112,7 +117,10 @@ class VideoProvider extends ChangeNotifier {
   }
 
   Future<void> fetchVideoInfo(String url) async {
-    print('DEBUG fetchVideoInfo: Starting for url: $url');
+    LoggingService().debug(
+      'Starting for url: $url',
+      component: 'VideoProvider',
+    );
     _isLoading = true;
     _errorMessage = null;
     _technicalError = null;
@@ -130,7 +138,10 @@ class VideoProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      print('DEBUG fetchVideoInfo: Calling _ytdlpService.getVideoInfo');
+      LoggingService().debug(
+        'Calling _ytdlpService.getVideoInfo',
+        component: 'VideoProvider',
+      );
       _videoInfo = await _ytdlpService.getVideoInfo(
         url,
         onProgress: (status) {
@@ -139,7 +150,10 @@ class VideoProvider extends ChangeNotifier {
           notifyListeners();
         },
       );
-      print('DEBUG fetchVideoInfo: Got video info: ${_videoInfo?.title}');
+      LoggingService().debug(
+        'Got video info: ${_videoInfo?.title}',
+        component: 'VideoProvider',
+      );
       _appendFetchLog('Video metadata received');
       _playlistInfo = null;
 
@@ -153,7 +167,11 @@ class VideoProvider extends ChangeNotifier {
         );
       }
     } catch (e) {
-      print('DEBUG fetchVideoInfo: Error: $e');
+      LoggingService().error(
+        'Error: $e',
+        component: 'VideoProvider',
+        error: e,
+      );
       final rawError = e.toString();
       final cleanedError = _cleanErrorMessage(rawError);
       _technicalError = cleanedError;
@@ -177,6 +195,18 @@ class VideoProvider extends ChangeNotifier {
   /// The Core Logic: Separate streams, group by resolution, find best bitrate
   void _processFormats() {
     if (_videoInfo == null) return;
+
+    // Return cached if same video
+    if (_cachedResolutions != null && _cachedVideoId == _videoInfo!.id) {
+      _availableResolutions = _cachedResolutions!;
+      if (_availableResolutions.isNotEmpty) {
+        _selectedResolution = _availableResolutions.firstWhere(
+          (r) => r.height == 1080,
+          orElse: () => _availableResolutions.first,
+        );
+      }
+      return;
+    }
 
     final video = _videoInfo!;
 
@@ -249,6 +279,8 @@ class VideoProvider extends ChangeNotifier {
     options.sort((a, b) => b.height.compareTo(a.height));
 
     _availableResolutions = options;
+    _cachedResolutions = options;
+    _cachedVideoId = video.id;
 
     // Default Selection: 1080p or highest available
     if (options.isNotEmpty) {
@@ -327,6 +359,8 @@ class VideoProvider extends ChangeNotifier {
     _availableResolutions = [];
     _selectedResolution = null;
     _selectedVideoFormatOverride = null;
+    _cachedResolutions = null;
+    _cachedVideoId = null;
     notifyListeners();
   }
 

@@ -10,6 +10,8 @@ class DownloadItemCard extends StatefulWidget {
   final VoidCallback? onDelete;
   final VoidCallback? onRetry;
   final VoidCallback? onCancel;
+  final VoidCallback? onPause;
+  final VoidCallback? onResume;
 
   const DownloadItemCard({
     super.key,
@@ -18,6 +20,8 @@ class DownloadItemCard extends StatefulWidget {
     this.onDelete,
     this.onRetry,
     this.onCancel,
+    this.onPause,
+    this.onResume,
   });
 
   @override
@@ -235,6 +239,11 @@ class _DownloadItemCardState extends State<DownloadItemCard> {
         text = 'Cancelled';
         icon = Icons.cancel_outlined;
         break;
+      case DownloadStatus.paused:
+        color = Colors.amber;
+        text = 'Paused';
+        icon = Icons.pause_circle_outline_rounded;
+        break;
     }
 
     return Container(
@@ -262,11 +271,74 @@ class _DownloadItemCardState extends State<DownloadItemCard> {
     
     // Using simple Row of IconButtons for cleaner look on light background
 
-    // Active Actions
+    // Active Actions (downloading)
     if (widget.item.status == DownloadStatus.downloadingVideo || 
         widget.item.status == DownloadStatus.downloadingAudio ||
-        widget.item.status == DownloadStatus.merging ||
-        widget.item.status == DownloadStatus.pending || 
+        widget.item.status == DownloadStatus.merging) {
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          AnimatedButton(
+            onPressed: widget.onPause,
+            child: Container(
+               padding: const EdgeInsets.all(6),
+               decoration: BoxDecoration(
+                 color: theme.colorScheme.surfaceContainerHighest,
+                 shape: BoxShape.circle,
+               ),
+               child: Icon(Icons.pause_rounded, color: Colors.amber, size: 20),
+            ),
+          ),
+          const SizedBox(width: 4),
+          AnimatedButton(
+            onPressed: widget.onCancel,
+            child: Container(
+               padding: const EdgeInsets.all(6),
+               decoration: BoxDecoration(
+                 color: theme.colorScheme.surfaceContainerHighest,
+                 shape: BoxShape.circle,
+               ),
+               child: Icon(Icons.stop_rounded, color: theme.colorScheme.error, size: 20),
+            ),
+          ),
+        ],
+      );
+    }
+
+    // Paused Actions
+    if (widget.item.status == DownloadStatus.paused) {
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          AnimatedButton(
+            onPressed: widget.onResume,
+            child: Container(
+               padding: const EdgeInsets.all(6),
+               decoration: BoxDecoration(
+                 color: theme.colorScheme.surfaceContainerHighest,
+                 shape: BoxShape.circle,
+               ),
+               child: Icon(Icons.play_arrow_rounded, color: theme.colorScheme.primary, size: 20),
+            ),
+          ),
+          const SizedBox(width: 4),
+          AnimatedButton(
+            onPressed: widget.onCancel,
+            child: Container(
+               padding: const EdgeInsets.all(6),
+               decoration: BoxDecoration(
+                 color: theme.colorScheme.surfaceContainerHighest,
+                 shape: BoxShape.circle,
+               ),
+               child: Icon(Icons.stop_rounded, color: theme.colorScheme.error, size: 20),
+            ),
+          ),
+        ],
+      );
+    }
+
+    // Queued/Pending Actions
+    if (widget.item.status == DownloadStatus.pending || 
         widget.item.status == DownloadStatus.queued) {
       return AnimatedButton(
         onPressed: widget.onCancel,

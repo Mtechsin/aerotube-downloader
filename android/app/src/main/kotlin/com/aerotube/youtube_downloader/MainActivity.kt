@@ -34,13 +34,15 @@ class MainActivity : FlutterActivity() {
         private const val TAG = "MainActivity"
     }
 
+    @Volatile
+    private var youtubeDLInitialized = false
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
         // Initialize YoutubeDL - FFmpeg is bundled and auto-initialized
         try {
-            YoutubeDL.getInstance().init(this)
-            Log.d(TAG, "YoutubeDL initialized successfully")
+            ensureYoutubeDLInitialized()
         } catch (e: Throwable) {
             Log.e(TAG, "YoutubeDL init failed", e)
         }
@@ -239,8 +241,18 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    @Synchronized
+    private fun ensureYoutubeDLInitialized() {
+        if (youtubeDLInitialized) return
+
+        YoutubeDL.getInstance().init(applicationContext)
+        youtubeDLInitialized = true
+        Log.d(TAG, "YoutubeDL initialized successfully")
+    }
+
     private fun getVideoInfo(url: String, cookiesPath: String?, userAgent: String?): String {
         return try {
+            ensureYoutubeDLInitialized()
             val request = YoutubeDLRequest(url)
 
             // Add cookies if provided
@@ -328,6 +340,7 @@ class MainActivity : FlutterActivity() {
 
     private fun getPlaylistInfo(url: String, cookiesPath: String?, userAgent: String?): String {
         return try {
+            ensureYoutubeDLInitialized()
             val request = YoutubeDLRequest(url)
             
             // Add cookies if provided
@@ -378,6 +391,7 @@ class MainActivity : FlutterActivity() {
         processId: String
     ): String {
         return try {
+            ensureYoutubeDLInitialized()
             emitDownloadEvent(
                 mapOf(
                     "event" to "started",
@@ -477,6 +491,7 @@ class MainActivity : FlutterActivity() {
 
     private fun cancelDownload(processId: String): Boolean {
         return try {
+            ensureYoutubeDLInitialized()
             YoutubeDL.getInstance().destroyProcessById(processId)
             activeDownloads.remove(processId)
             emitDownloadEvent(
@@ -504,6 +519,8 @@ class MainActivity : FlutterActivity() {
 
     private fun updateYoutubeDL(updateChannel: String): String {
         return try {
+            ensureYoutubeDLInitialized()
+            
             val status = if (updateChannel == "nightly") {
                 YoutubeDL.getInstance().updateYoutubeDL(applicationContext, YoutubeDL.UpdateChannel.NIGHTLY)
             } else {
@@ -516,21 +533,25 @@ class MainActivity : FlutterActivity() {
                     json.put("success", true)
                     json.put("message", "Update successful")
                     json.put("status", "updated")
+                    Log.d(TAG, "yt-dlp update successful")
                 }
                 "ALREADY_UP_TO_DATE" -> {
                     json.put("success", true)
                     json.put("message", "Already up to date")
                     json.put("status", "up_to_date")
+                    Log.d(TAG, "yt-dlp already up to date")
                 }
                 "ERROR", "FAILURE" -> {
                     json.put("success", false)
                     json.put("message", "Update failed")
                     json.put("status", "update_failed")
+                    Log.e(TAG, "yt-dlp update failed with status: $status")
                 }
                 else -> {
                     json.put("success", false)
-                    json.put("message", "Unknown update status")
+                    json.put("message", "Unknown update status: ${status?.name}")
                     json.put("status", "unknown")
+                    Log.w(TAG, "yt-dlp update unknown status: ${status?.name}")
                 }
             }
             json.toString()
@@ -538,7 +559,8 @@ class MainActivity : FlutterActivity() {
             Log.e(TAG, "Failed to update yt-dlp", e)
             val json = JSONObject()
             json.put("success", false)
-            json.put("error", e.message)
+            json.put("error", e.message ?: "Unknown error")
+            json.put("stacktrace", e.stackTraceToString())
             json.toString()
         }
     }

@@ -23,6 +23,7 @@ class SettingsService {
   static const String keyAutoCheckUpdates = 'auto_check_updates';
   static const String keySponsorBlockEnabled = 'sponsor_block_enabled';
   static const String keyUseDownloadArchive = 'use_download_archive';
+  static const String keyEnableLogging = 'enable_logging';
 
   late SharedPreferences _prefs;
   AppSettings _settings = AppSettings();
@@ -63,6 +64,7 @@ class SettingsService {
       autoCheckUpdates: _readBool(keyAutoCheckUpdates) ?? true,
       sponsorBlockEnabled: _readBool(keySponsorBlockEnabled) ?? false,
       useDownloadArchive: _readBool(keyUseDownloadArchive) ?? false,
+      enableLogging: _readBool(keyEnableLogging) ?? true,
     );
   }
 
@@ -132,6 +134,7 @@ class SettingsService {
     await _prefs.setBool(keyAutoCheckUpdates, _settings.autoCheckUpdates);
     await _prefs.setBool(keySponsorBlockEnabled, _settings.sponsorBlockEnabled);
     await _prefs.setBool(keyUseDownloadArchive, _settings.useDownloadArchive);
+    await _prefs.setBool(keyEnableLogging, _settings.enableLogging);
   }
 
   // Setters that update state and persist
@@ -261,5 +264,10 @@ class SettingsService {
   Future<void> setUseDownloadArchive(bool value) async {
     _settings = _settings.copyWith(useDownloadArchive: value);
     await _prefs.setBool(keyUseDownloadArchive, value);
+  }
+
+  Future<void> setEnableLogging(bool value) async {
+    _settings = _settings.copyWith(enableLogging: value);
+    await _prefs.setBool(keyEnableLogging, value);
   }
 }

@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/services.dart';
+import 'logging_service.dart';
 
 /// Native bridge to youtubedl-android library via MethodChannel
 class NativeYtdlpAndroid {
@@ -40,9 +41,18 @@ class NativeYtdlpAndroid {
     String? userAgent,
   }) async {
     try {
-      print('[NativeYtdlpAndroid] getVideoInfo called for: $url');
-      print('[NativeYtdlpAndroid] cookiesPath: $cookiesPath');
-      print('[NativeYtdlpAndroid] userAgent: $userAgent');
+      LoggingService().debug(
+        'getVideoInfo called for: $url',
+        component: 'NativeYtdlpAndroid',
+      );
+      LoggingService().debug(
+        'cookiesPath: $cookiesPath',
+        component: 'NativeYtdlpAndroid',
+      );
+      LoggingService().debug(
+        'userAgent: $userAgent',
+        component: 'NativeYtdlpAndroid',
+      );
 
       final result = await _channel.invokeMethod<String>('getVideoInfo', {
         'url': url,
@@ -57,11 +67,17 @@ class NativeYtdlpAndroid {
       final parsed = jsonDecode(result) as Map<String, dynamic>;
 
       if (parsed['success'] == false) {
-        print('[NativeYtdlpAndroid] Error: ${parsed['error']}');
+        LoggingService().error(
+          'Error: ${parsed['error']}',
+          component: 'NativeYtdlpAndroid',
+        );
         throw Exception(parsed['error'] ?? 'Unknown error');
       }
 
-      print('[NativeYtdlpAndroid] Successfully got video info');
+      LoggingService().info(
+        'Successfully got video info',
+        component: 'NativeYtdlpAndroid',
+      );
       return parsed;
     } on PlatformException catch (e) {
       throw Exception('Platform error: ${e.message}');

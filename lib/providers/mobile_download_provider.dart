@@ -250,6 +250,13 @@ class MobileDownloadProvider extends ChangeNotifier {
 
   Future<void> _startDownload(DownloadItem item) async {
     try {
+      if (ytdlpService is! YtdlpServiceAndroid) {
+        throw UnsupportedError(
+          'Only YtdlpServiceAndroid is supported on mobile',
+        );
+      }
+      final service = ytdlpService as YtdlpServiceAndroid;
+
       _updateDownloadStatus(
         item.id,
         item.audioOnly
@@ -257,15 +264,33 @@ class MobileDownloadProvider extends ChangeNotifier {
             : DownloadStatus.downloadingVideo,
       );
 
+      final statusIndex = _downloads.indexWhere((d) => d.id == item.id);
+      if (statusIndex != -1) {
+        _downloads[statusIndex] = _downloads[statusIndex].copyWith(
+          statusText: 'Preparing download...',
+        );
+        notifyListeners();
+      }
+
+      // Build format string for foreground service
+      String? format;
+      if (item.audioOnly) {
+        format = item.audioFormatId ?? 'bestaudio';
+      } else if (item.formatId != null && item.audioFormatId != null) {
+        format = '${item.formatId}+${item.audioFormatId}';
+      } else if (item.formatId != null) {
+        format = item.formatId;
+      }
+
       try {
         await _foregroundService.startDownload(
           downloadId: item.id,
           url: item.url,
           outputPath: item.outputPath,
           title: item.title,
-          format: null,
-          cookiesPath: null,
-          userAgent: null,
+          format: format,
+          cookiesPath: service.isUsingCookies ? service.cookiePath : null,
+          userAgent: service.userAgent,
         );
       } catch (e) {
         _logger.warning(
@@ -276,14 +301,6 @@ class MobileDownloadProvider extends ChangeNotifier {
 
       _progressControllers[item.id] = StreamController<double>.broadcast();
       _processToDownloadId[item.id] = item.id;
-
-      if (ytdlpService is! YtdlpServiceAndroid) {
-        throw UnsupportedError(
-          'Only YtdlpServiceAndroid is supported on mobile',
-        );
-      }
-
-      final service = ytdlpService as YtdlpServiceAndroid;
 
       _logger.info(
         'Calling yt-dlp: format=${item.formatId} -> dir=${item.outputPath}',
@@ -350,6 +367,7 @@ class MobileDownloadProvider extends ChangeNotifier {
 
       final parsedSpeed = _extractSpeedBytesPerSecond(line) ?? item.speed;
       final status = _statusFromNativeLine(line, item);
+      final readableStatus = _humanReadableStatus(line, item);
 
       _downloads[index] = item.copyWith(
         progress: parsedProgress < item.progress
@@ -358,6 +376,7 @@ class MobileDownloadProvider extends ChangeNotifier {
         speed: parsedSpeed,
         eta: eta < 0 ? item.eta : eta,
         status: status,
+        statusText: readableStatus,
       );
 
       _progressControllers[downloadId]?.add(_downloads[index].progress);
@@ -365,7 +384,7 @@ class MobileDownloadProvider extends ChangeNotifier {
         downloadId: downloadId,
         progress: _downloads[index].progress,
         speed: parsedSpeed,
-        statusText: line.isNotEmpty ? line : null,
+        statusText: readableStatus,
       );
       notifyListeners();
       return;
@@ -605,6 +624,55 @@ class MobileDownloadProvider extends ChangeNotifier {
           : DownloadStatus.downloadingVideo;
     }
     return item.status;
+  }
+
+  String _humanReadableStatus(String line, DownloadItem item) {
+    final lower = line.toLowerCase();
+    if (line.isEmpty) return '';
+
+    if (lower.contains('merging formats') || lower.contains('[merger]')) {
+      return 'Merging formats...';
+    }
+    if (lower.contains('extracting url') || lower.contains('downloading webpage')) {
+      return 'Preparing download...';
+    }
+    if (lower.contains('downloading') && lower.contains('player')) {
+      return 'Preparing download...';
+    }
+    if (lower.contains('downloading m3u8') || lower.contains('downloading json')) {
+      return 'Fetching stream info...';
+    }
+    if (lower.contains('downloading') && lower.contains('thumbnail')) {
+      return 'Saving thumbnail...';
+    }
+    if (lower.contains('writing') && lower.contains('thumbnail')) {
+      return 'Saving thumbnail...';
+    }
+    if (lower.contains('[info]') && lower.contains('format')) {
+      return 'Resolving formats...';
+    }
+
+    // Parse actual download progress line: [download]  45.2% of 150.00MiB at  5.00MiB/s ETA 00:30
+    final percentMatch = RegExp(r'(\d+\.?\d*)%').firstMatch(line);
+    final sizeMatch = RegExp(r'of\s+([0-9.]+\s*[KMG]i?B)').firstMatch(line);
+    final speedMatch = RegExp(r'at\s+([0-9.]+\s*[KMG]?i?B/s)').firstMatch(line);
+    final etaMatch = RegExp(r'ETA\s+(\S+)').firstMatch(line);
+
+    if (percentMatch != null) {
+      final percent = percentMatch.group(1);
+      final parts = <String>['$percent%'];
+      if (sizeMatch != null) parts.add('of ${sizeMatch.group(1)}');
+      if (speedMatch != null) parts.add('at ${speedMatch.group(1)}');
+      if (etaMatch != null) parts.add('ETA ${etaMatch.group(1)}');
+      return parts.join(' ');
+    }
+
+    if (lower.contains('destination:')) {
+      final fileName = line.split(':').last.trim().split('/').last;
+      return 'Downloading $fileName';
+    }
+
+    return line;
   }
 
   Future<File?> _findDownloadedFile(DownloadItem item) async {

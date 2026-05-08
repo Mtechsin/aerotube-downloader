@@ -969,18 +969,19 @@ class _VideoConfigurationWidgetState extends State<VideoConfigurationWidget> {
     BuildContext context,
     VideoProvider provider,
   ) {
-    return Container(
-      padding: const EdgeInsets.all(32),
-      decoration: BoxDecoration(
-        border: Border(
-          top: BorderSide(
-            color: Theme.of(
-              context,
-            ).colorScheme.onSurface.withValues(alpha: 0.1),
+    return RepaintBoundary(
+      child: Container(
+        padding: const EdgeInsets.all(32),
+        decoration: BoxDecoration(
+          border: Border(
+            top: BorderSide(
+              color: Theme.of(
+                context,
+              ).colorScheme.onSurface.withValues(alpha: 0.1),
+            ),
           ),
         ),
-      ),
-      child: AnimatedButton(
+        child: AnimatedButton(
         onPressed: (_isDownloading || _isPreparing)
             ? null
             : _handleDownloadPress,
@@ -1085,6 +1086,7 @@ class _VideoConfigurationWidgetState extends State<VideoConfigurationWidget> {
             ],
           ),
         ),
+      ),
       ),
     );
   }

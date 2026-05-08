@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+import 'logging_service.dart';
 
 class CookieService {
   String? _cachedWebViewPath;
@@ -77,7 +78,11 @@ class CookieService {
       _cachedWebViewPath = userDataDir.path;
       return _cachedWebViewPath;
     } catch (e) {
-      print('Error getting WebView cookies path: $e');
+      LoggingService().error(
+        'Error getting WebView cookies path: $e',
+        component: 'CookieService',
+        error: e,
+      );
       return null;
     }
   }
@@ -105,7 +110,11 @@ class CookieService {
           try {
             await dir.delete(recursive: true);
           } catch (e) {
-            print('Error clearing cookies: $e');
+            LoggingService().error(
+              'Error clearing cookies: $e',
+              component: 'CookieService',
+              error: e,
+            );
           }
         }
       }

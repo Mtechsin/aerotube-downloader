@@ -1,4 +1,5 @@
 import 'package:hive/hive.dart';
+import '../services/logging_service.dart';
 
 part 'video_info.g.dart';
 
@@ -125,21 +126,30 @@ class VideoInfo {
             .toList() ??
         [];
 
-    // DEBUG: Log format count and types
-    print('[VideoInfo] Total formats received: ${formatsList.length}');
+    // Log format count and types
+    LoggingService().debug(
+      'Total formats received: ${formatsList.length}',
+      component: 'VideoInfo',
+    );
     final videoOnlyCount = formatsList.where((f) => f.hasVideo && !f.hasAudio).length;
     final audioOnlyCount = formatsList.where((f) => f.hasAudio && !f.hasVideo).length;
     final combinedCount = formatsList.where((f) => f.hasVideo && f.hasAudio).length;
-    print('[VideoInfo] Video-only: $videoOnlyCount, Audio-only: $audioOnlyCount, Combined: $combinedCount');
+    LoggingService().debug(
+      'Video-only: $videoOnlyCount, Audio-only: $audioOnlyCount, Combined: $combinedCount',
+      component: 'VideoInfo',
+    );
     
-    // Print available resolutions
+    // Log available resolutions
     final heights = formatsList
         .where((f) => f.hasVideo && f.height != null)
         .map((f) => f.height!)
         .toSet()
         .toList();
     heights.sort((a, b) => b.compareTo(a));
-    print('[VideoInfo] Available resolutions: ${heights.join(", ")}');
+    LoggingService().debug(
+      'Available resolutions: ${heights.join(", ")}',
+      component: 'VideoInfo',
+    );
 
     final subsList = <SubtitleTrack>[];
 

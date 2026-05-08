@@ -9,6 +9,7 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import '../../providers/platform_settings_provider.dart';
+import '../../services/logging_service.dart';
 
 class YoutubeLoginScreen extends StatefulWidget {
   const YoutubeLoginScreen({super.key});
@@ -150,7 +151,11 @@ class _YoutubeLoginScreenState extends State<YoutubeLoginScreen> {
         );
       }
     } catch (e) {
-      print('Failed to export Windows cookies: $e');
+      LoggingService().error(
+        'Failed to export Windows cookies: $e',
+        component: 'YoutubeLoginScreen',
+        error: e,
+      );
       if (mounted) {
         try {
           final provider = context.read<PlatformSettingsProvider>();
@@ -204,7 +209,11 @@ class _YoutubeLoginScreenState extends State<YoutubeLoginScreen> {
         }
       }
     } catch (e) {
-      print('Profile picture extraction failed: $e');
+      LoggingService().error(
+        'Profile picture extraction failed: $e',
+        component: 'YoutubeLoginScreen',
+        error: e,
+      );
     }
   }
 
@@ -354,7 +363,11 @@ class _YoutubeLoginScreenState extends State<YoutubeLoginScreen> {
         }
       }
     } catch (e) {
-      print('Profile picture extraction failed: $e');
+      LoggingService().error(
+        'Profile picture extraction failed: $e',
+        component: 'YoutubeLoginScreen',
+        error: e,
+      );
     }
   }
 

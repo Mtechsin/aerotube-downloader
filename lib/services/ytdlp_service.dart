@@ -297,7 +297,10 @@ class YtdlpService {
 
     final args = _buildVideoInfoArgs(url);
 
-    print('[YtdlpService] Executing info fetch: $_ytdlpPath ${args.join(' ')}');
+    LoggingService().debug(
+      'Executing info fetch: $_ytdlpPath ${args.join(' ')}',
+      component: 'YtdlpService',
+    );
     var result = await Process.run(_ytdlpPath, args);
 
     if (result.exitCode != 0) {

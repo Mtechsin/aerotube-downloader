@@ -20,6 +20,8 @@ enum DownloadStatus {
   cancelled,
   @HiveField(7)
   queued,
+  @HiveField(8)
+  paused,
 }
 
 @HiveType(typeId: 1)
@@ -97,6 +99,8 @@ class DownloadItem {
   @HiveField(22)
   final bool useDownloadArchive;
 
+  String? statusText;
+
   DownloadItem({
     required this.id,
     required this.title,
@@ -121,6 +125,7 @@ class DownloadItem {
     this.embedSubtitles = false,
     this.sponsorBlock = false,
     this.useDownloadArchive = false,
+    this.statusText,
   });
 
   String get formattedSpeed {
@@ -172,6 +177,7 @@ class DownloadItem {
     bool? embedSubtitles,
     bool? sponsorBlock,
     bool? useDownloadArchive,
+    String? statusText,
   }) {
     return DownloadItem(
       id: id ?? this.id,
@@ -197,6 +203,7 @@ class DownloadItem {
       embedSubtitles: embedSubtitles ?? this.embedSubtitles,
       sponsorBlock: sponsorBlock ?? this.sponsorBlock,
       useDownloadArchive: useDownloadArchive ?? this.useDownloadArchive,
+      statusText: statusText ?? this.statusText,
     );
   }
 }

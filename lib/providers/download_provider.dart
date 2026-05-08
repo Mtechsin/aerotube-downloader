@@ -25,6 +25,7 @@ class DownloadProvider extends ChangeNotifier {
   final Map<String, Process> _activeProcesses = {};
 
   late Box<DownloadItem> _downloadsBox;
+  late Box<DownloadItem> _activeDownloadsBox;
   bool _isInit = false;
 
   DownloadProvider(
@@ -37,6 +38,8 @@ class DownloadProvider extends ChangeNotifier {
 
   Future<void> _initHive() async {
     _downloadsBox = await Hive.openBox<DownloadItem>('downloads_history');
+    _activeDownloadsBox = await Hive.openBox<DownloadItem>('active_downloads');
+    await _restoreOrphanedDownloads();
     _loadHistory();
     _isInit = true;
     notifyListeners();
@@ -80,7 +83,9 @@ class DownloadProvider extends ChangeNotifier {
       )
       .length;
 
-  int get pausedCount => 0; // Placeholder until pause is implemented
+  int get pausedCount => _activeDownloads
+      .where((i) => i.status == DownloadStatus.paused)
+      .length;
 
   int get completedCount => _historyDownloads
       .length; // Approximate, assuming history is completed/failed
@@ -105,6 +110,22 @@ class DownloadProvider extends ChangeNotifier {
       component: 'DownloadProvider',
     );
 
+    // Prevent duplicate active downloads of the same URL
+    final existing = _activeDownloads.where(
+      (d) =>
+          d.url == video.url &&
+          d.status != DownloadStatus.completed &&
+          d.status != DownloadStatus.failed &&
+          d.status != DownloadStatus.cancelled,
+    );
+    if (existing.isNotEmpty) {
+      LoggingService().info(
+        'Download already in queue: ${video.title}',
+        component: 'DownloadProvider',
+      );
+      return;
+    }
+
     final item = DownloadItem(
       id: video.id,
       title: video.title,
@@ -124,6 +145,7 @@ class DownloadProvider extends ChangeNotifier {
     );
 
     _activeDownloads.add(item);
+    _saveActiveDownloads();
     notifyListeners();
 
     _processQueue();
@@ -144,7 +166,7 @@ class DownloadProvider extends ChangeNotifier {
     final availableSlots = maxConcurrent - currentlyRunning;
     if (availableSlots <= 0) return;
 
-    // Start queued downloads
+    // Start queued downloads (skip paused items)
     final queuedItems = _activeDownloads
         .where((item) => item.status == DownloadStatus.queued)
         .take(availableSlots)
@@ -244,7 +266,10 @@ class DownloadProvider extends ChangeNotifier {
       process.stderr.transform(const SystemEncoding().decoder).listen((data) {
         stderrBuffer.write(data);
         if (data.trim().isNotEmpty) {
-          print('[yt-dlp stderr] ${data.trim()}');
+          LoggingService().debug(
+            'yt-dlp stderr: ${data.trim()}',
+            component: 'DownloadProvider',
+          );
         }
       });
 
@@ -256,14 +281,24 @@ class DownloadProvider extends ChangeNotifier {
         DownloadItem finalItem = _activeDownloads[idx];
 
         if (exitCode == 0) {
+          String? resolvedSavePath;
+          try {
+            final found = await _findDownloadedFile(item);
+            if (found != null) {
+              resolvedSavePath = found.path;
+            }
+          } catch (_) {}
+
           finalItem = finalItem.copyWith(
             status: DownloadStatus.completed,
             progress: 1.0,
             eta: 0,
+            savePath: resolvedSavePath,
             completedDate: DateTime.now(),
           );
 
           _activeDownloads.removeAt(idx);
+          _saveActiveDownloads();
           _addToHistory(finalItem);
 
           LoggingService().info(
@@ -290,9 +325,11 @@ class DownloadProvider extends ChangeNotifier {
                   : 'Process exited with code $exitCode',
             );
             _activeDownloads.removeAt(idx);
+            _saveActiveDownloads();
             _addToHistory(finalItem);
           } else {
             _activeDownloads.removeAt(idx);
+            _saveActiveDownloads();
             finalItem = finalItem.copyWith(completedDate: DateTime.now());
             _addToHistory(finalItem);
           }
@@ -319,6 +356,7 @@ class DownloadProvider extends ChangeNotifier {
           completedDate: DateTime.now(),
         );
         _activeDownloads.removeAt(idx);
+        _saveActiveDownloads();
         _addToHistory(finalItem);
 
         logger.showUserLog(
@@ -351,10 +389,50 @@ class DownloadProvider extends ChangeNotifier {
       _activeDownloads[index] = _activeDownloads[index].copyWith(
         status: DownloadStatus.cancelled,
       );
+      _saveActiveDownloads();
       notifyListeners();
 
       // Process queue after cancellation
       _processQueue();
+    }
+  }
+
+  void pauseDownload(String id) {
+    if (_activeProcesses.containsKey(id)) {
+      _activeProcesses[id]?.kill();
+      _activeProcesses.remove(id);
+    }
+
+    final index = _activeDownloads.indexWhere((d) => d.id == id);
+    if (index != -1) {
+      final item = _activeDownloads[index];
+      if (item.status == DownloadStatus.downloadingVideo ||
+          item.status == DownloadStatus.downloadingAudio ||
+          item.status == DownloadStatus.merging ||
+          item.status == DownloadStatus.queued ||
+          item.status == DownloadStatus.pending) {
+        _activeDownloads[index] = item.copyWith(
+          status: DownloadStatus.paused,
+        );
+        _saveActiveDownloads();
+        notifyListeners();
+        _processQueue();
+      }
+    }
+  }
+
+  void resumeDownload(String id) {
+    final index = _activeDownloads.indexWhere((d) => d.id == id);
+    if (index != -1) {
+      final item = _activeDownloads[index];
+      if (item.status == DownloadStatus.paused) {
+        _activeDownloads[index] = item.copyWith(
+          status: DownloadStatus.queued,
+        );
+        _saveActiveDownloads();
+        notifyListeners();
+        _processQueue();
+      }
     }
   }
 
@@ -388,9 +466,118 @@ class DownloadProvider extends ChangeNotifier {
     _loadHistory();
   }
 
-  void retryDownload(String id) {
-    // TODO: Implement retry logic by retrieving video info again
-    // For now, we accept we can't fully retry without VideoInfo,
-    // unless we store VideoInfo json in DownloadItem.
+  Future<void> retryDownload(String id) async {
+    // Find the item in history
+    final historyIndex = _historyDownloads.indexWhere((d) => d.id == id);
+    if (historyIndex == -1) return;
+
+    final item = _historyDownloads[historyIndex];
+
+    // Remove from history
+    await _downloadsBox.delete(id);
+    _historyDownloads.removeAt(historyIndex);
+
+    // Re-add to active downloads with reset state
+    final retryItem = item.copyWith(
+      status: DownloadStatus.queued,
+      progress: 0.0,
+      speed: 0.0,
+      eta: 0,
+      error: null,
+      completedDate: null,
+    );
+    _activeDownloads.add(retryItem);
+    _saveActiveDownloads();
+    notifyListeners();
+
+    _processQueue();
+  }
+
+  /// Find the downloaded file in the output directory by scanning for
+  /// media files matching the item's title, sorted by last-modified descending.
+  Future<File?> _findDownloadedFile(DownloadItem item) async {
+    try {
+      final dir = Directory(item.outputPath);
+      if (!await dir.exists()) return null;
+
+      final candidates = await dir
+          .list()
+          .where((entity) => entity is File)
+          .cast<File>()
+          .where((file) {
+            final lower = file.path.toLowerCase();
+            return lower.endsWith('.mp4') ||
+                lower.endsWith('.mkv') ||
+                lower.endsWith('.webm') ||
+                lower.endsWith('.m4a') ||
+                lower.endsWith('.mp3') ||
+                lower.endsWith('.opus') ||
+                lower.endsWith('.aac') ||
+                lower.endsWith('.ogg') ||
+                lower.endsWith('.wav') ||
+                lower.endsWith('.flac');
+          })
+          .toList();
+
+      if (candidates.isEmpty) return null;
+
+      // Try title match first
+      final normalizedTitle = item.title.toLowerCase();
+      final titleWords = normalizedTitle
+          .split(' ')
+          .where((w) => w.trim().isNotEmpty)
+          .take(4)
+          .toList();
+
+      final titleMatch = candidates.where((f) {
+        final name = f.path.split(Platform.pathSeparator).last.toLowerCase();
+        return titleWords.every((w) => name.contains(w));
+      }).toList();
+
+      final pool = titleMatch.isNotEmpty ? titleMatch : candidates;
+      pool.sort(
+        (a, b) =>
+            b.lastModifiedSync().millisecondsSinceEpoch -
+            a.lastModifiedSync().millisecondsSinceEpoch,
+      );
+      return pool.first;
+    } catch (e) {
+      LoggingService().warning(
+        'Failed to find downloaded file: $e',
+        component: 'DownloadProvider',
+      );
+      return null;
+    }
+  }
+
+  /// Persist active downloads to Hive so they can be recovered on restart
+  Future<void> _saveActiveDownloads() async {
+    if (!_isInit) return;
+    await _activeDownloadsBox.clear();
+    for (final item in _activeDownloads) {
+      await _activeDownloadsBox.put(item.id, item);
+    }
+  }
+
+  /// On startup, check for orphaned active downloads from a previous session
+  /// that were interrupted (e.g. by app crash or restart) and move them to history as failed.
+  Future<void> _restoreOrphanedDownloads() async {
+    final orphans = _activeDownloadsBox.values.toList();
+    if (orphans.isEmpty) return;
+
+    LoggingService().info(
+      'Restoring ${orphans.length} orphaned download(s) from previous session',
+      component: 'DownloadProvider',
+    );
+
+    for (final item in orphans) {
+      final failedItem = item.copyWith(
+        status: DownloadStatus.failed,
+        error: 'App was restarted, download interrupted',
+        completedDate: DateTime.now(),
+      );
+      await _downloadsBox.put(failedItem.id, failedItem);
+    }
+    await _activeDownloadsBox.clear();
   }
 }

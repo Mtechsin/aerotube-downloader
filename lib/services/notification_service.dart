@@ -1,6 +1,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:local_notifier/local_notifier.dart';
+import 'logging_service.dart';
 
 class NotificationService {
   final GlobalKey<ScaffoldMessengerState> scaffoldMessengerKey =
@@ -29,8 +30,12 @@ class NotificationService {
       onTap?.call();
     };
     
-    // ignore: avoid_print
-    notification.onShow = () => print('Notification shown: $title');
+    notification.onShow = () {
+      LoggingService().debug(
+        'Notification shown: $title',
+        component: 'NotificationService',
+      );
+    };
     
     notification.show();
 

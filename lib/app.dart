@@ -13,7 +13,7 @@ import 'ui/screens/downloads_screen.dart';
 import 'ui/screens/settings_screen.dart';
 import 'ui/screens/youtube_login_screen.dart';
 import 'ui/screens/mobile_home_layout.dart';
-import 'ui/screens/mobile_fetch_screen.dart';
+
 import 'ui/widgets/update_dialog.dart';
 import 'core/utils/responsive_layout.dart';
 import 'core/utils/platform_utils.dart';
@@ -26,8 +26,8 @@ class App extends StatefulWidget {
 }
 
 class _AppState extends State<App> with TickerProviderStateMixin {
-  int _previousBadgeCount = 0;
   bool _hasAnimatedIn = false;
+  int _previousBadgeCount = 0;
 
   late final AnimationController _entranceController;
 
@@ -111,7 +111,7 @@ class _AppState extends State<App> with TickerProviderStateMixin {
           if (PlatformUtils.isMobile) {
             return MobileShell(
               screens: const [
-                MobileFetchScreen(),
+                MobileHomeLayout(),
                 SearchScreen(),
                 DownloadsScreen(),
                 SettingsScreen(),
@@ -309,12 +309,7 @@ class _AppState extends State<App> with TickerProviderStateMixin {
         ? context.select<DownloadProvider, int>((provider) => provider.activeCount)
         : 0;
     final badgeIncreased = badgeCount > _previousBadgeCount;
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && config.showBadge) {
-        _previousBadgeCount = badgeCount;
-      }
-    });
+    _previousBadgeCount = badgeCount;
 
     return _NavItemWidget(
       index: index,
@@ -385,11 +380,13 @@ class _NavItemWidget extends StatefulWidget {
 class _NavItemWidgetState extends State<_NavItemWidget>
     with SingleTickerProviderStateMixin {
   bool _isHovered = false;
+  int _previousBadgeCount = 0;
   late AnimationController _iconBounceController;
 
   @override
   void initState() {
     super.initState();
+    _previousBadgeCount = widget.badgeCount;
     _iconBounceController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 300),
@@ -405,6 +402,9 @@ class _NavItemWidgetState extends State<_NavItemWidget>
   @override
   void didUpdateWidget(_NavItemWidget oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (widget.badgeCount != oldWidget.badgeCount) {
+      _previousBadgeCount = oldWidget.badgeCount;
+    }
     // Trigger bounce animation when selected
     if (widget.isSelected && !oldWidget.isSelected) {
       _iconBounceController.forward(from: 0);
@@ -420,8 +420,10 @@ class _NavItemWidgetState extends State<_NavItemWidget>
     final Color hoverColor = widget.isDark
         ? const Color(0xFFD1D5DB)
         : const Color(0xFF374151); // Neutral 300/700
+    final badgeIncreased = widget.badgeCount > _previousBadgeCount;
 
-    return MouseRegion(
+    return RepaintBoundary(
+      child: MouseRegion(
           onEnter: (_) => setState(() => _isHovered = true),
           onExit: (_) => setState(() => _isHovered = false),
           cursor: SystemMouseCursors.click,
@@ -534,19 +536,8 @@ class _NavItemWidgetState extends State<_NavItemWidget>
               ),
             ),
           ),
-        )
-        .animate(controller: widget.entranceController)
-        .fadeIn(
-          delay: Duration(milliseconds: 100 + (widget.index * 80)),
-          duration: 300.ms,
-        )
-        .slideY(
-          begin: 0.3,
-          end: 0,
-          delay: Duration(milliseconds: 100 + (widget.index * 80)),
-          duration: 400.ms,
-          curve: Curves.easeOutCubic,
-        );
+      ),
+    );
   }
 }
 

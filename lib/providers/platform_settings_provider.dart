@@ -9,6 +9,7 @@ import '../services/ytdlp_service_android.dart';
 import '../services/ffmpeg_service.dart';
 import '../services/ffmpeg_service_android.dart';
 import '../services/cookie_service.dart';
+import '../services/logging_service.dart';
 import '../core/utils/platform_utils.dart';
 import '../services/android_storage_service.dart';
 
@@ -65,6 +66,7 @@ class PlatformSettingsProvider extends ChangeNotifier {
   CookieService get cookieService => _cookieService;
   dynamic get ytdlpService => _ytdlpService;
   bool get enableCookies => settings.enableCookies;
+  bool get enableLogging => settings.enableLogging;
   bool get isBatteryOptimizationIgnored =>
       PlatformUtils.isAndroid ? _isBatteryOptimizationIgnored : true;
   bool get isCheckingBatteryOptimization =>
@@ -174,30 +176,38 @@ class PlatformSettingsProvider extends ChangeNotifier {
     _isYouTubeLoggedIn = await _cookieService.isLoggedIn;
     _youTubeLoginTime = await _cookieService.lastLoginTime;
 
-    // If logged in via WebView, configure ytdlp to use the WebView profile directly
-    if (_isYouTubeLoggedIn) {
-      final userAgent = await _cookieService.userAgent;
+      // If logged in via WebView, configure ytdlp to use the WebView profile directly
+      if (_isYouTubeLoggedIn) {
+        final userAgent = await _cookieService.userAgent;
 
-      if (_ytdlpService is YtdlpService) {
-        final webViewPath = await _cookieService.webViewPath;
-        (_ytdlpService).webViewPath = webViewPath;
-        (_ytdlpService).userAgent = userAgent;
-        // Clear other cookie methods to ensure WebView takes precedence
-        (_ytdlpService).cookiePath = null;
-        (_ytdlpService).cookieBrowser = null;
+        if (_ytdlpService is YtdlpService) {
+          final webViewPath = await _cookieService.webViewPath;
+          (_ytdlpService).webViewPath = webViewPath;
+          (_ytdlpService).userAgent = userAgent;
+          // Clear other cookie methods to ensure WebView takes precedence
+          (_ytdlpService).cookiePath = null;
+          (_ytdlpService).cookieBrowser = null;
 
-        print('[PlatformSettingsProvider] YouTube WebView login detected');
-        print('[PlatformSettingsProvider] WebView profile path: $webViewPath');
-        print(
-          '[PlatformSettingsProvider] yt-dlp will use: --cookies-from-browser edge:$webViewPath',
-        );
-      } else if (_ytdlpService is YtdlpServiceAndroid) {
-        // For Android, also pass the user agent from WebView
-        (_ytdlpService).userAgent = userAgent;
-        print(
-          '[PlatformSettingsProvider] Android: Set user agent from WebView for yt-dlp',
-        );
-      }
+          LoggingService().info(
+            'YouTube WebView login detected',
+            component: 'PlatformSettingsProvider',
+          );
+          LoggingService().debug(
+            'WebView profile path: $webViewPath',
+            component: 'PlatformSettingsProvider',
+          );
+          LoggingService().debug(
+            'yt-dlp will use: --cookies-from-browser edge:$webViewPath',
+            component: 'PlatformSettingsProvider',
+          );
+        } else if (_ytdlpService is YtdlpServiceAndroid) {
+          // For Android, also pass the user agent from WebView
+          (_ytdlpService).userAgent = userAgent;
+          LoggingService().info(
+            'Android: Set user agent from WebView for yt-dlp',
+            component: 'PlatformSettingsProvider',
+          );
+        }
     }
 
     notifyListeners();
@@ -323,7 +333,10 @@ class PlatformSettingsProvider extends ChangeNotifier {
         _cookieFileName = file.path.split(Platform.pathSeparator).last;
       }
     } catch (e) {
-      print('Failed to get cookie file metadata: $e');
+      LoggingService().error(
+        'Failed to get cookie file metadata: $e',
+        component: 'PlatformSettingsProvider',
+      );
     }
   }
 
@@ -463,6 +476,12 @@ class PlatformSettingsProvider extends ChangeNotifier {
 
   Future<void> setSponsorBlockEnabled(bool value) async {
     await _settingsService.setSponsorBlockEnabled(value);
+    notifyListeners();
+  }
+
+  Future<void> setEnableLogging(bool value) async {
+    await _settingsService.setEnableLogging(value);
+    await LoggingService().setEnabled(value);
     notifyListeners();
   }
 

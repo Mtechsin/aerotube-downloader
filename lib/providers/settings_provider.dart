@@ -5,6 +5,7 @@ import '../services/settings_service.dart';
 import '../services/ytdlp_service.dart';
 import '../services/ffmpeg_service.dart';
 import '../services/cookie_service.dart';
+import '../services/logging_service.dart';
 
 class SettingsProvider extends ChangeNotifier {
   final SettingsService _settingsService;
@@ -127,9 +128,18 @@ class SettingsProvider extends ChangeNotifier {
       _ytdlpService.cookiePath = null;
       _ytdlpService.cookieBrowser = null;
       
-      print('[SettingsProvider] YouTube WebView login detected');
-      print('[SettingsProvider] WebView profile path: $webViewPath');
-      print('[SettingsProvider] yt-dlp will use: --cookies-from-browser edge:$webViewPath');
+      LoggingService().info(
+        'YouTube WebView login detected',
+        component: 'SettingsProvider',
+      );
+      LoggingService().debug(
+        'WebView profile path: $webViewPath',
+        component: 'SettingsProvider',
+      );
+      LoggingService().debug(
+        'yt-dlp will use: --cookies-from-browser edge:$webViewPath',
+        component: 'SettingsProvider',
+      );
     }
     
     notifyListeners();
@@ -226,7 +236,11 @@ class SettingsProvider extends ChangeNotifier {
         _cookieFileName = file.path.split(Platform.pathSeparator).last;
       }
     } catch (e) {
-      print('Failed to get cookie file metadata: $e');
+      LoggingService().error(
+        'Failed to get cookie file metadata: $e',
+        component: 'SettingsProvider',
+        error: e,
+      );
     }
   }
 

@@ -179,6 +179,7 @@ class _SearchScreenState extends State<SearchScreen> {
               delegate: SliverChildBuilderDelegate(
                 (context, index) => _SearchVideoCard(video: videos[index]),
                 childCount: videos.length,
+                addRepaintBoundaries: true,
               ),
             ),
           ],

@@ -33,6 +33,7 @@ class AppSettings {
   final bool autoCheckUpdates;
   final bool sponsorBlockEnabled;
   final bool useDownloadArchive;
+  final bool enableLogging;
 
   // Constructor with defaults
   AppSettings({
@@ -60,6 +61,7 @@ class AppSettings {
     this.autoCheckUpdates = true,
     this.sponsorBlockEnabled = false,
     this.useDownloadArchive = false,
+    this.enableLogging = true,
   });
 
   // CopyWith for easy updates
@@ -84,6 +86,7 @@ class AppSettings {
     bool? autoCheckUpdates,
     bool? sponsorBlockEnabled,
     bool? useDownloadArchive,
+    bool? enableLogging,
   }) {
     return AppSettings(
       ytdlpPath: ytdlpPath ?? this.ytdlpPath,
@@ -109,6 +112,7 @@ class AppSettings {
       autoCheckUpdates: autoCheckUpdates ?? this.autoCheckUpdates,
       sponsorBlockEnabled: sponsorBlockEnabled ?? this.sponsorBlockEnabled,
       useDownloadArchive: useDownloadArchive ?? this.useDownloadArchive,
+      enableLogging: enableLogging ?? this.enableLogging,
     );
   }
 }

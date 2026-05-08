@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import '../../../../providers/download_provider.dart';
+import '../../../../models/download_item.dart';
 import '../download_item_card.dart';
 
 class HistoryDownloadsTab extends StatelessWidget {
@@ -45,6 +46,12 @@ class HistoryDownloadsTab extends StatelessWidget {
               onOpenFolder: () {
                 // TODO: Wire up open folder
               },
+              onRetry: (item.status == DownloadStatus.failed || 
+                         item.status == DownloadStatus.cancelled)
+                  ? () {
+                      context.read<DownloadProvider>().retryDownload(item.id);
+                    }
+                  : null,
             ).animate(delay: (index * 50).ms).fadeIn().slideY(begin: 0.1);
           },
         );

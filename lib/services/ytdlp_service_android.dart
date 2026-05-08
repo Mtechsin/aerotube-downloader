@@ -208,6 +208,14 @@ class YtdlpServiceAndroid {
   }) async {
     StreamSubscription<Map<String, dynamic>>? progressSubscription;
     try {
+      onStatus('Preparing yt-dlp...');
+      await initialize();
+
+      if (isCancelled?.call() == true) {
+        onStatus('Cancelled');
+        return false;
+      }
+
       onStatus('Updating yt-dlp via native library...');
 
       progressSubscription = NativeYtdlpAndroid.downloadEvents.listen((event) {

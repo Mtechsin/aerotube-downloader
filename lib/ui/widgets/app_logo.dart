@@ -44,19 +44,24 @@ class AppLogo extends StatelessWidget {
         children: [
           if (showGlow)
             Container(
-              width: size * 0.8,
-              height: size * 0.8,
+              width: size * 1.0,
+              height: size * 1.0,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 boxShadow: [
                   BoxShadow(
-                    color: theme.colorScheme.primary.withValues(alpha: 0.3),
-                    blurRadius: size * 0.5,
-                    spreadRadius: size * 0.1,
+                    color: theme.colorScheme.primary.withValues(alpha: 0.18),
+                    blurRadius: size * 0.6,
+                    spreadRadius: size * 0.05,
+                  ),
+                  BoxShadow(
+                    color: theme.colorScheme.primary.withValues(alpha: 0.08),
+                    blurRadius: size * 1.2,
+                    spreadRadius: size * 0.15,
                   ),
                 ],
               ),
-            ).animate().fadeIn(duration: 220.ms),
+            ).animate().fadeIn(duration: 300.ms),
 
           logoBody,
         ],

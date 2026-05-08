@@ -114,6 +114,8 @@ class DownloadStatusAdapter extends TypeAdapter<DownloadStatus> {
         return DownloadStatus.cancelled;
       case 7:
         return DownloadStatus.queued;
+      case 8:
+        return DownloadStatus.paused;
       default:
         return DownloadStatus.pending;
     }
@@ -145,6 +147,9 @@ class DownloadStatusAdapter extends TypeAdapter<DownloadStatus> {
         break;
       case DownloadStatus.queued:
         writer.writeByte(7);
+        break;
+      case DownloadStatus.paused:
+        writer.writeByte(8);
         break;
     }
   }

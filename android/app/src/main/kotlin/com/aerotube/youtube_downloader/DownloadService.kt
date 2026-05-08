@@ -12,12 +12,6 @@ import android.os.IBinder
 import android.os.Looper
 import android.util.Log
 import androidx.core.app.NotificationCompat
-import com.yausername.youtubedl_android.YoutubeDL
-import com.yausername.youtubedl_android.YoutubeDLRequest
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 
 class DownloadService : Service() {
@@ -43,6 +37,17 @@ class DownloadService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.d(TAG, "DownloadService started")
+
+        // Create and start foreground notification FIRST (required within 5 seconds)
+        if (!isForegroundStarted) {
+            val notification = createForegroundNotification("Download service active", 0)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
+            isForegroundStarted = true
+        }
 
         // Handle the command from the Intent
         when (intent?.action) {
@@ -70,17 +75,6 @@ class DownloadService : Service() {
             }
         }
 
-        // Create and start foreground notification if not already started
-        if (!isForegroundStarted) {
-            val notification = createForegroundNotification("Download service active", 0)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
-            } else {
-                startForeground(NOTIFICATION_ID, notification)
-            }
-            isForegroundStarted = true
-        }
-
         return START_NOT_STICKY
     }
 
@@ -92,8 +86,6 @@ class DownloadService : Service() {
         super.onDestroy()
         Log.d(TAG, "DownloadService destroyed")
 
-        // Cancel all active downloads
-        activeDownloads.values.forEach { it.cancel() }
         activeDownloads.clear()
 
         // Cancel notification
@@ -140,25 +132,20 @@ class DownloadService : Service() {
         userAgent: String?,
         title: String
     ) {
-        val task = DownloadTask(downloadId, url, outputPath, format, cookiesPath, userAgent, title)
-        activeDownloads[downloadId] = task
-
-        CoroutineScope(Dispatchers.IO).launch {
-            task.execute { progress, status ->
-                mainHandler.post {
-                    updateDownloadProgress(downloadId, progress, status)
-                    if (status == "Completed" || status.startsWith("Failed:")) {
-                        completeDownload(downloadId)
-                    }
-                }
-            }
-        }
-
+        activeDownloads[downloadId] = DownloadTask(downloadId, url, outputPath, format, cookiesPath, userAgent, title)
         updateNotification()
     }
 
+    fun reportProgress(downloadId: String, progress: Float, statusText: String) {
+        mainHandler.post {
+            updateDownloadProgress(downloadId, progress, statusText)
+            if (statusText == "Completed" || statusText.startsWith("Failed:")) {
+                completeDownload(downloadId)
+            }
+        }
+    }
+
     private fun cancelDownload(downloadId: String) {
-        activeDownloads[downloadId]?.cancel()
         activeDownloads.remove(downloadId)
         updateNotification()
     }
@@ -199,7 +186,7 @@ class DownloadService : Service() {
         notificationManager.notify(NOTIFICATION_ID, notification)
     }
 
-    // Inner class for handling individual download tasks
+    // Inner class for tracking download metadata (execution handled by MainActivity via method channel)
     inner class DownloadTask(
         val downloadId: String,
         val url: String,
@@ -211,85 +198,6 @@ class DownloadService : Service() {
     ) {
         var progress: Float = 0.0f
         var statusText: String = "Starting download..."
-        var isCancelled = false
-
-        fun execute(onProgress: (Float, String) -> Unit) {
-            try {
-                val request = YoutubeDLRequest(url)
-
-                // Set output template
-                request.addOption("-o", "$outputPath/%(title)s.%(ext)s")
-
-                // Set format if provided
-                if (!format.isNullOrEmpty()) {
-                    request.addOption("-f", format)
-                } else {
-                    request.addOption("-f", "best")
-                }
-
-                // Add cookies if provided
-                if (!cookiesPath.isNullOrEmpty()) {
-                    val cookieFile = File(cookiesPath)
-                    if (cookieFile.exists()) {
-                        request.addOption("--cookies", cookiesPath)
-                    }
-                }
-
-                // Add custom user agent if provided
-                if (!userAgent.isNullOrEmpty()) {
-                    request.addOption("--user-agent", userAgent)
-                }
-
-                // Reliability fixes
-                request.addOption("--force-ipv4")
-                request.addOption("--socket-timeout", "15")
-                request.addOption("--retries", "3")
-
-                // Use media endpoint for consistent format access
-                request.addOption("--extractor-args", "youtube:player_client=media")
-
-                // Ensure merging to MP4 container (required for bestvideo+bestaudio)
-                request.addOption("--merge-output-format", "mp4")
-
-// Execute download with progress callback
-            YoutubeDL.getInstance().execute(request, downloadId) { progressValue, eta, line ->
-                if (isCancelled) {
-                    YoutubeDL.getInstance().destroyProcessById(downloadId)
-                    return@execute
-                }
-
-                progress = progressValue / 100.0f // Convert to 0.0-1.0 range
-                statusText = if (eta > 0) {
-                    // Use the raw line as the status text, which contains progress info
-                    line
-                } else {
-                    "Downloading..."
-                }
-
-                onProgress(progress, statusText)
-            }
-
-                if (!isCancelled) {
-                    progress = 1.0f
-                    statusText = "Completed"
-                    onProgress(progress, statusText)
-                }
-
-            } catch (e: Exception) {
-                Log.e(TAG, "Download failed for $downloadId", e)
-                statusText = "Failed: ${e.message}"
-                onProgress(progress, statusText)
-            }
-        }
-
-        fun cancel() {
-            isCancelled = true
-            try {
-                YoutubeDL.getInstance().destroyProcessById(downloadId)
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to cancel download $downloadId", e)
-            }
-        }
 
         fun updateProgress(newProgress: Float, newStatusText: String?) {
             progress = newProgress

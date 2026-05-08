@@ -295,7 +295,18 @@ class ToolUpdateProvider extends ChangeNotifier {
 
   /// Update yt-dlp to latest version
   Future<bool> updateYtdlp() async {
-    if (_ytdlpState.status != ToolUpdateStatus.updateAvailable) return false;
+    _logger.info(
+      'updateYtdlp called, current status: ${_ytdlpState.status}',
+      component: 'ToolUpdateProvider',
+    );
+
+    if (_ytdlpState.status != ToolUpdateStatus.updateAvailable) {
+      _logger.warning(
+        'updateYtdlp: status is not updateAvailable, status: ${_ytdlpState.status}',
+        component: 'ToolUpdateProvider',
+      );
+      return false;
+    }
 
     _ytdlpCancelToken = false;
     _ytdlpState = _ytdlpState.copyWith(
@@ -310,6 +321,11 @@ class ToolUpdateProvider extends ChangeNotifier {
     if (PlatformUtils.isAndroid) {
       final downloadUrl =
           'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp';
+
+      _logger.info(
+        'Calling downloadAndInstallUpdate for Android',
+        component: 'ToolUpdateProvider',
+      );
 
       success = await _ytdlpService.downloadAndInstallUpdate(
         downloadUrl,
@@ -329,6 +345,11 @@ class ToolUpdateProvider extends ChangeNotifier {
           notifyListeners();
         },
         isCancelled: () => _ytdlpCancelToken,
+      );
+
+      _logger.info(
+        'downloadAndInstallUpdate returned: $success',
+        component: 'ToolUpdateProvider',
       );
 
       if (success) {

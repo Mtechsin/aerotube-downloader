@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Log level enumeration
 enum LogLevel { debug, info, warning, error }
@@ -98,9 +99,25 @@ class LoggingService {
   static const int _maxUserLogs = 5;
   static const Duration _userLogDefaultDuration = Duration(seconds: 5);
   static const Duration _userLogErrorDuration = Duration(seconds: 8);
+  static const int _maxLogFileSize = 5 * 1024 * 1024; // 5MB
+  static const int _maxRotatedFiles = 3;
 
   bool _isInitialized = false;
+  bool _loggingEnabled = true;
   late File _logFile;
+
+  bool get isEnabled => _loggingEnabled;
+
+  Future<void> setEnabled(bool enabled) async {
+    _loggingEnabled = enabled;
+    if (enabled) {
+      info('Logging enabled', component: 'LoggingService');
+    } else {
+      debugPrint('Logging disabled');
+    }
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('logging_enabled', enabled);
+  }
 
   // Progress tracking for downloads
   final Map<String, double> _downloadProgress = {};
@@ -120,9 +137,23 @@ class LoggingService {
       _logFile = File(p.join(logDir.path, 'app.log'));
       _isInitialized = true;
 
+      final prefs = await SharedPreferences.getInstance();
+      _loggingEnabled = prefs.getBool('logging_enabled') ?? true;
+
+      await cleanupOldLogs(maxAgeDays: 7);
+
       info('LoggingService initialized', component: 'LoggingService');
     } catch (e) {
       debugPrint('Failed to initialize LoggingService: $e');
+    }
+  }
+
+  void setLoggingEnabled(bool enabled) {
+    _loggingEnabled = enabled;
+    if (enabled) {
+      info('Logging enabled', component: 'LoggingService');
+    } else {
+      debugPrint('Logging disabled');
     }
   }
 
@@ -197,6 +228,8 @@ class LoggingService {
     dynamic error,
     StackTrace? stackTrace,
   }) {
+    if (!_loggingEnabled) return;
+
     final entry = LogEntry(
       timestamp: DateTime.now(),
       level: level,
@@ -213,8 +246,10 @@ class LoggingService {
     }
     _devLogsController.add(List.unmodifiable(_devLogs));
 
-    // Write to file
-    _writeToFile(entry);
+    // Write to file only if logging is enabled
+    if (_loggingEnabled) {
+      _writeToFile(entry);
+    }
 
     // Also show in console for debug builds
     if (kDebugMode) {
@@ -223,13 +258,77 @@ class LoggingService {
   }
 
   Future<void> _writeToFile(LogEntry entry) async {
-    if (!_isInitialized) return;
+    if (!_isInitialized || !_loggingEnabled) return;
 
     try {
+      // Check and rotate log file if needed
+      await _rotateLogFileIfNeeded();
+
       final line = '${entry.toString()}\n';
       await _logFile.writeAsString(line, mode: FileMode.append);
     } catch (e) {
       debugPrint('Failed to write to log file: $e');
+    }
+  }
+
+  Future<void> _rotateLogFileIfNeeded() async {
+    try {
+      if (!await _logFile.exists()) return;
+
+      final fileSize = await _logFile.length();
+      if (fileSize < _maxLogFileSize) return;
+
+      // Rotate files: app.log.2 → app.log.3, app.log.1 → app.log.2, app.log → app.log.1
+      for (int i = _maxRotatedFiles - 1; i >= 1; i--) {
+        final sourceFile = File('${_logFile.path}.$i');
+        if (await sourceFile.exists()) {
+          if (i == _maxRotatedFiles - 1) {
+            // Delete oldest file
+            await sourceFile.delete();
+          } else {
+            // Move to next number
+            await sourceFile.rename('${_logFile.path}.${i + 1}');
+          }
+        }
+      }
+
+      // Rename current log to app.log.1
+      await _logFile.rename('${_logFile.path}.1');
+
+      // Create new log file
+      _logFile = File(p.join(_logFile.parent.path, 'app.log'));
+      await _logFile.create();
+
+      info('Log file rotated', component: 'LoggingService');
+    } catch (e) {
+      debugPrint('Failed to rotate log file: $e');
+    }
+  }
+
+  Future<void> cleanupOldLogs({int maxAgeDays = 30}) async {
+    try {
+      final logDir = _logFile.parent;
+      if (!await logDir.exists()) return;
+
+      final logFiles = <File>[];
+      await for (final entity in logDir.list()) {
+        if (entity is File &&
+            (entity.path.endsWith('.log') || entity.path.contains('.log.'))) {
+          logFiles.add(entity);
+        }
+      }
+
+      final cutoffDate = DateTime.now().subtract(Duration(days: maxAgeDays));
+
+      for (final file in logFiles) {
+        final stat = await file.stat();
+        if (stat.modified.isBefore(cutoffDate)) {
+          await file.delete();
+          debugPrint('Deleted old log file: ${file.path}');
+        }
+      }
+    } catch (e) {
+      debugPrint('Failed to cleanup old logs: $e');
     }
   }
 

@@ -4,7 +4,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../../models/video_info.dart';
 import '../../providers/video_provider.dart';
 import '../../providers/platform_settings_provider.dart';
-import '../../core/utils/platform_utils.dart';
+
 
 class MobileVideoConfigurationWidget extends StatelessWidget {
   final Future<void> Function() onDownload;
@@ -116,7 +116,6 @@ class MobileVideoConfigurationWidget extends StatelessWidget {
               ],
             ),
           ),
-          const Divider(height: 1, color: Colors.white24),
           _buildDisabledDownloadSection(),
         ],
       ),
@@ -230,104 +229,75 @@ class MobileVideoConfigurationWidget extends StatelessWidget {
     VideoProvider videoProvider,
   ) {
     final video = videoProvider.videoInfo!;
-    final cardHeightFactor = PlatformUtils.isAndroid ? 0.78 : 0.7;
 
-    return ConstrainedBox(
-      constraints: BoxConstraints(
-        maxHeight: MediaQuery.of(context).size.height * cardHeightFactor,
+    return Container(
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF141417) : Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: isDark
+              ? Colors.white.withValues(alpha: 0.08)
+              : Colors.black.withValues(alpha: 0.06),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.06),
+            blurRadius: 16,
+            offset: const Offset(0, 8),
+          ),
+        ],
       ),
-      child: Stack(
-        fit: StackFit.expand,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(20),
-            child: Stack(
-              children: [
-                CachedNetworkImage(
-                  imageUrl: video.thumbnailUrl,
-                  fit: BoxFit.cover,
-                  memCacheWidth: 100,
-                  fadeInDuration: Duration.zero,
-                  fadeOutDuration: Duration.zero,
-                  filterQuality: FilterQuality.low,
-                  errorWidget: (_, __, ___) =>
-                      Container(color: theme.colorScheme.surface),
-                ),
-                Container(
-                  color: theme.colorScheme.surface.withValues(alpha: 0.88),
-                ),
-                Container(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        theme.colorScheme.surface.withValues(alpha: 0.3),
-                        theme.colorScheme.surface.withValues(alpha: 0.95),
-                      ],
+          _buildModeToggle(context, theme, videoProvider),
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildVideoInfoHeader(context, theme, video),
+                  const SizedBox(height: 24),
+                  if (!videoProvider.audioOnly) ...[
+                    _buildResolutionSection(
+                      context,
+                      theme,
+                      videoProvider,
                     ),
-                  ),
-                ),
-              ],
+                    const SizedBox(height: 24),
+                  ],
+                  if (videoProvider.audioOnly) ...[
+                    _buildAudioQualitySection(
+                      context,
+                      theme,
+                      videoProvider,
+                    ),
+                    const SizedBox(height: 24),
+                  ],
+                  if (!videoProvider.audioOnly &&
+                      videoProvider.selectedVideoFormat?.hasAudio ==
+                          false &&
+                      videoProvider
+                          .videoInfo!
+                          .audioOnlyFormats
+                          .isNotEmpty) ...[
+                    _buildAudioMergeSection(
+                      context,
+                      theme,
+                      videoProvider,
+                    ),
+                    const SizedBox(height: 24),
+                  ],
+                  if (videoProvider.videoInfo!.subtitles.isNotEmpty) ...[
+                    _buildSubtitleSection(context, theme, videoProvider),
+                    const SizedBox(height: 24),
+                  ],
+                ],
+              ),
             ),
           ),
-          Container(
-            decoration: BoxDecoration(borderRadius: BorderRadius.circular(20)),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _buildModeToggle(context, theme, videoProvider),
-                _buildVideoInfoHeader(context, theme, video),
-                const Divider(height: 1, color: Colors.white24),
-                Flexible(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (!videoProvider.audioOnly) ...[
-                          _buildResolutionSection(
-                            context,
-                            theme,
-                            videoProvider,
-                          ),
-                          const SizedBox(height: 24),
-                        ],
-                        if (videoProvider.audioOnly) ...[
-                          _buildAudioQualitySection(
-                            context,
-                            theme,
-                            videoProvider,
-                          ),
-                          const SizedBox(height: 24),
-                        ],
-                        if (!videoProvider.audioOnly &&
-                            videoProvider.selectedVideoFormat?.hasAudio ==
-                                false &&
-                            videoProvider
-                                .videoInfo!
-                                .audioOnlyFormats
-                                .isNotEmpty) ...[
-                          _buildAudioMergeSection(
-                            context,
-                            theme,
-                            videoProvider,
-                          ),
-                          const SizedBox(height: 24),
-                        ],
-                        if (videoProvider.videoInfo!.subtitles.isNotEmpty) ...[
-                          _buildSubtitleSection(context, theme, videoProvider),
-                          const SizedBox(height: 24),
-                        ],
-                      ],
-                    ),
-                  ),
-                ),
-                const Divider(height: 1, color: Colors.white24),
-                _buildDownloadSection(context, theme, videoProvider),
-              ],
-            ),
-          ),
+          _buildDownloadSection(context, theme, videoProvider),
         ],
       ),
     );
@@ -429,49 +399,48 @@ class MobileVideoConfigurationWidget extends StatelessWidget {
     ThemeData theme,
     VideoInfo video,
   ) {
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 160,
-            height: 90,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        AspectRatio(
+          aspectRatio: 16 / 9,
+          child: Container(
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(12),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.3),
-                  blurRadius: 10,
-                  offset: const Offset(0, 4),
+                  color: Colors.black.withValues(alpha: 0.2),
+                  blurRadius: 6,
+                  offset: const Offset(0, 2),
                 ),
               ],
             ),
             clipBehavior: Clip.antiAlias,
             child: Stack(
+              fit: StackFit.expand,
               children: [
                 CachedNetworkImage(
                   imageUrl: video.thumbnailUrl,
                   fit: BoxFit.cover,
-                  memCacheWidth: 300,
+                  memCacheWidth: 600,
                 ),
                 Positioned(
-                  bottom: 4,
-                  right: 4,
+                  bottom: 8,
+                  right: 8,
                   child: Container(
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 4,
-                      vertical: 2,
+                      horizontal: 6,
+                      vertical: 4,
                     ),
                     decoration: BoxDecoration(
                       color: Colors.black.withValues(alpha: 0.8),
-                      borderRadius: BorderRadius.circular(4),
+                      borderRadius: BorderRadius.circular(6),
                     ),
                     child: Text(
                       video.formattedDuration,
                       style: const TextStyle(
                         color: Colors.white,
-                        fontSize: 10,
+                        fontSize: 11,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
@@ -480,49 +449,42 @@ class MobileVideoConfigurationWidget extends StatelessWidget {
               ],
             ),
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  video.title,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 15,
-                    height: 1.2,
-                  ),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 6),
-                Row(
-                  children: [
-                    Icon(
-                      Icons.person_outline,
-                      size: 14,
-                      color: Colors.white.withValues(alpha: 0.6),
-                    ),
-                    const SizedBox(width: 4),
-                    Expanded(
-                      child: Text(
-                        video.channel,
-                        style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.6),
-                          fontSize: 12,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
+        ),
+        const SizedBox(height: 14),
+        Text(
+          video.title,
+          style: const TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+            fontSize: 16,
+            height: 1.3,
           ),
-        ],
-      ),
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+        ),
+        const SizedBox(height: 6),
+        Row(
+          children: [
+            Icon(
+              Icons.person_outline,
+              size: 14,
+              color: Colors.white.withValues(alpha: 0.6),
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                video.channel,
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.6),
+                  fontSize: 13,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 
@@ -1164,9 +1126,10 @@ class MobileVideoConfigurationWidget extends StatelessWidget {
     ThemeData theme,
     VideoProvider videoProvider,
   ) {
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Row(
+    return RepaintBoundary(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
         children: [
           Expanded(
             child: OutlinedButton.icon(
@@ -1216,6 +1179,7 @@ class MobileVideoConfigurationWidget extends StatelessWidget {
             ),
           ),
         ],
+      ),
       ),
     );
   }

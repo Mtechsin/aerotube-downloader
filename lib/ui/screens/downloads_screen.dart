@@ -274,6 +274,14 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
               const SizedBox(width: 12),
               _buildStatusIndicator(
                 context,
+                label: 'Paused',
+                count: provider.pausedCount,
+                color: Colors.amber,
+                icon: Icons.pause_circle_outline_rounded,
+              ),
+              const SizedBox(width: 12),
+              _buildStatusIndicator(
+                context,
                 label: 'Done',
                 count: provider.completedCount,
                 color: Colors.green,
@@ -552,6 +560,31 @@ class _MobileDownloadItem extends StatelessWidget {
               ),
             ),
           ],
+          if (isActive && item.progress <= 0) ...[
+            const SizedBox(height: 12),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: LinearProgressIndicator(
+                backgroundColor: theme.colorScheme.surfaceContainerHighest,
+                valueColor: AlwaysStoppedAnimation(
+                  theme.colorScheme.primary,
+                ),
+                minHeight: 4,
+              ),
+            ),
+          ],
+          if (item.statusText != null && item.statusText!.isNotEmpty && isActive) ...[
+            const SizedBox(height: 6),
+            Text(
+              item.statusText!,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: theme.colorScheme.onSurfaceVariant,
+                fontSize: 11,
+              ),
+            ),
+          ],
           if (isFailed && item.error != null) ...[
             const SizedBox(height: 8),
             Text(
@@ -628,12 +661,16 @@ class _MobileDownloadItem extends StatelessWidget {
         break;
       case DownloadStatus.downloadingVideo:
         color = theme.colorScheme.primary;
-        text = 'Video';
+        text = item.progress > 0
+            ? 'Video ${(item.progress * 100).toStringAsFixed(1)}%'
+            : 'Video';
         icon = Icons.videocam_rounded;
         break;
       case DownloadStatus.downloadingAudio:
         color = Colors.amber;
-        text = 'Audio';
+        text = item.progress > 0
+            ? 'Audio ${(item.progress * 100).toStringAsFixed(1)}%'
+            : 'Audio';
         icon = Icons.music_note_rounded;
         break;
       case DownloadStatus.merging:
@@ -655,6 +692,11 @@ class _MobileDownloadItem extends StatelessWidget {
         color = theme.colorScheme.outline;
         text = 'Cancelled';
         icon = Icons.cancel_rounded;
+        break;
+      case DownloadStatus.paused:
+        color = Colors.amber;
+        text = 'Paused';
+        icon = Icons.pause_circle_outline_rounded;
         break;
     }
 
@@ -697,8 +739,10 @@ class _MobileDownloadItem extends StatelessWidget {
               ),
             ),
             child: Text(
-              item.formattedSpeed,
-              key: ValueKey('${item.id}-${item.speed.toStringAsFixed(1)}'),
+              item.speed > 0
+                  ? '${item.formattedSpeed}${item.eta > 0 ? ' • ${item.formattedEta}' : ''}'
+                  : (item.statusText?.isNotEmpty == true ? '' : ''),
+              key: ValueKey('${item.id}-${item.speed.toStringAsFixed(1)}-${item.eta}'),
               style: TextStyle(
                 color: theme.colorScheme.onSurfaceVariant,
                 fontSize: 12,

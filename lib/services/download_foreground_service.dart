@@ -284,6 +284,11 @@ class DownloadForegroundService {
     final progressPercent = (download.progress * 100).toInt();
     final statusText = download.statusText ?? 'Downloading...';
 
+    final showProgress = download.progress > 0;
+    final bodyText = showProgress
+        ? '$statusText • $progressPercent%'
+        : statusText;
+
     final androidDetails = AndroidNotificationDetails(
       _channelId,
       _channelName,
@@ -292,7 +297,7 @@ class DownloadForegroundService {
       priority: Priority.low,
       ongoing: true,
       autoCancel: false,
-      showProgress: true,
+      showProgress: showProgress,
       maxProgress: 100,
       progress: progressPercent,
       icon: '@mipmap/ic_launcher',
@@ -314,7 +319,7 @@ class DownloadForegroundService {
     await _notifications.show(
       _notificationId,
       download.title,
-      '$statusText • $progressPercent%',
+      bodyText,
       notificationDetails,
     );
   }

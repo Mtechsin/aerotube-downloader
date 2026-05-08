@@ -1462,6 +1462,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
         icon: Icons.history_rounded,
         value: provider.useDownloadArchive,
         onChanged: provider.setUseDownloadArchive,
+      ),
+      _buildToggleTile(
+        title: 'Enable Logging',
+        subtitle: 'Record debug information to log file',
+        icon: Icons.bug_report_rounded,
+        value: provider.enableLogging,
+        onChanged: provider.setEnableLogging,
         showDivider: false,
       ),
     ];

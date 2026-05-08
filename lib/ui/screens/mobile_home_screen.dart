@@ -3,19 +3,16 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
 import '../../models/download_mode.dart';
 import '../../providers/video_provider.dart';
-
 import '../../providers/platform_settings_provider.dart';
-
 import '../../providers/mobile_download_provider.dart';
 import '../../models/video_info.dart';
-
-import '../../core/utils/responsive_layout.dart';
 import '../widgets/mobile_url_input_card.dart';
-import '../widgets/mobile_glass_card.dart';
-import '../widgets/video_configuration_widget.dart';
+import '../widgets/mobile_video_configuration_widget.dart';
 import '../widgets/app_logo.dart';
+import 'package:flutter/cupertino.dart';
+import 'mobile_result_screen.dart';
 
-/// Mobile-optimized home screen with responsive layout
+/// Minimalist mobile home screen
 class MobileHomeScreen extends StatefulWidget {
   const MobileHomeScreen({super.key});
 
@@ -46,7 +43,6 @@ class _MobileHomeScreenState extends State<MobileHomeScreen> {
   void _onVideoProviderChange() {
     if (_videoProvider == null) return;
 
-    // Sync URL controller
     if (_urlController.text != _videoProvider!.currentUrl &&
         _videoProvider!.currentUrl.isNotEmpty) {
       _urlController.text = _videoProvider!.currentUrl;
@@ -85,29 +81,33 @@ class _MobileHomeScreenState extends State<MobileHomeScreen> {
   Widget build(BuildContext context) {
     final videoProvider = context.watch<VideoProvider>();
     final settingsProvider = context.watch<PlatformSettingsProvider>();
-    final padding = ResponsiveLayout.getPadding(context);
+    final hasResult = videoProvider.hasVideo ||
+        videoProvider.hasPlaylist ||
+        videoProvider.isLoading ||
+        videoProvider.hasError;
 
-    return Stack(
-      children: [
-        // Main Content Area
-        Positioned.fill(
-          child: SingleChildScrollView(
-            padding: padding,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const SizedBox(height: 16),
+    return SafeArea(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // App Title
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
+            child: _buildAppTitle(context),
+          ),
 
-                // App Logo and Title
-                _buildHeader(context),
-
-                const SizedBox(height: 24),
-
-                // Status Banners
-                if (!settingsProvider.isInitialized)
-                  _buildInitializingBanner(context)
-                else ...[
+          // Status Banners
+          if (!settingsProvider.isInitialized ||
+              !settingsProvider.isYtdlpAvailable ||
+              (settingsProvider.isYtdlpAvailable &&
+                  !settingsProvider.isFfmpegAvailable)) ...[
+            const SizedBox(height: 12),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: Column(
+                children: [
+                  if (!settingsProvider.isInitialized)
+                    _buildInitializingBanner(context),
                   if (!settingsProvider.isYtdlpAvailable)
                     _buildCompactStatusBanner(
                       context,
@@ -126,131 +126,80 @@ class _MobileHomeScreenState extends State<MobileHomeScreen> {
                       color: Colors.orange,
                     ),
                 ],
-
-                const SizedBox(height: 16),
-
-                // URL Input Card
-                MobileUrlInputCard(
-                  controller: _urlController,
-                  onFetch: () => _handleFetch(videoProvider),
-                  isLoading: videoProvider.isLoading,
-                  statusMessage: videoProvider.loadingStatus.isEmpty
-                      ? null
-                      : videoProvider.loadingStatus,
-                  errorMessage: videoProvider.hasError
-                      ? videoProvider.errorMessage
-                      : null,
-                ),
-
-                const SizedBox(height: 24),
-
-                // Video Configuration or Empty State
-                if (videoProvider.hasVideo || videoProvider.isLoading)
-                  VideoConfigurationWidget(
-                        onDownload: _startDownload,
-                        onClear: () {
-                          videoProvider.clear();
-                          _urlController.clear();
-                        },
-                      )
-                      .animate()
-                      .fadeIn(duration: 400.ms)
-                      .slideY(begin: 0.2, end: 0)
-                else if (!videoProvider.isLoading && !videoProvider.hasError)
-                  _buildMobileEmptyState(context, videoProvider)
-                      .animate()
-                      .fadeIn(duration: 400.ms)
-                      .slideY(begin: 0.2, end: 0),
-
-                const SizedBox(height: 24),
-              ],
+              ),
             ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildHeader(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return MobileGlassCard(
-      padding: const EdgeInsets.all(20),
-      borderRadius: 20,
-      child: Row(
-        children: [
-          // App Logo
-          SizedBox(width: 56, height: 56, child: AppLogo(size: 56)),
-          const SizedBox(width: 16),
-          // Title and Subtitle
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'AeroTube',
-                  style: theme.textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 24,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Video & Audio Downloader',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    ).animate().fadeIn(duration: 600.ms).slideY(begin: -0.2, end: 0);
-  }
-
-  Widget _buildInitializingBanner(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            theme.colorScheme.primary.withValues(alpha: 0.1),
-            theme.colorScheme.primary.withValues(alpha: 0.05),
           ],
-        ),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: theme.colorScheme.primary.withValues(alpha: 0.2),
-        ),
-      ),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 20,
-            height: 20,
-            child: CircularProgressIndicator(
-              strokeWidth: 2,
-              color: theme.colorScheme.primary,
-            ),
-          ),
-          const SizedBox(width: 12),
+
+          // Main Content
           Expanded(
-            child: Text(
-              'Initializing...',
-              style: TextStyle(
-                color: theme.colorScheme.onSurface,
-                fontWeight: FontWeight.w600,
-                fontSize: 14,
+            child: SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const SizedBox(height: 80),
+                  MobileUrlInputCard(
+                    controller: _urlController,
+                    onFetch: () => _handleFetch(videoProvider),
+                    isLoading: false,
+                    statusMessage: null,
+                    errorMessage: null,
+                  ),
+                  const SizedBox(height: 32),
+                  _buildMobileEmptyState(context, videoProvider),
+                ],
               ),
             ),
           ),
         ],
       ),
-    ).animate().fadeIn(duration: 400.ms).slideY(begin: -0.1, end: 0);
+    );
+  }
+
+  Widget _buildAppTitle(BuildContext context) {
+    final theme = Theme.of(context);
+    return Text(
+      'AeroTube',
+      style: theme.textTheme.headlineSmall?.copyWith(
+        fontWeight: FontWeight.w800,
+        fontSize: 22,
+        letterSpacing: -0.5,
+      ),
+    );
+  }
+
+  Widget _buildInitializingBanner(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.primary.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: theme.colorScheme.primary,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Text(
+            'Initializing...',
+            style: TextStyle(
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+              fontWeight: FontWeight.w500,
+              fontSize: 13,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildCompactStatusBanner(
@@ -261,23 +210,17 @@ class _MobileHomeScreenState extends State<MobileHomeScreen> {
     required Color color,
   }) {
     final theme = Theme.of(context);
-
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [color.withValues(alpha: 0.1), color.withValues(alpha: 0.05)],
-        ),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withValues(alpha: 0.2)),
+        color: color.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(10),
       ),
       child: Row(
         children: [
-          Icon(icon, color: color, size: 20),
-          const SizedBox(width: 12),
+          Icon(icon, color: color, size: 18),
+          const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -286,14 +229,14 @@ class _MobileHomeScreenState extends State<MobileHomeScreen> {
                   title,
                   style: TextStyle(
                     color: color,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
                   ),
                 ),
                 Text(
                   message,
                   style: TextStyle(
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
                     fontSize: 12,
                   ),
                 ),
@@ -302,7 +245,7 @@ class _MobileHomeScreenState extends State<MobileHomeScreen> {
           ),
         ],
       ),
-    ).animate().fadeIn(duration: 400.ms).slideY(begin: -0.1, end: 0);
+    );
   }
 
   Widget _buildMobileEmptyState(
@@ -310,86 +253,71 @@ class _MobileHomeScreenState extends State<MobileHomeScreen> {
     VideoProvider videoProvider,
   ) {
     final theme = Theme.of(context);
-
-    return MobileGlassCard(
-      padding: const EdgeInsets.all(24),
-      borderRadius: 20,
-      child: Column(
-        children: [
-          // Icon
-          Icon(
-            Icons.download_rounded,
-            size: 64,
-            color: theme.colorScheme.primary.withValues(alpha: 0.5),
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          Icons.download_rounded,
+          size: 40,
+          color: theme.colorScheme.primary.withValues(alpha: 0.35),
+        ),
+        const SizedBox(height: 16),
+        Text(
+          'Ready to Download',
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w600,
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.85),
           ),
-          const SizedBox(height: 16),
-
-          // Title
-          Text(
-            'Ready to Download',
-            style: theme.textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.bold,
-            ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          'Paste a YouTube link to get started',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
           ),
-          const SizedBox(height: 8),
-
-          // Description
-          Text(
-            'Paste a YouTube video or playlist link to get started',
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-            ),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 24),
-
-          // Feature Pills
-          Wrap(
-            alignment: WrapAlignment.center,
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _buildFeaturePill(context, Icons.four_k_rounded, '4K Video'),
-              _buildFeaturePill(
-                context,
-                Icons.music_note_rounded,
-                'Audio Only',
-              ),
-              _buildFeaturePill(
-                context,
-                Icons.playlist_play_rounded,
-                'Playlists',
-              ),
-            ],
-          ),
-        ],
-      ),
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 20),
+        Wrap(
+          alignment: WrapAlignment.center,
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            _buildFeaturePill(context, Icons.four_k_rounded, '4K'),
+            _buildFeaturePill(context, Icons.music_note_rounded, 'Audio'),
+            _buildFeaturePill(context, Icons.playlist_play_rounded, 'Playlist'),
+          ],
+        ),
+      ],
     );
   }
 
   Widget _buildFeaturePill(BuildContext context, IconData icon, String label) {
     final theme = Theme.of(context);
-
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: theme.colorScheme.primaryContainer.withValues(alpha: 0.3),
+        color: theme.colorScheme.primary.withValues(alpha: 0.06),
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
-          color: theme.colorScheme.primary.withValues(alpha: 0.2),
+          color: theme.colorScheme.primary.withValues(alpha: 0.12),
         ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 18, color: theme.colorScheme.primary),
-          const SizedBox(width: 8),
+          Icon(
+            icon,
+            size: 14,
+            color: theme.colorScheme.primary.withValues(alpha: 0.6),
+          ),
+          const SizedBox(width: 6),
           Text(
             label,
             style: TextStyle(
-              color: theme.colorScheme.primary,
-              fontWeight: FontWeight.w600,
-              fontSize: 14,
+              color: theme.colorScheme.primary.withValues(alpha: 0.7),
+              fontWeight: FontWeight.w500,
+              fontSize: 12,
             ),
           ),
         ],
@@ -401,44 +329,17 @@ class _MobileHomeScreenState extends State<MobileHomeScreen> {
     final url = _urlController.text.trim();
     if (url.isEmpty) return;
 
-    videoProvider.fetchVideoInfo(url);
-  }
+    if (url.contains('list=') && !url.contains('v=')) {
+      videoProvider.fetchPlaylistInfo(url);
+    } else {
+      videoProvider.fetchVideoInfo(url);
+      videoProvider.setAudioOnly(false);
+    }
 
-  Future<void> _startDownload() async {
-    final videoProvider = context.read<VideoProvider>();
-    final downloadProvider = context.read<MobileDownloadProvider>();
-
-    if (videoProvider.videoInfo == null) return;
-
-    // Add download with selected format/audio options for Android
-    final selectedSubtitleLanguages = videoProvider.selectedSubtitles
-        .map((s) => s.languageCode)
-        .toList();
-
-    await downloadProvider.addDownload(
-      url: videoProvider.currentUrl,
-      title: videoProvider.videoInfo!.title,
-      thumbnailUrl: videoProvider.videoInfo!.thumbnailUrl,
-      mode: videoProvider.audioOnly
-          ? DownloadMode.audioOnly
-          : DownloadMode.videoWithAudio,
-      formatId: videoProvider.selectedVideoFormatId,
-      options: {
-        'audioFormatId': videoProvider.selectedAudioFormatId,
-        'targetHeight': videoProvider.selectedHeight,
-        'audioQuality': videoProvider.selectedAudioQuality.ytdlpValue,
-        'embedSubtitles': videoProvider.embedSubtitles,
-        'subtitleLanguages': selectedSubtitleLanguages,
-      },
-    );
-
-    // Show confirmation
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Download started: ${videoProvider.videoInfo!.title}'),
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 2),
+    Navigator.push(
+      context,
+      CupertinoPageRoute(
+        builder: (context) => const MobileResultScreen(),
       ),
     );
   }
@@ -465,7 +366,6 @@ class MobileInitializationOverlay extends StatelessWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // Animated Logo
               AppLogo(size: 120)
                   .animate()
                   .fadeIn(duration: 800.ms)
@@ -473,58 +373,42 @@ class MobileInitializationOverlay extends StatelessWidget {
                     begin: const Offset(0.8, 0.8),
                     curve: Curves.easeOutBack,
                   ),
-
               const SizedBox(height: 32),
-
-              // Title
               Text(
                 'YouTube Downloader',
                 style: theme.textTheme.headlineSmall?.copyWith(
                   fontWeight: FontWeight.bold,
                 ),
               ),
-
               const SizedBox(height: 8),
-
-              // Subtitle
               Text(
                 'Initializing application...',
                 style: theme.textTheme.bodyMedium?.copyWith(
                   color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
                 ),
               ),
-
               const SizedBox(height: 40),
-
-              // Progress Steps
               _buildProgressStep(
                 context,
                 icon: Icons.check_circle_rounded,
                 title: 'Loading settings',
                 isComplete: true,
               ),
-
               const SizedBox(height: 12),
-
               _buildProgressStep(
                 context,
                 icon: Icons.terminal_rounded,
                 title: 'Checking yt-dlp',
                 isLoading: true,
               ),
-
               const SizedBox(height: 12),
-
               _buildProgressStep(
                 context,
                 icon: Icons.movie_rounded,
                 title: 'Checking FFmpeg',
                 isPending: true,
               ),
-
               const SizedBox(height: 32),
-
-              // Loading Bar
               Container(
                 width: 150,
                 height: 4,
@@ -591,15 +475,15 @@ class MobileInitializationOverlay extends StatelessWidget {
         color: isLoading
             ? theme.colorScheme.primary.withValues(alpha: 0.05)
             : isComplete
-            ? Colors.green.withValues(alpha: 0.05)
-            : theme.colorScheme.surface,
+                ? Colors.green.withValues(alpha: 0.05)
+                : theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
           color: isLoading
               ? theme.colorScheme.primary.withValues(alpha: 0.2)
               : isComplete
-              ? Colors.green.withValues(alpha: 0.2)
-              : theme.colorScheme.onSurface.withValues(alpha: 0.1),
+                  ? Colors.green.withValues(alpha: 0.2)
+                  : theme.colorScheme.onSurface.withValues(alpha: 0.1),
         ),
       ),
       child: Row(
