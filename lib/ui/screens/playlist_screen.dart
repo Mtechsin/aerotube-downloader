@@ -9,7 +9,6 @@ import '../widgets/playlist_video_card.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/gradient_background.dart';
 import '../../models/video_info.dart';
-import 'dart:io';
 
 class PlaylistScreen extends StatefulWidget {
   const PlaylistScreen({super.key});
@@ -44,7 +43,7 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
     }
   }
 
-  void _downloadSelected() {
+  Future<void> _downloadSelected() async {
     final provider = context.read<PlaylistProvider>();
     if (provider.playlist == null || provider.selectedCount == 0) return;
 
@@ -53,10 +52,11 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
 
     final outputPath =
         settingsProvider.settings.outputPath ??
-        '${Platform.environment['USERPROFILE']}\\Downloads';
+        await settingsProvider.getDefaultOutputPath();
 
     provider.downloadSelected(downloadProvider, outputPath);
 
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(

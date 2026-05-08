@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_animate/flutter_animate.dart';
-import 'dart:io';
-
 import '../../models/playlist_info.dart';
 import '../../models/video_info.dart';
 import '../../models/download_mode.dart';
@@ -466,7 +464,7 @@ class PlaylistPreviewScreen extends StatelessWidget {
     );
   }
 
-  void _startBatchDownload(BuildContext context) {
+  Future<void> _startBatchDownload(BuildContext context) async {
     final videoProvider = context.read<VideoProvider>();
     final downloadProvider = context.read<DownloadProvider>();
     final settingsProvider = context.read<PlatformSettingsProvider>();
@@ -477,7 +475,7 @@ class PlaylistPreviewScreen extends StatelessWidget {
 
     final outputPath =
         settingsProvider.settings.outputPath ??
-        '${Platform.environment['USERPROFILE']}Downloads';
+        await settingsProvider.getDefaultOutputPath();
 
     // Start each download
     for (final videoItem in selectedVideos) {
@@ -509,6 +507,7 @@ class PlaylistPreviewScreen extends StatelessWidget {
       );
     }
 
+    if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Row(
@@ -524,6 +523,7 @@ class PlaylistPreviewScreen extends StatelessWidget {
       ),
     );
 
+    if (!context.mounted) return;
     Navigator.pop(context);
     videoProvider.clear();
   }

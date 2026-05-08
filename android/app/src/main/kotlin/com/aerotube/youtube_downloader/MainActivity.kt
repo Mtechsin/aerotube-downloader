@@ -5,6 +5,7 @@ import android.net.Uri
 import android.os.Build
 import android.util.Log
 import androidx.core.content.FileProvider
+import com.yausername.ffmpeg.FFmpeg
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
 import com.yausername.youtubedl_android.YoutubeDLResponse
@@ -40,7 +41,7 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
-        // Initialize YoutubeDL - FFmpeg is bundled and auto-initialized
+        // Initialize YoutubeDL and FFmpeg
         try {
             ensureYoutubeDLInitialized()
         } catch (e: Throwable) {
@@ -246,6 +247,14 @@ class MainActivity : FlutterActivity() {
         if (youtubeDLInitialized) return
 
         YoutubeDL.getInstance().init(applicationContext)
+
+        try {
+            FFmpeg.getInstance().init(applicationContext)
+            Log.d(TAG, "FFmpeg initialized successfully")
+        } catch (e: Throwable) {
+            Log.e(TAG, "Failed to initialize FFmpeg - merging will not work", e)
+        }
+
         youtubeDLInitialized = true
         Log.d(TAG, "YoutubeDL initialized successfully")
     }

@@ -30,6 +30,10 @@ class LogEntry {
     return '${timestamp.hour.toString().padLeft(2, '0')}:${timestamp.minute.toString().padLeft(2, '0')}:${timestamp.second.toString().padLeft(2, '0')}';
   }
 
+  String get compactTimestamp {
+    return '${timestamp.hour.toString().padLeft(2, '0')}:${timestamp.minute.toString().padLeft(2, '0')}';
+  }
+
   String get levelEmoji {
     switch (level) {
       case LogLevel.debug:
@@ -228,8 +232,6 @@ class LoggingService {
     dynamic error,
     StackTrace? stackTrace,
   }) {
-    if (!_loggingEnabled) return;
-
     final entry = LogEntry(
       timestamp: DateTime.now(),
       level: level,
@@ -239,22 +241,21 @@ class LoggingService {
       stackTrace: stackTrace,
     );
 
-    // Add to dev logs
+    // Always show in console for debug builds (not gated by _loggingEnabled)
+    if (kDebugMode) {
+      debugPrint(entry.toString());
+    }
+
+    // In-memory store and file write respect the user toggle
+    if (!_loggingEnabled) return;
+
     _devLogs.add(entry);
     if (_devLogs.length > _maxDevLogs) {
       _devLogs.removeAt(0);
     }
     _devLogsController.add(List.unmodifiable(_devLogs));
 
-    // Write to file only if logging is enabled
-    if (_loggingEnabled) {
-      _writeToFile(entry);
-    }
-
-    // Also show in console for debug builds
-    if (kDebugMode) {
-      debugPrint(entry.toString());
-    }
+    _writeToFile(entry);
   }
 
   Future<void> _writeToFile(LogEntry entry) async {
@@ -424,6 +425,56 @@ class LoggingService {
   /// Export logs to a string
   String exportLogs() {
     return _devLogs.map((e) => e.toString()).join('\n');
+  }
+
+  /// Export logs to a file in the selected output directory.
+  ///
+  /// The exported file is written to `outputPath/app.log`.
+  Future<String> exportLogsToFile(String outputPath) async {
+    if (!_isInitialized) {
+      throw StateError('Logging service is not initialized yet.');
+    }
+
+    if (outputPath.trim().isEmpty) {
+      throw ArgumentError.value(
+        outputPath,
+        'outputPath',
+        'A valid directory is required.',
+      );
+    }
+
+    final outputDir = Directory(outputPath);
+    await outputDir.create(recursive: true);
+
+    final exportFile = File(p.join(outputDir.path, 'app.log'));
+    final sourceFileExists = await _logFile.exists();
+    final hasInMemoryLogs = _devLogs.isNotEmpty;
+
+    if (!sourceFileExists && !hasInMemoryLogs) {
+      throw StateError(
+        'No log file exists and there are no in-memory log entries to export.',
+      );
+    }
+
+    if (sourceFileExists) {
+      await _logFile.copy(exportFile.path);
+      final sourceStat = await _logFile.stat();
+      final pendingLogs = _devLogs
+          .where((entry) => entry.timestamp.isAfter(sourceStat.modified))
+          .toList();
+
+      if (pendingLogs.isNotEmpty) {
+        final pendingText = pendingLogs
+            .map((entry) => entry.toString())
+            .join('\n');
+        await exportFile.writeAsString('$pendingText\n', mode: FileMode.append);
+      }
+    } else {
+      final logsText = exportLogs();
+      await exportFile.writeAsString('$logsText\n', mode: FileMode.write);
+    }
+
+    return exportFile.path;
   }
 
   /// Dispose resources

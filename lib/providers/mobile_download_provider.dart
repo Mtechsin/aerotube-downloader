@@ -8,6 +8,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import '../core/utils/platform_utils.dart';
 import '../models/download_item.dart';
 import '../models/download_mode.dart';
+import '../providers/platform_settings_provider.dart';
 import '../services/android_storage_service.dart';
 import '../services/cookie_service.dart';
 import '../services/download_foreground_service.dart';
@@ -23,6 +24,7 @@ class MobileDownloadProvider extends ChangeNotifier {
       DownloadForegroundService();
   final AndroidStorageService _storageService = AndroidStorageService();
   final LoggingService _logger = LoggingService();
+  final PlatformSettingsProvider? _settingsProvider;
 
   final List<DownloadItem> _downloads = [];
   final Map<String, StreamController<double>> _progressControllers = {};
@@ -36,7 +38,8 @@ class MobileDownloadProvider extends ChangeNotifier {
   MobileDownloadProvider({
     required this.ytdlpService,
     CookieService? cookieService, // kept for signature compatibility
-  });
+    PlatformSettingsProvider? settingsProvider,
+  }) : _settingsProvider = settingsProvider;
 
   List<DownloadItem> get downloads => List.unmodifiable(_downloads);
   List<DownloadItem> get activeDownloads => _downloads
@@ -152,20 +155,6 @@ class MobileDownloadProvider extends ChangeNotifier {
           },
         );
 
-    if (PlatformUtils.isAndroid) {
-      try {
-        await _storageService.requestStoragePermission();
-      } on PlatformException catch (e, stackTrace) {
-        _logger.warning(
-          'Storage permission request deferred due to concurrent permission flow: $e',
-          component: 'MobileDownloadProvider',
-        );
-        _logger.debug(
-          'Permission concurrency stack: $stackTrace',
-          component: 'MobileDownloadProvider',
-        );
-      }
-    }
   }
 
   void setMaxConcurrentDownloads(int max) {
@@ -188,6 +177,10 @@ class MobileDownloadProvider extends ChangeNotifier {
       String saveDir;
       if (outputPath != null) {
         saveDir = outputPath;
+      } else if (_settingsProvider?.outputPath != null &&
+          _settingsProvider!.outputPath!.isNotEmpty) {
+        // Use user-configured output path from settings
+        saveDir = _settingsProvider!.outputPath!;
       } else {
         saveDir = mode == DownloadMode.audioOnly
             ? await _storageService.getAudioDirectory()
@@ -255,6 +248,20 @@ class MobileDownloadProvider extends ChangeNotifier {
           'Only YtdlpServiceAndroid is supported on mobile',
         );
       }
+
+      final hasPermission = await _storageService.requestStoragePermission();
+      if (!hasPermission) {
+        _logger.warning(
+          'Storage permission not granted',
+          component: 'MobileDownloadProvider',
+        );
+        await _failDownload(
+          item.id,
+          'Storage permission is required to save files. Please grant "All files access" in Settings.',
+        );
+        return;
+      }
+
       final service = ytdlpService as YtdlpServiceAndroid;
 
       _updateDownloadStatus(

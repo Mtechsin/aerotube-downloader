@@ -14,6 +14,7 @@ class AndroidStorageService {
       'PermissionHandler.PermissionManager';
 
   /// Get the appropriate download directory based on Android version
+  /// Returns user-accessible Downloads/aerotube folder by default
   Future<String> getDownloadDirectory() async {
     if (!PlatformUtils.isAndroid) {
       throw UnsupportedError('This service is for Android only');
@@ -22,13 +23,14 @@ class AndroidStorageService {
     try {
       final androidVersion = await _getAndroidApiLevel();
 
-      // For Android 10+ (API 29+), use app-specific directories
+      // Android 10+ (API 29+) can use public Downloads folder via Scoped Storage
+      // No special permissions needed for writing to /Android/media or /Download
       if (androidVersion >= 29) {
-        return await _getScopedStoragePath();
-      } else {
-        // For older Android versions, use legacy external storage
-        return await _getLegacyStoragePath();
+        return await _getPublicDownloadPath();
       }
+
+      // Android 9 and below - use legacy public storage
+      return await _getLegacyStoragePath();
     } catch (e, stackTrace) {
       _logger.error(
         'Failed to get download directory',
@@ -36,28 +38,33 @@ class AndroidStorageService {
         error: e,
         stackTrace: stackTrace,
       );
-      // Fallback to app-specific directory
+      // Last resort fallback to app-specific directory
       final appDir = await getApplicationDocumentsDirectory();
-      return p.join(appDir.path, 'Downloads');
+      return p.join(appDir.path, 'downloads', 'aerotube');
     }
   }
 
-  /// Get scoped storage path for Android 10+ (API 29+)
-  Future<String> _getScopedStoragePath() async {
-    // Use public downloads directory (no permission needed for Android 10+)
-    // Files here are visible to user and other apps
-    final externalDir = await getExternalStorageDirectory();
-
-    if (externalDir != null) {
-      // Use app-specific external storage
-      final downloadPath = p.join(externalDir.path, 'downloads');
-      await _ensureDirectoryExists(downloadPath);
-      return downloadPath;
+  /// Get the preferred download directory without requesting permissions.
+  ///
+  /// This is used for default path initialization so startup stays quiet.
+  Future<String> getPreferredDownloadDirectory() async {
+    if (!PlatformUtils.isAndroid) {
+      throw UnsupportedError('This service is for Android only');
     }
 
-    // Fallback to internal storage
-    final appDir = await getApplicationDocumentsDirectory();
-    final downloadPath = p.join(appDir.path, 'Downloads');
+    final androidVersion = await _getAndroidApiLevel();
+    if (androidVersion >= 29) {
+      return await _getPublicDownloadPath();
+    }
+
+    return await _getLegacyStoragePath();
+  }
+
+  /// Get the public Downloads/aerotube folder.
+  /// This is accessible to users and media scanners
+  Future<String> _getPublicDownloadPath() async {
+    // Use standard Android Download directory with aerotube subfolder
+    const downloadPath = '/storage/emulated/0/Download/aerotube';
     await _ensureDirectoryExists(downloadPath);
     return downloadPath;
   }
@@ -76,29 +83,21 @@ class AndroidStorageService {
           );
           // Fallback to app-specific directory
           final appDir = await getApplicationDocumentsDirectory();
-          return p.join(appDir.path, 'Downloads');
+          return p.join(appDir.path, 'downloads', 'aerotube');
         }
       }
 
-      // Use public Downloads directory
-      final externalDir = await getExternalStorageDirectory();
-      if (externalDir != null) {
-        // Try to use public downloads folder
-        const publicDownloads = '/storage/emulated/0/Download/AeroTube';
-        await _ensureDirectoryExists(publicDownloads);
-        return publicDownloads;
-      }
-
-      // Fallback
-      final appDir = await getApplicationDocumentsDirectory();
-      return p.join(appDir.path, 'Downloads');
+      // Use public Downloads directory (same as modern Android)
+      const downloadPath = '/storage/emulated/0/Download/aerotube';
+      await _ensureDirectoryExists(downloadPath);
+      return downloadPath;
     } catch (e) {
       _logger.warning(
         'Failed to get legacy storage path: $e',
         component: 'AndroidStorageService',
       );
       final appDir = await getApplicationDocumentsDirectory();
-      return p.join(appDir.path, 'Downloads');
+      return p.join(appDir.path, 'downloads', 'aerotube');
     }
   }
 
@@ -138,33 +137,39 @@ class AndroidStorageService {
 
     final androidVersion = await _getAndroidApiLevel();
 
-    // Android 13+ (API 33+) uses different permissions
-    if (androidVersion >= 33) {
-      try {
-        final statuses = await [
-          Permission.videos,
-          Permission.audio,
-          Permission.photos,
-        ].request();
-        return statuses.values.every((status) => status.isGranted);
-      } on PlatformException catch (e) {
-        if (_isConcurrentPermissionRequestError(e)) {
-          await Future.delayed(const Duration(milliseconds: 600));
-          final statuses = await Future.wait([
-            Permission.videos.status,
-            Permission.audio.status,
-            Permission.photos.status,
-          ]);
-          return statuses.every((status) => status.isGranted);
-        }
-        rethrow;
+    // Android 11+ (API 30+) needs MANAGE_EXTERNAL_STORAGE for broad file access
+    if (androidVersion >= 30) {
+      final hasBroadAccess = await requestManageExternalStorage();
+      if (hasBroadAccess) {
+        return true;
       }
+      // On Android 13+ try granular media permissions as fallback
+      if (androidVersion >= 33) {
+        try {
+          final statuses = await [
+            Permission.videos,
+            Permission.audio,
+            Permission.photos,
+          ].request();
+          return statuses.values.every((status) => status.isGranted);
+        } on PlatformException catch (e) {
+          if (_isConcurrentPermissionRequestError(e)) {
+            await Future.delayed(const Duration(milliseconds: 600));
+            final statuses = await Future.wait([
+              Permission.videos.status,
+              Permission.audio.status,
+              Permission.photos.status,
+            ]);
+            return statuses.every((status) => status.isGranted);
+          }
+          rethrow;
+        }
+      }
+      return false;
     }
 
-    // Android 10-12 (API 29-32)
+    // Android 10 (API 29) - scoped storage with legacy flag
     if (androidVersion >= 29) {
-      // For scoped storage, we might not need storage permission
-      // Only request if we need broader access
       return true;
     }
 

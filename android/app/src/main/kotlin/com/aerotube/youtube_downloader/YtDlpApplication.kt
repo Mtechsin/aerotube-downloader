@@ -2,6 +2,7 @@ package com.aerotube.youtube_downloader
 
 import android.app.Application
 import android.util.Log
+import com.yausername.ffmpeg.FFmpeg
 import com.yausername.youtubedl_android.YoutubeDL
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -15,6 +16,7 @@ class YtDlpApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         initializeYoutubeDL()
+        initializeFFmpeg()
     }
 
     private fun initializeYoutubeDL() {
@@ -29,6 +31,16 @@ class YtDlpApplication : Application() {
             Log.d(TAG, "Auto-update disabled - use Settings to update yt-dlp")
         } catch (e: Throwable) {
             Log.e(TAG, "Failed to initialize youtubedl-android", e)
+        }
+    }
+
+    private fun initializeFFmpeg() {
+        try {
+            Log.d(TAG, "Initializing FFmpeg (bundled with youtubedl-android)...")
+            FFmpeg.getInstance().init(applicationContext)
+            Log.d(TAG, "FFmpeg initialized successfully")
+        } catch (e: Throwable) {
+            Log.e(TAG, "Failed to initialize FFmpeg - merging will not work", e)
         }
     }
     

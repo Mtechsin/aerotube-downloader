@@ -94,23 +94,34 @@ class PlatformSettingsProvider extends ChangeNotifier {
 
   /// Get default output path based on platform
   Future<String> getDefaultOutputPath() async {
+    late final String defaultPath;
     if (PlatformUtils.isAndroid) {
-      return await _androidStorageService.getDownloadDirectory();
+      defaultPath = await _androidStorageService
+          .getPreferredDownloadDirectory();
     } else {
-      // Windows/Desktop - use user's Downloads directory
+      // Desktop platforms use a dedicated aerotube folder inside Downloads.
       final homeDir =
           Platform.environment['USERPROFILE'] ??
           Platform.environment['HOME'] ??
           '';
-      return p.join(homeDir, 'Downloads', 'AeroTube');
+      defaultPath = p.join(homeDir, 'Downloads', 'aerotube');
     }
+
+    final dir = Directory(defaultPath);
+    if (!await dir.exists()) {
+      await dir.create(recursive: true);
+    }
+    return defaultPath;
   }
 
   Future<void> init() async {
     await _settingsService.init();
 
-    // Set default output path if not set
-    if (settings.outputPath == null || settings.outputPath!.isEmpty) {
+    // Set or migrate the default output path.
+    final currentOutputPath = settings.outputPath;
+    if (currentOutputPath == null ||
+        currentOutputPath.isEmpty ||
+        _shouldMigrateAndroidOutputPath(currentOutputPath)) {
       final defaultPath = await getDefaultOutputPath();
       await setOutputPath(defaultPath);
     }
@@ -146,11 +157,6 @@ class PlatformSettingsProvider extends ChangeNotifier {
       (_ytdlpService).enableCookies = settings.enableCookies;
     }
 
-    // Request storage permissions on Android
-    if (PlatformUtils.isAndroid) {
-      await _androidStorageService.requestStoragePermission();
-    }
-
     _isInitialized = true;
     notifyListeners();
 
@@ -171,43 +177,52 @@ class PlatformSettingsProvider extends ChangeNotifier {
     Future.microtask(_checkYouTubeLoginAsync);
   }
 
+  bool _shouldMigrateAndroidOutputPath(String path) {
+    if (!PlatformUtils.isAndroid) return false;
+
+    final normalized = path.replaceAll('\\', '/').toLowerCase();
+    return normalized.contains('/android/data/') &&
+        (normalized.contains('/downloads') ||
+            normalized.endsWith('/downloads'));
+  }
+
   /// Check if user is logged into YouTube via WebView cookies
   Future<void> checkYouTubeLoginStatus() async {
     _isYouTubeLoggedIn = await _cookieService.isLoggedIn;
     _youTubeLoginTime = await _cookieService.lastLoginTime;
 
-      // If logged in via WebView, configure ytdlp to use the WebView profile directly
-      if (_isYouTubeLoggedIn) {
-        final userAgent = await _cookieService.userAgent;
+    // If logged in via WebView, configure ytdlp to use the WebView profile directly
+    if (_isYouTubeLoggedIn) {
+      final userAgent = await _cookieService.userAgent;
 
-        if (_ytdlpService is YtdlpService) {
-          final webViewPath = await _cookieService.webViewPath;
-          (_ytdlpService).webViewPath = webViewPath;
-          (_ytdlpService).userAgent = userAgent;
-          // Clear other cookie methods to ensure WebView takes precedence
-          (_ytdlpService).cookiePath = null;
-          (_ytdlpService).cookieBrowser = null;
+      if (_ytdlpService is YtdlpService) {
+        final webViewPath = await _cookieService.webViewPath;
+        (_ytdlpService).webViewPath = webViewPath;
+        (_ytdlpService).userAgent = userAgent;
+        // Clear other cookie methods to ensure WebView takes precedence
+        (_ytdlpService).cookiePath = null;
+        (_ytdlpService).cookieBrowser = null;
 
-          LoggingService().info(
-            'YouTube WebView login detected',
-            component: 'PlatformSettingsProvider',
-          );
-          LoggingService().debug(
-            'WebView profile path: $webViewPath',
-            component: 'PlatformSettingsProvider',
-          );
-          LoggingService().debug(
-            'yt-dlp will use: --cookies-from-browser edge:$webViewPath',
-            component: 'PlatformSettingsProvider',
-          );
-        } else if (_ytdlpService is YtdlpServiceAndroid) {
-          // For Android, also pass the user agent from WebView
-          (_ytdlpService).userAgent = userAgent;
-          LoggingService().info(
-            'Android: Set user agent from WebView for yt-dlp',
-            component: 'PlatformSettingsProvider',
-          );
-        }
+        LoggingService().info(
+          'YouTube WebView login detected',
+          component: 'PlatformSettingsProvider',
+        );
+        LoggingService().debug(
+          'WebView profile path: $webViewPath',
+          component: 'PlatformSettingsProvider',
+        );
+        LoggingService().debug(
+          'yt-dlp will use: --cookies-from-browser edge:$webViewPath',
+          component: 'PlatformSettingsProvider',
+        );
+      } else if (_ytdlpService is YtdlpServiceAndroid) {
+        // For Android, also pass the user agent from WebView
+        (_ytdlpService).userAgent = userAgent;
+        LoggingService().info(
+          'Android: Set user agent from WebView for yt-dlp',
+          component: 'PlatformSettingsProvider',
+        );
+      }
     }
 
     notifyListeners();

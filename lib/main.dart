@@ -154,9 +154,10 @@ void main() {
           ChangeNotifierProvider(create: (_) => VideoProvider(ytdlpService)),
           if (PlatformUtils.isMobile)
             ChangeNotifierProvider<MobileDownloadProvider>(
-              create: (_) => MobileDownloadProvider(
+              create: (context) => MobileDownloadProvider(
                 ytdlpService: ytdlpService,
                 cookieService: cookieService,
+                settingsProvider: context.read<PlatformSettingsProvider>(),
               )..initialize(),
             ),
           ChangeNotifierProvider<DownloadProvider>(

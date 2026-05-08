@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'mobile_home_layout.dart';
@@ -725,12 +724,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final outputPath =
         settingsProvider.settings.outputPath ??
-        '${Platform.environment['USERPROFILE']}\\Downloads';
-
-    final dir = Directory(outputPath);
-    if (!dir.existsSync()) {
-      dir.createSync(recursive: true);
-    }
+        await settingsProvider.getDefaultOutputPath();
 
     downloadProvider.startDownload(
       video: videoProvider.videoInfo!,
@@ -752,6 +746,7 @@ class _HomeScreenState extends State<HomeScreen> {
       useDownloadArchive: settingsProvider.useDownloadArchive,
     );
 
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Row(

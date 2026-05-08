@@ -1,4 +1,6 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -6,6 +8,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../providers/platform_settings_provider.dart';
 import '../../providers/update_provider.dart';
 import '../../providers/tool_update_provider.dart';
+import '../../services/logging_service.dart';
 import '../widgets/update_dialog.dart';
 import '../widgets/logs_viewer.dart';
 import '../widgets/floating_progress_overlay.dart';
@@ -455,6 +458,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return _buildSettingsSection(
       children: [
         _buildSettingsTile(
+          title: 'Export Logs',
+          subtitle: 'Save app.log to a folder you choose',
+          icon: Icons.file_download_rounded,
+          trailing: Icon(
+            Icons.chevron_right_rounded,
+            color: Theme.of(
+              context,
+            ).colorScheme.onSurface.withValues(alpha: 0.5),
+          ),
+          onTap: () => _exportLogs(context),
+        ),
+        RecentLogsPreview(onViewAll: () => _showLogsViewer(context)),
+        _buildSettingsTile(
           title: 'View Logs',
           subtitle: 'Developer logs and debugging info',
           icon: Icons.bug_report_rounded,
@@ -475,6 +491,57 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
       ],
     );
+  }
+
+  Future<void> _exportLogs(BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final service = LoggingService();
+    final isMobile =
+        defaultTargetPlatform == TargetPlatform.android ||
+        defaultTargetPlatform == TargetPlatform.iOS ||
+        defaultTargetPlatform == TargetPlatform.fuchsia;
+
+    try {
+      final pickedPath = await FilePicker.platform.getDirectoryPath(
+        dialogTitle: 'Select a folder to export logs',
+      );
+
+      if (pickedPath == null) return;
+
+      final exportedPath = await service.exportLogsToFile(pickedPath);
+      if (!mounted) return;
+
+      messenger.showSnackBar(
+        SnackBar(content: Text('Logs exported to $exportedPath')),
+      );
+    } catch (e) {
+      if (!isMobile) {
+        if (!mounted) return;
+        messenger.showSnackBar(
+          SnackBar(content: Text('Failed to export logs: $e')),
+        );
+        return;
+      }
+
+      try {
+        final copiedText = service.exportLogs();
+        if (copiedText.trim().isEmpty) {
+          throw StateError('No log entries are available to copy.');
+        }
+
+        await Clipboard.setData(ClipboardData(text: copiedText));
+        if (!mounted) return;
+
+        messenger.showSnackBar(
+          const SnackBar(content: Text('Logs copied to clipboard')),
+        );
+      } catch (clipboardError) {
+        if (!mounted) return;
+        messenger.showSnackBar(
+          SnackBar(content: Text('Failed to export logs: $clipboardError')),
+        );
+      }
+    }
   }
 
   void _showLogsViewer(BuildContext context) {

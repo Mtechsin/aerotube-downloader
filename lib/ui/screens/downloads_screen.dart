@@ -110,9 +110,7 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                       .read<PlatformSettingsProvider>();
                   final outputPath =
                       settingsProvider.settings.outputPath ??
-                      (Platform.isWindows
-                          ? '${Platform.environment['USERPROFILE']}\\Downloads'
-                          : await settingsProvider.getDefaultOutputPath());
+                      await settingsProvider.getDefaultOutputPath();
 
                   final dir = Directory(outputPath);
                   if (!await dir.exists()) {
@@ -566,14 +564,14 @@ class _MobileDownloadItem extends StatelessWidget {
               borderRadius: BorderRadius.circular(4),
               child: LinearProgressIndicator(
                 backgroundColor: theme.colorScheme.surfaceContainerHighest,
-                valueColor: AlwaysStoppedAnimation(
-                  theme.colorScheme.primary,
-                ),
+                valueColor: AlwaysStoppedAnimation(theme.colorScheme.primary),
                 minHeight: 4,
               ),
             ),
           ],
-          if (item.statusText != null && item.statusText!.isNotEmpty && isActive) ...[
+          if (item.statusText != null &&
+              item.statusText!.isNotEmpty &&
+              isActive) ...[
             const SizedBox(height: 6),
             Text(
               item.statusText!,
@@ -700,64 +698,79 @@ class _MobileDownloadItem extends StatelessWidget {
         break;
     }
 
-    return Row(
-      children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.1),
-            borderRadius: BorderRadius.circular(6),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: 12, color: color),
-              const SizedBox(width: 4),
-              Text(
-                text,
-                style: TextStyle(
-                  color: color,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
+    return ClipRect(
+      child: Row(
+        children: [
+        Flexible(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: 12, color: color),
+                const SizedBox(width: 4),
+                Flexible(
+                  child: Text(
+                    text,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: color,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
         const Spacer(),
         if (isActive)
-          AnimatedSwitcher(
-            duration: const Duration(milliseconds: 220),
-            transitionBuilder: (child, animation) => FadeTransition(
-              opacity: animation,
-              child: SlideTransition(
-                position: Tween<Offset>(
-                  begin: const Offset(0.08, 0),
-                  end: Offset.zero,
-                ).animate(animation),
-                child: child,
+          Flexible(
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 220),
+              transitionBuilder: (child, animation) => FadeTransition(
+                opacity: animation,
+                child: SlideTransition(
+                  position: Tween<Offset>(
+                    begin: const Offset(0.08, 0),
+                    end: Offset.zero,
+                  ).animate(animation),
+                  child: child,
+                ),
+              ),
+              child: Text(
+                item.speed > 0
+                    ? '${item.formattedSpeed}${item.eta > 0 ? ' • ${item.formattedEta}' : ''}'
+                    : (item.statusText?.isNotEmpty == true ? '' : ''),
+                key: ValueKey(
+                  '${item.id}-${item.speed.toStringAsFixed(1)}-${item.eta}',
+                ),
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: theme.colorScheme.onSurfaceVariant,
+                  fontSize: 12,
+                ),
               ),
             ),
+          ),
+        if (isCompleted)
+          Flexible(
             child: Text(
-              item.speed > 0
-                  ? '${item.formattedSpeed}${item.eta > 0 ? ' • ${item.formattedEta}' : ''}'
-                  : (item.statusText?.isNotEmpty == true ? '' : ''),
-              key: ValueKey('${item.id}-${item.speed.toStringAsFixed(1)}-${item.eta}'),
+              _formatSize(item.totalBytes ?? 0),
+              overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 color: theme.colorScheme.onSurfaceVariant,
                 fontSize: 12,
               ),
             ),
           ),
-        if (isCompleted)
-          Text(
-            _formatSize(item.totalBytes ?? 0),
-            style: TextStyle(
-              color: theme.colorScheme.onSurfaceVariant,
-              fontSize: 12,
-            ),
-          ),
       ],
+      ),
     );
   }
 
