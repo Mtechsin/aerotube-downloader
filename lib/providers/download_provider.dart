@@ -287,7 +287,13 @@ class DownloadProvider extends ChangeNotifier {
             if (found != null) {
               resolvedSavePath = found.path;
             }
-          } catch (_) {}
+          } catch (e) {
+            LoggingService().error(
+              'Failed to resolve downloaded file path: $e',
+              component: 'DownloadProvider',
+              error: e,
+            );
+          }
 
           finalItem = finalItem.copyWith(
             status: DownloadStatus.completed,

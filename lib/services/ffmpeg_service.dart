@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 import 'package:archive/archive.dart';
 import 'logging_service.dart';
 import 'download_helper.dart';
+import 'ffmpeg_tool_service.dart';
 
 /// FFmpeg update information
 class FfmpegUpdateInfo {
@@ -24,9 +25,9 @@ class FfmpegUpdateInfo {
   });
 }
 
-class FfmpegService {
+class FfmpegService implements FfmpegToolService {
   String? _ffmpegPath;
-  bool isAvailable = false;
+  bool _isAvailable = false;
   bool _isInitialized = false;
   String? _currentVersion;
 
@@ -40,6 +41,10 @@ class FfmpegService {
   String? get ffmpegPath => _ffmpegPath;
   String? get currentVersion => _currentVersion;
 
+  @override
+  bool get isAvailable => _isAvailable;
+
+  @override
   Future<void> initialize({bool force = false}) async {
     if (_isInitialized && !force) return;
 
@@ -62,6 +67,7 @@ class FfmpegService {
     _isInitialized = true;
   }
 
+  @override
   Future<bool> update({
     Function(double progress)? onProgress,
     Function(String status)? onStatus,
@@ -119,16 +125,16 @@ class FfmpegService {
       if (result.exitCode != 0 && Platform.isWindows && !path.toLowerCase().endsWith('.exe')) {
         result = await Process.run('$path.exe', ['-version']);
         if (result.exitCode == 0) {
-          isAvailable = true;
+          _isAvailable = true;
           if (_ffmpegPath != null) _ffmpegPath = '$_ffmpegPath.exe';
         } else {
-          isAvailable = false;
+          _isAvailable = false;
         }
       } else {
-        isAvailable = result.exitCode == 0;
+        _isAvailable = result.exitCode == 0;
       }
 
-      if (isAvailable) {
+      if (_isAvailable) {
         // Parse version from first line
         final output = result.stdout.toString();
         final firstLine = output.split('\n').firstOrNull;
@@ -146,7 +152,7 @@ class FfmpegService {
           try {
             final result = await Process.run('$path.exe', ['-version']);
             if (result.exitCode == 0) {
-              isAvailable = true;
+              _isAvailable = true;
               if (_ffmpegPath != null) _ffmpegPath = '$_ffmpegPath.exe';
               
               final output = result.stdout.toString();
@@ -157,13 +163,16 @@ class FfmpegService {
               }
               return;
             }
-          } catch (_) {}
+          } catch (e) {
+            LoggingService().warning('ffmpeg .exe fallback check failed: $e', component: 'FfmpegService');
+          }
         }
       }
-      isAvailable = false;
+      _isAvailable = false;
     }
   }
 
+  @override
   Future<String?> getVersion() async {
     if (!isAvailable) return null;
     return _currentVersion;
@@ -172,6 +181,7 @@ class FfmpegService {
   /// Check for FFmpeg updates
   /// Note: FFmpeg doesn't have a simple API for latest version checks
   /// This checks the Gyan.dev builds page for Windows builds
+  @override
   Future<FfmpegUpdateInfo?> checkForUpdate() async {
     final logger = LoggingService();
     logger.info('Checking for FFmpeg updates...', component: 'FfmpegService');
@@ -224,6 +234,7 @@ class FfmpegService {
   /// Download and install FFmpeg with progress.
   /// The download runs in a background isolate for full network throughput.
   /// Note: FFmpeg is distributed as a ZIP file that needs extraction.
+  @override
   Future<bool> downloadAndInstall({
     required Function(double progress) onProgress,
     required Function(String status) onStatus,
@@ -328,7 +339,9 @@ class FfmpegService {
       if (tempZipFile != null && await tempZipFile.exists()) {
         try {
           await tempZipFile.delete();
-        } catch (_) {}
+        } catch (e) {
+          LoggingService().debug('Failed to delete temp FFmpeg zip: $e', component: 'FfmpegService');
+        }
       }
     }
   }

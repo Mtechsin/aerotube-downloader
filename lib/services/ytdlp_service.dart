@@ -9,8 +9,11 @@ import '../models/playlist_info.dart';
 import 'notification_service.dart';
 import 'logging_service.dart';
 import 'download_helper.dart';
+import 'ytdlp_tool_service.dart';
 
-class YtdlpService {
+export 'ytdlp_tool_service.dart' show YtdlpUpdateInfo;
+
+class YtdlpService implements YtdlpToolService {
   String _ytdlpPath;
   String? _cookiePath;
   String? _cookieBrowser;
@@ -67,6 +70,7 @@ class YtdlpService {
             : (_webViewPath != null ? 'webview' : null));
 
   /// Initialize the service: locate or download yt-dlp
+  @override
   Future<void> initialize({bool force = false}) async {
     if (_isInitialized && !force) return;
     if (force) _isInitialized = false;
@@ -153,7 +157,9 @@ class YtdlpService {
       try {
         final tmp = File(tempPath);
         if (await tmp.exists()) await tmp.delete();
-      } catch (_) {}
+      } catch (e) {
+        LoggingService().debug('Failed to delete temp yt-dlp binary: $e', component: 'YtdlpService');
+      }
     }
   }
 
@@ -170,6 +176,7 @@ class YtdlpService {
   }
 
   /// Check if yt-dlp is available
+  @override
   Future<bool> isAvailable() async {
     try {
       // First try with current path
@@ -198,13 +205,15 @@ class YtdlpService {
             _ytdlpPath = '$_ytdlpPath.exe';
             return true;
           }
-        } catch (_) {}
+        } catch (e) {
+          LoggingService().warning('yt-dlp .exe fallback check failed: $e', component: 'YtdlpService');
+        }
       }
       return false;
     }
   }
 
-  /// Get yt-dlp version
+  @override
   Future<String?> getVersion() async {
     try {
       final result = await Process.run(_ytdlpPath, ['--version']);
@@ -218,6 +227,7 @@ class YtdlpService {
   }
 
   /// Check if a newer version of yt-dlp is available on GitHub
+  @override
   Future<String?> getLatestVersion({bool forceRefresh = false}) async {
     // Return cached version if available and not forcing refresh
     if (!forceRefresh && _cachedLatestVersion != null) {
@@ -896,6 +906,7 @@ class YtdlpService {
   /// Check for updates and return update info with download URL
   /// Returns null ONLY if yt-dlp is not available or version check failed
   /// Returns YtdlpUpdateInfo with same current/latest version when up to date
+  @override
   Future<YtdlpUpdateInfo?> checkForUpdateWithProgress() async {
     final logger = LoggingService();
     logger.info('Checking for yt-dlp updates...', component: 'YtdlpService');
@@ -956,6 +967,7 @@ class YtdlpService {
 
   /// Download and install update with progress callback.
   /// The download runs in a background isolate for full network throughput.
+  @override
   Future<bool> downloadAndInstallUpdate(
     String downloadUrl, {
     required Function(double progress) onProgress,
@@ -1048,7 +1060,9 @@ class YtdlpService {
       if (tempFile != null && await tempFile.exists()) {
         try {
           await tempFile.delete();
-        } catch (_) {}
+        } catch (e) {
+          LoggingService().debug('Failed to delete temp update file: $e', component: 'YtdlpService');
+        }
       }
     }
   }
@@ -1074,21 +1088,4 @@ class YtdlpException implements Exception {
 
   @override
   String toString() => 'YtdlpException: $message';
-}
-
-/// Update information for yt-dlp
-class YtdlpUpdateInfo {
-  final String currentVersion;
-  final String latestVersion;
-  final String downloadUrl;
-  final DateTime publishedAt;
-  final String releaseNotes;
-
-  YtdlpUpdateInfo({
-    required this.currentVersion,
-    required this.latestVersion,
-    required this.downloadUrl,
-    required this.publishedAt,
-    required this.releaseNotes,
-  });
 }

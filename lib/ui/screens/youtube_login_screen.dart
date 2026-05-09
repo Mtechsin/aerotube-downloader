@@ -170,7 +170,13 @@ class _YoutubeLoginScreenState extends State<YoutubeLoginScreen> {
               duration: Duration(seconds: 3),
             ),
           );
-        } catch (_) {}
+        } catch (fallbackError) {
+          LoggingService().error(
+            'Edge browser cookie fallback also failed: $fallbackError',
+            component: 'YoutubeLoginScreen',
+            error: fallbackError,
+          );
+        }
       }
     }
   }

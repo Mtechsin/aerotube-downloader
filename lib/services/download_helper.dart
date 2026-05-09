@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'logging_service.dart';
 
 /// Path to Windows built-in curl.exe
 const _curlExe = r'C:\Windows\System32\curl.exe';
@@ -12,7 +13,8 @@ const _numConnections = 8;
 bool _curlExists() {
   try {
     return File(_curlExe).existsSync();
-  } catch (_) {
+  } catch (e) {
+    LoggingService().debug('curl.exe check failed: $e', component: 'DownloadHelper');
     return false;
   }
 }
@@ -42,7 +44,8 @@ Future<int> _getFileSizeIfRangesOk(String url) async {
       }
     }
     return size;
-  } catch (_) {
+  } catch (e) {
+    LoggingService().debug('Failed to get file size/range support: $e', component: 'DownloadHelper');
     return -1;
   }
 }
@@ -123,13 +126,13 @@ Future<String> _multiDownload({
       if (killed) return;
       if (isCancelled?.call() == true) {
         killed = true;
-        for (final p in procs) { try { p.kill(); } catch (_) {} }
+        for (final p in procs) { try { p.kill(); } catch (e) { LoggingService().debug('Failed to kill process: $e', component: 'DownloadHelper'); } }
         return;
       }
       if (onProgress != null) {
         int total = 0;
         for (final f in chunkFiles) {
-          try { if (f.existsSync()) total += f.lengthSync(); } catch (_) {}
+          try { if (f.existsSync()) total += f.lengthSync(); } catch (e) { LoggingService().debug('Failed to read chunk file size: $e', component: 'DownloadHelper'); }
         }
         onProgress((total / fileSize).clamp(0.0, 0.99));
       }
@@ -168,11 +171,11 @@ Future<String> _multiDownload({
     return destPath;
 
   } catch (e) {
-    for (final p in procs) { try { p.kill(); } catch (_) {} }
-    try { await File(destPath).delete(); } catch (_) {}
+    for (final p in procs) { try { p.kill(); } catch (e) { LoggingService().debug('Failed to kill process during cleanup: $e', component: 'DownloadHelper'); } }
+    try { await File(destPath).delete(); } catch (e) { LoggingService().debug('Failed to delete incomplete file: $e', component: 'DownloadHelper'); }
     rethrow;
   } finally {
-    try { await partsDir.delete(recursive: true); } catch (_) {}
+    try { await partsDir.delete(recursive: true); } catch (e) { LoggingService().debug('Failed to delete temp parts directory: $e', component: 'DownloadHelper'); }
   }
 }
 
@@ -222,11 +225,11 @@ Future<String> _singleDownload({
     cw.cancel();
 
     if (killed || isCancelled?.call() == true) {
-      try { await File(destPath).delete(); } catch (_) {}
+      try { await File(destPath).delete(); } catch (e) { LoggingService().debug('Failed to delete file on cancel: $e', component: 'DownloadHelper'); }
       throw Exception('Cancelled');
     }
     if (code != 0) {
-      try { await File(destPath).delete(); } catch (_) {}
+      try { await File(destPath).delete(); } catch (e) { LoggingService().debug('Failed to delete failed download: $e', component: 'DownloadHelper'); }
       throw Exception('curl failed (exit $code)');
     }
 
@@ -254,7 +257,7 @@ Future<String> _singleDownload({
       if (total > 0) onProgress?.call((downloaded / total).clamp(0.0, 1.0));
       if (isCancelled?.call() == true) {
         await sink.close();
-        try { await File(destPath).delete(); } catch (_) {}
+        try { await File(destPath).delete(); } catch (e) { LoggingService().debug('Failed to delete file on cancel: $e', component: 'DownloadHelper'); }
         throw Exception('Cancelled');
       }
     }

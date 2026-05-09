@@ -4,10 +4,11 @@ import 'package:provider/provider.dart';
 import 'app.dart';
 import 'services/ytdlp_service.dart';
 import 'services/ytdlp_service_android.dart';
+import 'services/ytdlp_tool_service.dart';
 import 'services/ffmpeg_service.dart';
 import 'services/ffmpeg_service_android.dart';
+import 'services/ffmpeg_tool_service.dart';
 import 'services/settings_service.dart';
-import 'services/storage_service.dart';
 import 'services/cookie_service.dart';
 import 'services/auth_service.dart';
 import 'services/notification_service.dart';
@@ -59,13 +60,9 @@ void main() {
 
     // Initialize services
     final settingsService = SettingsService();
-    final storageService = StorageService();
     final authService = AuthService();
 
-    await Future.wait([
-      settingsService.init(),
-      storageService.init(),
-    ]);
+    await settingsService.init();
 
     loggingService.info('Application starting...', component: 'Main');
 
@@ -99,8 +96,8 @@ void main() {
     final effectiveWebViewPath = isLoggedIn ? webViewPath : null;
 
     // Create platform-specific yt-dlp and FFmpeg services
-    final dynamic ytdlpService;
-    final dynamic ffmpegService;
+    final YtdlpToolService ytdlpService;
+    final FfmpegToolService ffmpegService;
 
     if (isAndroid) {
       // Android: use yt-dlp binary service
