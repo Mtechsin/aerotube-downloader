@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../core/utils/url_sanitizer.dart';
 
 /// Log level enumeration
 enum LogLevel { debug, info, warning, error }
@@ -16,6 +17,7 @@ class LogEntry {
   final String? component;
   final dynamic error;
   final StackTrace? stackTrace;
+  final bool sanitizeUrls;
 
   LogEntry({
     required this.timestamp,
@@ -24,6 +26,7 @@ class LogEntry {
     this.component,
     this.error,
     this.stackTrace,
+    this.sanitizeUrls = true,
   });
 
   String get formattedTimestamp {
@@ -52,8 +55,11 @@ class LogEntry {
     final buffer = StringBuffer();
     buffer.write('[$formattedTimestamp] $levelEmoji ');
     if (component != null) buffer.write('[$component] ');
-    buffer.write(message);
-    if (error != null) buffer.write('\n  Error: $error');
+    buffer.write(sanitizeUrls ? UrlSanitizer.sanitize(message) : message);
+    if (error != null) {
+      final errorStr = error.toString();
+      buffer.write('\n  Error: ${sanitizeUrls ? UrlSanitizer.sanitize(errorStr) : errorStr}');
+    }
     if (stackTrace != null) buffer.write('\n  Stack: $stackTrace');
     return buffer.toString();
   }
@@ -108,9 +114,11 @@ class LoggingService {
 
   bool _isInitialized = false;
   bool _loggingEnabled = true;
+  bool _sanitizeUrls = true;
   late File _logFile;
 
   bool get isEnabled => _loggingEnabled;
+  bool get isSanitizeUrlsEnabled => _sanitizeUrls;
 
   Future<void> setEnabled(bool enabled) async {
     _loggingEnabled = enabled;
@@ -121,6 +129,17 @@ class LoggingService {
     }
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('logging_enabled', enabled);
+  }
+
+  Future<void> setSanitizeUrlsEnabled(bool enabled) async {
+    _sanitizeUrls = enabled;
+    if (enabled) {
+      info('URL sanitization enabled', component: 'LoggingService');
+    } else {
+      info('URL sanitization disabled', component: 'LoggingService');
+    }
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('sanitize_urls', enabled);
   }
 
   // Progress tracking for downloads
@@ -141,12 +160,13 @@ class LoggingService {
       _logFile = File(p.join(logDir.path, 'app.log'));
       _isInitialized = true;
 
-      final prefs = await SharedPreferences.getInstance();
-      _loggingEnabled = prefs.getBool('logging_enabled') ?? true;
+    final prefs = await SharedPreferences.getInstance();
+    _loggingEnabled = prefs.getBool('logging_enabled') ?? true;
+    _sanitizeUrls = prefs.getBool('sanitize_urls') ?? true;
 
-      await cleanupOldLogs(maxAgeDays: 7);
+    await cleanupOldLogs(maxAgeDays: 7);
 
-      info('LoggingService initialized', component: 'LoggingService');
+    info('LoggingService initialized', component: 'LoggingService');
     } catch (e) {
       debugPrint('Failed to initialize LoggingService: $e');
     }
@@ -239,6 +259,7 @@ class LoggingService {
       component: component,
       error: error,
       stackTrace: stackTrace,
+      sanitizeUrls: _sanitizeUrls,
     );
 
     // Always show in console for debug builds (not gated by _loggingEnabled)
@@ -423,8 +444,21 @@ class LoggingService {
   }
 
   /// Export logs to a string
-  String exportLogs() {
-    return _devLogs.map((e) => e.toString()).join('\n');
+  String exportLogs({bool? sanitizeUrls}) {
+    final shouldSanitize = sanitizeUrls ?? _sanitizeUrls;
+    if (shouldSanitize) {
+      return _devLogs.map((e) => e.toString()).join('\n');
+    } else {
+      return _devLogs.map((e) {
+        final buffer = StringBuffer();
+        buffer.write('[${e.formattedTimestamp}] ${e.levelEmoji} ');
+        if (e.component != null) buffer.write('[${e.component}] ');
+        buffer.write(e.message);
+        if (e.error != null) buffer.write('\n  Error: ${e.error}');
+        if (e.stackTrace != null) buffer.write('\n  Stack: ${e.stackTrace}');
+        return buffer.toString();
+      }).join('\n');
+    }
   }
 
   /// Export logs to a file in the selected output directory.

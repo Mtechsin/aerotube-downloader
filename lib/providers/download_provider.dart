@@ -10,7 +10,7 @@ import '../models/video_info.dart';
 import '../models/download_item.dart';
 import '../models/download_mode.dart';
 
-class DownloadProvider extends ChangeNotifier {
+class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
   final dynamic _ytdlpService;
   final NotificationService? _notificationService;
   final dynamic
@@ -18,6 +18,10 @@ class DownloadProvider extends ChangeNotifier {
 
   // Active downloads (in memory only while active)
   final List<DownloadItem> _activeDownloads = [];
+
+  // Shutdown state
+  bool _isShuttingDown = false;
+  bool get isShuttingDown => _isShuttingDown;
 
   // History downloads (persisted)
   List<DownloadItem> _historyDownloads = [];
@@ -34,6 +38,7 @@ class DownloadProvider extends ChangeNotifier {
     this._settingsProvider,
   ) {
     _initHive();
+    WidgetsBinding.instance.addObserver(this);
   }
 
   Future<void> _initHive() async {
@@ -43,6 +48,71 @@ class DownloadProvider extends ChangeNotifier {
     _loadHistory();
     _isInit = true;
     notifyListeners();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.detached ||
+        state == AppLifecycleState.inactive) {
+      _initiateGracefulShutdown();
+    }
+  }
+
+  Future<void> _initiateGracefulShutdown() async {
+    if (_isShuttingDown) return;
+    _isShuttingDown = true;
+
+    LoggingService().info(
+      'Initiating graceful shutdown - pausing active downloads',
+      component: 'DownloadProvider',
+    );
+
+    final activeItems = _activeDownloads
+        .where((item) =>
+            item.status == DownloadStatus.downloadingVideo ||
+            item.status == DownloadStatus.downloadingAudio ||
+            item.status == DownloadStatus.merging)
+        .toList();
+
+    for (final item in activeItems) {
+      await _pauseDownloadGracefully(item.id);
+    }
+
+    await _saveActiveDownloads();
+
+    LoggingService().info(
+      'Graceful shutdown completed - ${activeItems.length} downloads paused',
+      component: 'DownloadProvider',
+    );
+  }
+
+  Future<void> _pauseDownloadGracefully(String id) async {
+    if (_activeProcesses.containsKey(id)) {
+      try {
+        _activeProcesses[id]?.kill(ProcessSignal.sigterm);
+        await Future.delayed(const Duration(seconds: 2));
+      } catch (e) {
+        LoggingService().warning(
+          'Failed to send SIGTERM to download $id: $e',
+          component: 'DownloadProvider',
+        );
+      }
+      _activeProcesses.remove(id);
+    }
+
+    final index = _activeDownloads.indexWhere((d) => d.id == id);
+    if (index != -1) {
+      final item = _activeDownloads[index];
+      if (item.status == DownloadStatus.downloadingVideo ||
+          item.status == DownloadStatus.downloadingAudio ||
+          item.status == DownloadStatus.merging ||
+          item.status == DownloadStatus.queued ||
+          item.status == DownloadStatus.pending) {
+        _activeDownloads[index] = item.copyWith(
+          status: DownloadStatus.paused,
+        );
+      }
+    }
   }
 
   void _loadHistory() {
@@ -585,5 +655,37 @@ class DownloadProvider extends ChangeNotifier {
       await _downloadsBox.put(failedItem.id, failedItem);
     }
     await _activeDownloadsBox.clear();
+  }
+
+  /// Resume downloads that were paused during graceful shutdown
+  Future<void> resumeInterruptedDownloads() async {
+    final pausedItems = _activeDownloads
+        .where((item) => item.status == DownloadStatus.paused)
+        .toList();
+
+    if (pausedItems.isNotEmpty) {
+      LoggingService().info(
+        'Resuming ${pausedItems.length} interrupted download(s)',
+        component: 'DownloadProvider',
+      );
+
+      for (final item in pausedItems) {
+        final index = _activeDownloads.indexWhere((d) => d.id == item.id);
+        if (index != -1) {
+          _activeDownloads[index] = item.copyWith(
+            status: DownloadStatus.queued,
+          );
+        }
+      }
+      _saveActiveDownloads();
+      notifyListeners();
+      _processQueue();
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
   }
 }
