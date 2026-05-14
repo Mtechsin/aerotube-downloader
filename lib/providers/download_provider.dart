@@ -9,6 +9,8 @@ import '../services/logging_service.dart';
 import '../models/video_info.dart';
 import '../models/download_item.dart';
 import '../models/download_mode.dart';
+import '../core/constants/app_constants.dart';
+import '../core/utils/downloaded_file_finder.dart';
 
 class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
   final dynamic _ytdlpService;
@@ -42,8 +44,12 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> _initHive() async {
-    _downloadsBox = await Hive.openBox<DownloadItem>('downloads_history');
-    _activeDownloadsBox = await Hive.openBox<DownloadItem>('active_downloads');
+    _downloadsBox = await Hive.openBox<DownloadItem>(
+      AppConstants.downloadsHistoryBox,
+    );
+    _activeDownloadsBox = await Hive.openBox<DownloadItem>(
+      AppConstants.activeDownloadsBox,
+    );
     await _restoreOrphanedDownloads();
     _loadHistory();
     _isInit = true;
@@ -68,10 +74,12 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
     );
 
     final activeItems = _activeDownloads
-        .where((item) =>
-            item.status == DownloadStatus.downloadingVideo ||
-            item.status == DownloadStatus.downloadingAudio ||
-            item.status == DownloadStatus.merging)
+        .where(
+          (item) =>
+              item.status == DownloadStatus.downloadingVideo ||
+              item.status == DownloadStatus.downloadingAudio ||
+              item.status == DownloadStatus.merging,
+        )
         .toList();
 
     for (final item in activeItems) {
@@ -108,9 +116,7 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
           item.status == DownloadStatus.merging ||
           item.status == DownloadStatus.queued ||
           item.status == DownloadStatus.pending) {
-        _activeDownloads[index] = item.copyWith(
-          status: DownloadStatus.paused,
-        );
+        _activeDownloads[index] = item.copyWith(status: DownloadStatus.paused);
       }
     }
   }
@@ -153,9 +159,8 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
       )
       .length;
 
-  int get pausedCount => _activeDownloads
-      .where((i) => i.status == DownloadStatus.paused)
-      .length;
+  int get pausedCount =>
+      _activeDownloads.where((i) => i.status == DownloadStatus.paused).length;
 
   int get completedCount => _historyDownloads
       .length; // Approximate, assuming history is completed/failed
@@ -487,9 +492,7 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
           item.status == DownloadStatus.merging ||
           item.status == DownloadStatus.queued ||
           item.status == DownloadStatus.pending) {
-        _activeDownloads[index] = item.copyWith(
-          status: DownloadStatus.paused,
-        );
+        _activeDownloads[index] = item.copyWith(status: DownloadStatus.paused);
         _saveActiveDownloads();
         notifyListeners();
         _processQueue();
@@ -502,9 +505,7 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
     if (index != -1) {
       final item = _activeDownloads[index];
       if (item.status == DownloadStatus.paused) {
-        _activeDownloads[index] = item.copyWith(
-          status: DownloadStatus.queued,
-        );
+        _activeDownloads[index] = item.copyWith(status: DownloadStatus.queued);
         _saveActiveDownloads();
         notifyListeners();
         _processQueue();
@@ -573,50 +574,7 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
   /// media files matching the item's title, sorted by last-modified descending.
   Future<File?> _findDownloadedFile(DownloadItem item) async {
     try {
-      final dir = Directory(item.outputPath);
-      if (!await dir.exists()) return null;
-
-      final candidates = await dir
-          .list()
-          .where((entity) => entity is File)
-          .cast<File>()
-          .where((file) {
-            final lower = file.path.toLowerCase();
-            return lower.endsWith('.mp4') ||
-                lower.endsWith('.mkv') ||
-                lower.endsWith('.webm') ||
-                lower.endsWith('.m4a') ||
-                lower.endsWith('.mp3') ||
-                lower.endsWith('.opus') ||
-                lower.endsWith('.aac') ||
-                lower.endsWith('.ogg') ||
-                lower.endsWith('.wav') ||
-                lower.endsWith('.flac');
-          })
-          .toList();
-
-      if (candidates.isEmpty) return null;
-
-      // Try title match first
-      final normalizedTitle = item.title.toLowerCase();
-      final titleWords = normalizedTitle
-          .split(' ')
-          .where((w) => w.trim().isNotEmpty)
-          .take(4)
-          .toList();
-
-      final titleMatch = candidates.where((f) {
-        final name = f.path.split(Platform.pathSeparator).last.toLowerCase();
-        return titleWords.every((w) => name.contains(w));
-      }).toList();
-
-      final pool = titleMatch.isNotEmpty ? titleMatch : candidates;
-      pool.sort(
-        (a, b) =>
-            b.lastModifiedSync().millisecondsSinceEpoch -
-            a.lastModifiedSync().millisecondsSinceEpoch,
-      );
-      return pool.first;
+      return await findDownloadedFile(item);
     } catch (e) {
       LoggingService().warning(
         'Failed to find downloaded file: $e',

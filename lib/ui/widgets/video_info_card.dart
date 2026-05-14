@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:provider/provider.dart';
+import '../../providers/platform_settings_provider.dart';
 import '../../models/video_info.dart';
 
 class VideoInfoCard extends StatelessWidget {
@@ -16,6 +19,12 @@ class VideoInfoCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final enableAnimations = context.select<PlatformSettingsProvider, bool>(
+      (p) => p.enableAnimations,
+    );
+    final longAnim = enableAnimations ? const Duration(milliseconds: 500) : Duration.zero;
+    final mediumAnim = enableAnimations ? const Duration(milliseconds: 400) : Duration.zero;
+    final staggerAnim = enableAnimations ? const Duration(milliseconds: 50) : Duration.zero;
 
     return RepaintBoundary(
       child: Container(
@@ -171,18 +180,18 @@ class VideoInfoCard extends StatelessWidget {
                     ],
                   ),
                 ]
-                .animate(interval: 50.ms) // Stagger internal content
-                .fade(duration: 400.ms, curve: Curves.easeOut)
-                .slideY(begin: 0.1, end: 0, duration: 400.ms, curve: Curves.easeOutQuart),
+                .animate(interval: staggerAnim) // Stagger internal content
+                .fade(duration: mediumAnim, curve: Curves.easeOut)
+                .slideY(begin: 0.1, end: 0, duration: mediumAnim, curve: Curves.easeOutQuart),
               ),
             ),
           ],
         ),
       )
       .animate()
-      .fadeIn(duration: 500.ms, curve: Curves.easeOutQuart)
-      .scaleXY(begin: 0.95, end: 1.0, duration: 500.ms, curve: Curves.easeOutQuart)
-      .slideY(begin: 0.1, end: 0, duration: 500.ms, curve: Curves.easeOutQuart),
+      .fadeIn(duration: longAnim, curve: Curves.easeOutQuart)
+      .scaleXY(begin: 0.95, end: 1.0, duration: longAnim, curve: Curves.easeOutQuart)
+      .slideY(begin: 0.1, end: 0, duration: longAnim, curve: Curves.easeOutQuart),
     );
   }
 

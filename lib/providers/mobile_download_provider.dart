@@ -5,7 +5,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
-import '../core/utils/platform_utils.dart';
+import '../core/constants/app_constants.dart';
+import '../core/utils/downloaded_file_finder.dart';
 import '../models/download_item.dart';
 import '../models/download_mode.dart';
 import '../providers/platform_settings_provider.dart';
@@ -18,7 +19,7 @@ import '../services/ytdlp_service_android.dart';
 
 /// Mobile-optimized download provider with foreground service integration.
 class MobileDownloadProvider extends ChangeNotifier {
-  static const String _historyBoxName = 'downloads_history_mobile';
+  static const String _historyBoxName = AppConstants.mobileDownloadsHistoryBox;
   final dynamic ytdlpService; // YtdlpServiceAndroid on mobile
   final DownloadForegroundService _foregroundService =
       DownloadForegroundService();
@@ -154,7 +155,6 @@ class MobileDownloadProvider extends ChangeNotifier {
             );
           },
         );
-
   }
 
   void setMaxConcurrentDownloads(int max) {
@@ -180,7 +180,7 @@ class MobileDownloadProvider extends ChangeNotifier {
       } else if (_settingsProvider?.outputPath != null &&
           _settingsProvider!.outputPath!.isNotEmpty) {
         // Use user-configured output path from settings
-        saveDir = _settingsProvider!.outputPath!;
+        saveDir = _settingsProvider.outputPath!;
       } else {
         saveDir = mode == DownloadMode.audioOnly
             ? await _storageService.getAudioDirectory()
@@ -504,11 +504,19 @@ class MobileDownloadProvider extends ChangeNotifier {
       notifyListeners();
     }
 
+    final processId =
+        _processToDownloadId.entries
+            .where((e) => e.value == downloadId)
+            .map((e) => e.key)
+            .firstOrNull ??
+        downloadId;
+    await NativeYtdlpAndroid.cancelDownload(processId);
+
     await _foregroundService.cancelDownload(downloadId);
 
     _progressControllers[downloadId]?.close();
     _progressControllers.remove(downloadId);
-    _processToDownloadId.remove(downloadId);
+    _processToDownloadId.remove(processId);
     _processQueue();
 
     _logger.info(
@@ -517,11 +525,64 @@ class MobileDownloadProvider extends ChangeNotifier {
     );
   }
 
+  Future<void> pauseDownload(String downloadId) async {
+    final index = _downloads.indexWhere((d) => d.id == downloadId);
+    if (index == -1) return;
+
+    final processId =
+        _processToDownloadId.entries
+            .where((e) => e.value == downloadId)
+            .map((e) => e.key)
+            .firstOrNull ??
+        downloadId;
+    await NativeYtdlpAndroid.cancelDownload(processId);
+    await _foregroundService.cancelDownload(downloadId);
+
+    _downloads[index] = _downloads[index].copyWith(
+      status: DownloadStatus.paused,
+      speed: 0.0,
+      statusText: 'Paused',
+    );
+    notifyListeners();
+
+    _progressControllers[downloadId]?.close();
+    _progressControllers.remove(downloadId);
+    _processToDownloadId.remove(processId);
+    _processQueue();
+
+    _logger.info(
+      'Download paused: $downloadId',
+      component: 'MobileDownloadProvider',
+    );
+  }
+
+  Future<void> resumeDownload(String downloadId) async {
+    final index = _downloads.indexWhere((d) => d.id == downloadId);
+    if (index == -1) return;
+
+    _downloads[index] = _downloads[index].copyWith(
+      status: DownloadStatus.pending,
+      statusText: 'Resuming...',
+      error: null,
+    );
+    notifyListeners();
+
+    _processQueue();
+  }
+
   Future<void> removeDownload(String downloadId) async {
+    final processId =
+        _processToDownloadId.entries
+            .where((e) => e.value == downloadId)
+            .map((e) => e.key)
+            .firstOrNull ??
+        downloadId;
+    await NativeYtdlpAndroid.cancelDownload(processId);
+
     _downloads.removeWhere((d) => d.id == downloadId);
     _progressControllers[downloadId]?.close();
     _progressControllers.remove(downloadId);
-    _processToDownloadId.remove(downloadId);
+    _processToDownloadId.remove(processId);
     await _removeHistoryItem(downloadId);
     notifyListeners();
   }
@@ -640,13 +701,15 @@ class MobileDownloadProvider extends ChangeNotifier {
     if (lower.contains('merging formats') || lower.contains('[merger]')) {
       return 'Merging formats...';
     }
-    if (lower.contains('extracting url') || lower.contains('downloading webpage')) {
+    if (lower.contains('extracting url') ||
+        lower.contains('downloading webpage')) {
       return 'Preparing download...';
     }
     if (lower.contains('downloading') && lower.contains('player')) {
       return 'Preparing download...';
     }
-    if (lower.contains('downloading m3u8') || lower.contains('downloading json')) {
+    if (lower.contains('downloading m3u8') ||
+        lower.contains('downloading json')) {
       return 'Fetching stream info...';
     }
     if (lower.contains('downloading') && lower.contains('thumbnail')) {
@@ -685,49 +748,8 @@ class MobileDownloadProvider extends ChangeNotifier {
   Future<File?> _findDownloadedFile(DownloadItem item) async {
     try {
       for (var attempt = 0; attempt < 5; attempt++) {
-        final dir = Directory(item.outputPath);
-        if (await dir.exists()) {
-          final candidates = await dir
-              .list()
-              .where((entity) => entity is File)
-              .cast<File>()
-              .where((file) {
-                final lower = file.path.toLowerCase();
-                return lower.endsWith('.mp4') ||
-                    lower.endsWith('.mkv') ||
-                    lower.endsWith('.webm') ||
-                    lower.endsWith('.m4a') ||
-                    lower.endsWith('.mp3') ||
-                    lower.endsWith('.opus') ||
-                    lower.endsWith('.aac') ||
-                    lower.endsWith('.ogg') ||
-                    lower.endsWith('.wav') ||
-                    lower.endsWith('.flac');
-              })
-              .toList();
-          if (candidates.isNotEmpty) {
-            final normalizedTitle = item.title.toLowerCase();
-            final titleMatch = candidates.where((f) {
-              final name = f.path
-                  .split(Platform.pathSeparator)
-                  .last
-                  .toLowerCase();
-              return normalizedTitle
-                  .split(' ')
-                  .where((w) => w.trim().isNotEmpty)
-                  .take(4)
-                  .every((w) => name.contains(w));
-            }).toList();
-
-            final pool = titleMatch.isNotEmpty ? titleMatch : candidates;
-            pool.sort(
-              (a, b) =>
-                  b.lastModifiedSync().millisecondsSinceEpoch -
-                  a.lastModifiedSync().millisecondsSinceEpoch,
-            );
-            return pool.first;
-          }
-        }
+        final file = await findDownloadedFile(item);
+        if (file != null) return file;
         await Future.delayed(const Duration(milliseconds: 450));
       }
       return null;

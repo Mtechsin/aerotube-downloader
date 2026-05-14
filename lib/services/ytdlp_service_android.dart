@@ -10,9 +10,12 @@ import '../models/playlist_info.dart';
 import 'notification_service.dart';
 import 'logging_service.dart';
 import 'native_ytdlp_android.dart';
+import 'ytdlp_tool_service.dart';
+
+export 'ytdlp_tool_service.dart' show YtdlpUpdateInfo;
 
 /// Android yt-dlp service powered by youtubedl-android native library
-class YtdlpServiceAndroid {
+class YtdlpServiceAndroid implements YtdlpToolService {
   String? _cookiePath;
   String? _webViewPath;
   String? _ffmpegPath;
@@ -48,6 +51,7 @@ class YtdlpServiceAndroid {
   String? get activeCookieSource => null;
 
   /// Initialize the service
+  @override
   Future<void> initialize({bool force = false}) async {
     if (_isInitialized && !force) return;
 
@@ -84,10 +88,11 @@ class YtdlpServiceAndroid {
   }
 
   /// Check if yt-dlp is available
+  @override
   Future<bool> isAvailable() async {
     try {
       final version = await NativeYtdlpAndroid.getVersion();
-      return version != null;
+      return version != null && version != "Unknown";
     } catch (e) {
       _logger.error(
         'Error checking yt-dlp availability',
@@ -99,6 +104,7 @@ class YtdlpServiceAndroid {
   }
 
   /// Get yt-dlp version
+  @override
   Future<String?> getVersion() async {
     try {
       return await NativeYtdlpAndroid.getVersion();
@@ -108,6 +114,7 @@ class YtdlpServiceAndroid {
   }
 
   /// Get latest available version - uses GitHub API
+  @override
   Future<String?> getLatestVersion({bool forceRefresh = false}) async {
     // Return cached version if available and not forcing refresh
     if (!forceRefresh && _cachedLatestVersion != null) {
@@ -156,6 +163,7 @@ class YtdlpServiceAndroid {
   }
 
   /// Check if a newer version is available - uses GitHub API
+  @override
   Future<YtdlpUpdateInfo?> checkForUpdateWithProgress() async {
     try {
       final currentVersion = await getVersion();
@@ -200,6 +208,7 @@ class YtdlpServiceAndroid {
   }
 
   /// Download and install update with progress callback
+  @override
   Future<bool> downloadAndInstallUpdate(
     String downloadUrl, {
     required Function(double progress) onProgress,
@@ -463,20 +472,4 @@ class YtdlpAndroidException implements Exception {
   YtdlpAndroidException(this.message);
   @override
   String toString() => 'YtdlpAndroidException: $message';
-}
-
-class YtdlpUpdateInfo {
-  final String currentVersion;
-  final String? latestVersion;
-  final String? downloadUrl;
-  final DateTime? publishedAt;
-  final String? releaseNotes;
-
-  YtdlpUpdateInfo({
-    required this.currentVersion,
-    this.latestVersion,
-    this.downloadUrl,
-    this.publishedAt,
-    this.releaseNotes,
-  });
 }

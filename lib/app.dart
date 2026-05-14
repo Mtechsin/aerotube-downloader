@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -6,6 +8,10 @@ import 'providers/platform_settings_provider.dart';
 import 'providers/download_provider.dart';
 import 'providers/update_provider.dart';
 import 'providers/navigation_provider.dart';
+import 'providers/playlist_provider.dart';
+import 'providers/video_provider.dart';
+import 'services/deep_link_service.dart';
+import 'services/logging_service.dart';
 import 'services/notification_service.dart';
 import 'ui/screens/home_screen.dart';
 import 'ui/screens/search_screen.dart';
@@ -15,6 +21,7 @@ import 'ui/screens/youtube_login_screen.dart';
 import 'ui/screens/mobile_home_layout.dart';
 
 import 'ui/widgets/update_dialog.dart';
+import 'ui/screens/onboarding_screen.dart';
 import 'core/utils/responsive_layout.dart';
 import 'core/utils/platform_utils.dart';
 
@@ -27,9 +34,15 @@ class App extends StatefulWidget {
 
 class _AppState extends State<App> with TickerProviderStateMixin {
   bool _hasAnimatedIn = false;
+  bool _onboardingComplete = false;
   int _previousBadgeCount = 0;
 
   late final AnimationController _entranceController;
+  final _navigatorKey = GlobalKey<NavigatorState>();
+  final _deepLinkService = DeepLinkService();
+  Stream<String>? _deepLinkStream;
+  StreamSubscription<String>? _deepLinkSubscription;
+  String? _lastHandledDeepLink;
 
   final _screens = const [
     HomeScreen(),
@@ -59,31 +72,91 @@ class _AppState extends State<App> with TickerProviderStateMixin {
       duration: const Duration(milliseconds: 420),
     );
 
-    // Check for updates after the app is initialized
+    // Check onboarding state for Android
+    if (PlatformUtils.isAndroid) {
+      final settingsProvider = context.read<PlatformSettingsProvider>();
+      _onboardingComplete = settingsProvider.onboardingComplete;
+    } else {
+      _onboardingComplete = true; // Skip onboarding on desktop
+    }
+
+    // Trigger entrance animation after first frame
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _checkForUpdates();
-      // Trigger entrance animation
       if (!_hasAnimatedIn) {
         _entranceController.forward();
         _hasAnimatedIn = true;
       }
+      _initializeDeepLinks();
     });
   }
 
   @override
   void dispose() {
+    _deepLinkSubscription?.cancel();
     _entranceController.dispose();
     super.dispose();
+  }
+
+  Future<void> _initializeDeepLinks() async {
+    if (!PlatformUtils.isAndroid || _deepLinkSubscription != null) return;
+
+    final loggingService = context.read<LoggingService>();
+    _deepLinkStream = _deepLinkService.links;
+    _deepLinkSubscription = _deepLinkStream!.listen(
+      _handleDeepLink,
+      onError: (error) {
+        loggingService.warning(
+          'Deep link stream error: $error',
+          component: 'DeepLink',
+        );
+      },
+    );
+
+    try {
+      final initialLink = await _deepLinkService.getInitialLink();
+      if (initialLink != null) {
+        _handleDeepLink(initialLink);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      loggingService.warning(
+        'Failed to read initial deep link: $e',
+        component: 'DeepLink',
+      );
+    }
+  }
+
+  void _handleDeepLink(String link) {
+    final url = _deepLinkService.normalizeMediaUrl(link);
+    if (!mounted || url == null || url == _lastHandledDeepLink) return;
+
+    _lastHandledDeepLink = url;
+    context.read<NavigationProvider>().switchToHome();
+
+    if (url.contains('list=') || url.contains('/playlist')) {
+      context.read<PlaylistProvider>().fetchPlaylist(url);
+      context.read<VideoProvider>().fetchPlaylistInfo(url);
+    } else {
+      final videoProvider = context.read<VideoProvider>();
+      videoProvider.fetchVideoInfo(url);
+      videoProvider.setAudioOnly(false);
+    }
+
+    context.read<NotificationService>().show(
+      title: 'Link opened',
+      body: 'Fetching YouTube content',
+    );
   }
 
   Future<void> _checkForUpdates() async {
     final updateProvider = context.read<UpdateProvider>();
     await updateProvider.checkOnStartup();
 
-    // If update is available, show dialog
-    if (updateProvider.hasUpdate && mounted) {
+    // Use navigatorKey context which is inside MaterialApp (has MaterialLocalizations)
+    final navContext = _navigatorKey.currentContext;
+    if (updateProvider.hasUpdate && navContext != null) {
       showDialog(
-        context: context,
+        context: navContext,
         barrierDismissible: false,
         builder: (context) => const UpdateDialog(),
       );
@@ -96,8 +169,16 @@ class _AppState extends State<App> with TickerProviderStateMixin {
     final themeMode = context.select<PlatformSettingsProvider, ThemeMode>(
       (provider) => provider.themeMode,
     );
+    final needsOnboarding = PlatformUtils.isAndroid &&
+        context.select<PlatformSettingsProvider, bool>(
+          (p) => !p.onboardingComplete && !_onboardingComplete,
+        );
+    final enableAnimations = context.select<PlatformSettingsProvider, bool>(
+      (provider) => provider.enableAnimations,
+    );
 
     return MaterialApp(
+      navigatorKey: _navigatorKey,
       scaffoldMessengerKey: notificationService.scaffoldMessengerKey,
       title: 'YouTube Downloader',
       debugShowCheckedModeBanner: false,
@@ -105,46 +186,82 @@ class _AppState extends State<App> with TickerProviderStateMixin {
       darkTheme: AppTheme.darkTheme,
       themeMode: themeMode,
       routes: {'/youtube_login': (context) => const YoutubeLoginScreen()},
-      home: Builder(
-        builder: (context) {
-          // Use MobileShell for mobile platforms
-          if (PlatformUtils.isMobile) {
-            return MobileShell(
-              screens: const [
-                MobileHomeLayout(),
-                SearchScreen(),
-                DownloadsScreen(),
-                SettingsScreen(),
-              ],
-            );
-          }
+      home: needsOnboarding
+          ? OnboardingScreen(
+              onComplete: () async {
+                final provider = context.read<PlatformSettingsProvider>();
+                await provider.setOnboardingComplete(true);
+                if (mounted) {
+                  setState(() => _onboardingComplete = true);
+                }
+              },
+            )
+          : Builder(
+              builder: (context) {
+                // Schedule update check after MaterialApp is built
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  _checkForUpdates();
+                });
 
-          // Desktop layout
-          return Scaffold(
-            backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-            body: Row(
-              children: [
-                if (ResponsiveLayout.shouldShowSidebar(context))
-                  _buildCustomNavigationRail(context)
-                else
-                  const SizedBox.shrink(),
-                // Content
-                Expanded(
-                  child: Selector<NavigationProvider, int>(
-                    selector: (_, provider) => provider.currentIndex,
-                    builder: (context, currentIndex, _) {
-                      return IndexedStack(
-                        index: currentIndex,
-                        children: _screens,
-                      );
-                    },
+                // Use MobileShell for mobile platforms
+                if (PlatformUtils.isMobile) {
+                  return MobileShell(
+                    screens: const [
+                      MobileHomeLayout(),
+                      SearchScreen(),
+                      DownloadsScreen(),
+                      SettingsScreen(),
+                    ],
+                  );
+                }
+
+                // Desktop layout
+                return Scaffold(
+                  backgroundColor:
+                      Theme.of(context).scaffoldBackgroundColor,
+                  body: Row(
+                    children: [
+                      if (ResponsiveLayout.shouldShowSidebar(context))
+                        _buildCustomNavigationRail(context)
+                      else
+                        const SizedBox.shrink(),
+                      // Content
+                      Expanded(
+                        child: Selector<NavigationProvider, int>(
+                          selector: (_, provider) => provider.currentIndex,
+                          builder: (context, currentIndex, _) {
+                            return AnimatedSwitcher(
+                              duration: enableAnimations
+                                  ? const Duration(milliseconds: 250)
+                                  : Duration.zero,
+                              switchInCurve: Curves.easeOutCubic,
+                              switchOutCurve: Curves.easeInCubic,
+                              transitionBuilder: (child, animation) {
+                                return FadeTransition(
+                                  opacity: animation,
+                                  child: SlideTransition(
+                                    position: Tween<Offset>(
+                                      begin: const Offset(0.02, 0),
+                                      end: Offset.zero,
+                                    ).animate(animation),
+                                    child: child,
+                                  ),
+                                );
+                              },
+                              child: IndexedStack(
+                                key: ValueKey(currentIndex),
+                                index: currentIndex,
+                                children: _screens,
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-              ],
+                );
+              },
             ),
-          );
-        },
-      ),
     );
   }
 
@@ -152,59 +269,55 @@ class _AppState extends State<App> with TickerProviderStateMixin {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
-    // Calculate item height for indicator positioning
     const double itemHeight = 48.0;
-    const double itemSpacing = 16.0;
+    const double itemSpacing = 32.0;
 
     return Container(
-          width: 76,
-          margin: const EdgeInsets.fromLTRB(16, 24, 0, 24),
+          width: 80,
           decoration: BoxDecoration(
             color: theme.scaffoldBackgroundColor,
-            borderRadius: BorderRadius.circular(100),
-            border: Border.all(
-              color: isDark
-                  ? Colors.white.withValues(alpha: 0.14)
-                  : Colors.black.withValues(alpha: 0.14),
-              width: 1.0,
+            border: Border(
+              right: BorderSide(
+                color: isDark
+                    ? Colors.white.withValues(alpha: 0.05)
+                    : Colors.black.withValues(alpha: 0.05),
+                width: 1.0,
+              ),
             ),
           ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(100),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(
-                vertical: 24.0,
-                horizontal: 0.0,
-              ),
-              child: Column(
-                children: [
-                  const Spacer(),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              vertical: 32.0,
+              horizontal: 0.0,
+            ),
+            child: Column(
+              children: [
+                const Spacer(),
 
-                  // Navigation Items
-                  Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: List.generate(_navItems.length, (index) {
-                      return Padding(
-                        padding: EdgeInsets.only(
-                          bottom: index < _navItems.length - 1
-                              ? itemSpacing
-                              : 0,
-                        ),
-                        child: _buildNavItem(
-                          context: context,
-                          index: index,
-                          config: _navItems[index],
-                          itemHeight: itemHeight,
-                        ),
-                      );
-                    }),
-                  ),
+                // Navigation Items
+                Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: List.generate(_navItems.length, (index) {
+                    return Padding(
+                      padding: EdgeInsets.only(
+                        bottom: index < _navItems.length - 1
+                            ? itemSpacing
+                            : 0,
+                      ),
+                      child: _buildNavItem(
+                        context: context,
+                        index: index,
+                        config: _navItems[index],
+                        itemHeight: itemHeight,
+                      ),
+                    );
+                  }),
+                ),
 
-                  // Bottom: User Profile Avatar
-                  const Spacer(),
-                  _buildUserAvatar(),
-                ],
-              ),
+                // Bottom: User Profile Avatar
+                const Spacer(),
+                _buildUserAvatar(),
+              ],
             ),
           ),
         )
@@ -467,7 +580,7 @@ class _NavItemWidgetState extends State<_NavItemWidget>
                                   ? Colors.white.withValues(alpha: 0.06)
                                   : Colors.black.withValues(alpha: 0.04))
                             : Colors.transparent),
-                  shape: BoxShape.circle,
+                  borderRadius: BorderRadius.circular(12),
                   border: Border.all(
                     color: widget.isSelected
                         ? activeColor.withValues(alpha: 0.4)

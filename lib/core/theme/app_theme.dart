@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 class AppTheme {
   // Color Palette
@@ -15,8 +14,10 @@ class AppTheme {
   static const Color darkOutline = Color(0x33FFFFFF);
   static const Color lightOutline = Color(0x22000000);
 
+  static const String _fontFamily = 'Manrope';
+
   static ThemeData get darkTheme {
-    final baseTextTheme = GoogleFonts.manropeTextTheme(ThemeData.dark().textTheme);
+    final baseTextTheme = ThemeData.dark().textTheme.apply(fontFamily: _fontFamily);
     return ThemeData(
       useMaterial3: true,
       brightness: Brightness.dark,
@@ -174,7 +175,7 @@ class AppTheme {
   }
 
   static ThemeData get lightTheme {
-    final baseTextTheme = GoogleFonts.manropeTextTheme(ThemeData.light().textTheme);
+    final baseTextTheme = ThemeData.light().textTheme.apply(fontFamily: _fontFamily);
     return ThemeData(
       useMaterial3: true,
       brightness: Brightness.light,

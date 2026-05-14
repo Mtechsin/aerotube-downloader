@@ -8,6 +8,8 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../providers/platform_settings_provider.dart';
 import '../../providers/update_provider.dart';
 import '../../providers/tool_update_provider.dart';
+import '../../providers/navigation_provider.dart';
+import '../../core/utils/platform_utils.dart';
 import '../../services/logging_service.dart';
 import '../widgets/update_dialog.dart';
 import '../widgets/logs_viewer.dart';
@@ -50,6 +52,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 centerTitle: true,
                 backgroundColor: Colors.transparent,
                 surfaceTintColor: Colors.transparent,
+                actions: [
+                  if (PlatformUtils.isAndroid)
+                    IconButton(
+                      icon: const Icon(Icons.home_outlined),
+                      tooltip: 'Home',
+                      onPressed: () =>
+                          context.read<NavigationProvider>().switchToHome(),
+                    ),
+                ],
               ),
               SliverPadding(
                 padding: const EdgeInsets.symmetric(
@@ -970,6 +981,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
               _buildThemeChips(provider),
             ],
           ),
+        ),
+        Divider(
+          height: 1,
+          color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.05),
+        ),
+        _buildToggleTile(
+          title: 'Enable Animations',
+          subtitle: 'Show UI animations and page transitions',
+          icon: Icons.animation_rounded,
+          value: provider.enableAnimations,
+          onChanged: provider.setEnableAnimations,
+          showDivider: false,
         ),
       ],
     );

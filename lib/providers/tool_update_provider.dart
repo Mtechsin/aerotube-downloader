@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
-import '../services/ffmpeg_service.dart';
-import '../services/ffmpeg_service_android.dart';
+import '../services/ffmpeg_tool_service.dart';
+import '../services/ytdlp_tool_service.dart';
 import '../services/logging_service.dart';
 import '../core/utils/platform_utils.dart';
 
-export '../services/ytdlp_service.dart' show YtdlpUpdateInfo;
+export '../services/ytdlp_tool_service.dart' show YtdlpUpdateInfo;
 export '../services/ffmpeg_service.dart' show FfmpegUpdateInfo;
 
 enum ToolUpdateStatus {
@@ -70,8 +71,8 @@ class ToolUpdateState {
 }
 
 class ToolUpdateProvider extends ChangeNotifier {
-  final dynamic _ytdlpService; // Can be YtdlpService or YtdlpServiceAndroid
-  final dynamic _ffmpegService; // Can be FfmpegService or FfmpegServiceAndroid
+  final YtdlpToolService _ytdlpService;
+  final FfmpegToolService _ffmpegService;
   final LoggingService _logger = LoggingService();
 
   ToolUpdateState _ytdlpState;
@@ -87,8 +88,8 @@ class ToolUpdateProvider extends ChangeNotifier {
   static const _progressThrottleMs = 100; // max 10 UI updates/sec
 
   ToolUpdateProvider({
-    required dynamic ytdlpService,
-    required dynamic ffmpegService,
+    required YtdlpToolService ytdlpService,
+    required FfmpegToolService ffmpegService,
   }) : _ytdlpService = ytdlpService,
        _ffmpegService = ffmpegService,
        _ytdlpState = ToolUpdateState(tool: ToolType.ytdlp),
@@ -119,11 +120,96 @@ class ToolUpdateProvider extends ChangeNotifier {
     // Run availability check in background
     await _checkAvailability();
 
+    // On Android, auto-update yt-dlp on first launch if not already done
+    if (PlatformUtils.isAndroid && !_ytdlpState.isAvailable) {
+      await _autoUpdateYtdlpOnFirstLaunch();
+    }
+
     // Auto-check for updates if enabled - defer to after app is interactive
     if (_autoCheckEnabled) {
       Future.delayed(const Duration(seconds: 10), () {
         checkAllForUpdates();
       });
+    }
+  }
+
+  /// Auto-update yt-dlp on first Android launch
+  Future<void> _autoUpdateYtdlpOnFirstLaunch() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final alreadyUpdated = prefs.getBool('ytdlp_auto_updated') ?? false;
+      if (alreadyUpdated) return;
+
+      _logger.info(
+        'First launch detected - auto-installing yt-dlp',
+        component: 'ToolUpdateProvider',
+      );
+
+      _ytdlpState = _ytdlpState.copyWith(
+        status: ToolUpdateStatus.downloading,
+        progress: 0.0,
+        statusMessage: 'Setting up yt-dlp for first use...',
+      );
+      notifyListeners();
+
+      final downloadUrl =
+          'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp';
+
+      final success = await _ytdlpService.downloadAndInstallUpdate(
+        downloadUrl,
+        onProgress: (progress) {
+          final now = DateTime.now();
+          if (now.difference(_lastYtdlpNotify).inMilliseconds >=
+              _progressThrottleMs) {
+            _lastYtdlpNotify = now;
+            _ytdlpState = _ytdlpState.copyWith(progress: progress);
+            notifyListeners();
+          }
+        },
+        onStatus: (status) {
+          _lastYtdlpNotify = DateTime.now();
+          _ytdlpState = _ytdlpState.copyWith(statusMessage: status);
+          notifyListeners();
+        },
+        isCancelled: () => false,
+      );
+
+      if (success) {
+        await prefs.setBool('ytdlp_auto_updated', true);
+        final version = await _ytdlpService.getVersion();
+        _ytdlpState = _ytdlpState.copyWith(
+          status: ToolUpdateStatus.upToDate,
+          progress: 1.0,
+          currentVersion: version,
+          latestVersion: version,
+          isAvailable: true,
+          statusMessage: 'Ready!',
+        );
+        _logger.info(
+          'yt-dlp auto-installed successfully (v$version)',
+          component: 'ToolUpdateProvider',
+        );
+      } else {
+        _ytdlpState = _ytdlpState.copyWith(
+          status: ToolUpdateStatus.error,
+          statusMessage: 'Setup failed - try again in Settings',
+          errorMessage: 'Auto-install failed',
+        );
+      }
+
+      notifyListeners();
+    } catch (e) {
+      _logger.error(
+        'Auto-install yt-dlp failed',
+        component: 'ToolUpdateProvider',
+        error: e,
+      );
+      _ytdlpState = _ytdlpState.copyWith(
+        status: ToolUpdateStatus.error,
+        statusMessage: 'Setup failed - try again in Settings',
+        errorMessage: e.toString(),
+      );
+      notifyListeners();
     }
   }
 
@@ -139,23 +225,13 @@ class ToolUpdateProvider extends ChangeNotifier {
     );
 
     // Check FFmpeg
-    if (_ffmpegService is FfmpegServiceAndroid) {
-      await (_ffmpegService).initialize();
-      final ffmpegVersion = (_ffmpegService).version;
+    await _ffmpegService.initialize();
+    final ffmpegVersion = await _ffmpegService.getVersion();
 
-      _ffmpegState = _ffmpegState.copyWith(
-        isAvailable: (_ffmpegService).isAvailable,
-        currentVersion: ffmpegVersion,
-      );
-    } else {
-      await (_ffmpegService as FfmpegService).initialize();
-      final ffmpegVersion = await (_ffmpegService).getVersion();
-
-      _ffmpegState = _ffmpegState.copyWith(
-        isAvailable: (_ffmpegService).isAvailable,
-        currentVersion: ffmpegVersion,
-      );
-    }
+    _ffmpegState = _ffmpegState.copyWith(
+      isAvailable: _ffmpegService.isAvailable,
+      currentVersion: ffmpegVersion,
+    );
 
     // Notify listeners only if needed - don't block cold boot
     if (ytdlpAvailable || _ffmpegState.isAvailable) {
@@ -233,20 +309,8 @@ class ToolUpdateProvider extends ChangeNotifier {
   }
 
   /// Check FFmpeg for updates
-  /// On Android, FFmpeg is bundled - always return upToDate
   Future<void> checkFfmpegForUpdate() async {
     if (_ffmpegState.isBusy) return;
-
-    // On Android, FFmpeg is bundled with the library, no updates needed
-    if (_ffmpegService is FfmpegServiceAndroid) {
-      _ffmpegState = _ffmpegState.copyWith(
-        status: ToolUpdateStatus.upToDate,
-        statusMessage: 'Bundled with app',
-        isAvailable: true,
-      );
-      notifyListeners();
-      return;
-    }
 
     _ffmpegState = _ffmpegState.copyWith(
       status: ToolUpdateStatus.checking,

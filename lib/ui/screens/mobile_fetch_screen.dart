@@ -267,6 +267,17 @@ class _MobileFetchScreenState extends State<MobileFetchScreen>
             ),
           ),
           const Spacer(),
+          if (PlatformUtils.isAndroid)
+            _buildHeaderIcon(
+              theme,
+              isDark,
+              icon: Icons.home_outlined,
+              onTap: () {
+                final nav = context.read<NavigationProvider>();
+                Navigator.of(context).popUntil((route) => route.isFirst);
+                nav.switchToHome();
+              },
+            ),
           _buildHeaderIcon(
             theme,
             isDark,

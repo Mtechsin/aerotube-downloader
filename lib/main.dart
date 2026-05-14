@@ -33,167 +33,177 @@ void main() {
   final loggingService = LoggingService();
 
   // Run app in a guarded zone to catch all async errors
-  runZonedGuarded<Future<void>>(() async {
-    WidgetsFlutterBinding.ensureInitialized();
+  runZonedGuarded<Future<void>>(
+    () async {
+      WidgetsFlutterBinding.ensureInitialized();
 
-    await loggingService.init();
+      await loggingService.init();
 
-    FlutterError.onError = (details) {
-      loggingService.error(
-        'Flutter framework error: ${details.exception}',
-        error: details.exception,
-        stackTrace: details.stack,
-      );
-      loggingService.showUserLog(
-        'An unexpected error occurred',
-        isError: true,
-      );
-      FlutterError.presentError(details);
-    };
+      FlutterError.onError = (details) {
+        loggingService.error(
+          'Flutter framework error: ${details.exception}',
+          error: details.exception,
+          stackTrace: details.stack,
+        );
+        loggingService.showUserLog(
+          'An unexpected error occurred',
+          isError: true,
+        );
+        FlutterError.presentError(details);
+      };
 
-    // Initialize Hive
-    await Hive.initFlutter();
+      // Initialize Hive
+      await Hive.initFlutter();
 
-    // Register Adapters
-    Hive.registerAdapter(DownloadItemAdapter());
-    Hive.registerAdapter(DownloadStatusAdapter());
+      // Register Adapters
+      Hive.registerAdapter(DownloadItemAdapter());
+      Hive.registerAdapter(DownloadStatusAdapter());
 
-    // Initialize services
-    final settingsService = SettingsService();
-    final authService = AuthService();
+      // Initialize services
+      final settingsService = SettingsService();
+      final authService = AuthService();
 
-    await settingsService.init();
+      await settingsService.init();
 
-    loggingService.info('Application starting...', component: 'Main');
+      loggingService.info('Application starting...', component: 'Main');
 
-    // Limit image cache to reduce memory usage
-    PaintingBinding.instance.imageCache.maximumSizeBytes =
-        100 * 1024 * 1024; // 100MB
+      // Limit image cache to reduce memory usage
+      PaintingBinding.instance.imageCache.maximumSize = 500;
+      PaintingBinding.instance.imageCache.maximumSizeBytes =
+          100 * 1024 * 1024; // 100MB
 
-    // Initialize global services singleton
-    await services.initializeAll();
+      // Initialize global services singleton
+      await services.initializeAll();
 
-    // Platform-specific initialization
-    final isAndroid = PlatformUtils.isAndroid;
+      // Platform-specific initialization
+      final isAndroid = PlatformUtils.isAndroid;
 
-    loggingService.info(
-      'Platform detected: ${PlatformUtils.platformName}',
-      component: 'Main',
-    );
-    loggingService.info('isAndroid = $isAndroid', component: 'Main');
-
-    // Get platform-specific services
-    final cookieService = services.cookieService;
-    final notificationService = services.notificationService;
-
-    // Only use WebView path if there's an active login
-    final isLoggedIn = await cookieService.isLoggedIn;
-    String? webViewPath;
-    if (!isAndroid) {
-      webViewPath = await cookieService.webViewPath;
-    }
-
-    final effectiveWebViewPath = isLoggedIn ? webViewPath : null;
-
-    // Create platform-specific yt-dlp and FFmpeg services
-    final YtdlpToolService ytdlpService;
-    final FfmpegToolService ffmpegService;
-
-    if (isAndroid) {
-      // Android: use yt-dlp binary service
-      ytdlpService = YtdlpServiceAndroid(
-        cookiePath: settingsService.settings.cookiePath,
-        webViewPath: effectiveWebViewPath,
-        notificationService: notificationService,
-      );
-
-      ffmpegService = FfmpegServiceAndroid();
-
-      loggingService.info('Using Android YtdlpServiceAndroid', component: 'Main');
-    } else {
-      // Windows/Desktop: use Process-based yt-dlp service
-      ytdlpService = YtdlpService(
-        ytdlpPath: settingsService.settings.ytdlpPath,
-        cookiePath: settingsService.settings.cookiePath,
-        cookieBrowser: settingsService.settings.cookieBrowser,
-        webViewPath: effectiveWebViewPath,
-        notificationService: notificationService,
-      );
-
-      ffmpegService = FfmpegService(
-        ffmpegPath: settingsService.settings.ffmpegPath,
-      );
-
-      loggingService.info('Using Windows services', component: 'Main');
-    }
-
-    // Warm yt-dlp in the background so the shell can render immediately.
-    ytdlpService.initialize().then((_) {
-      loggingService.info('yt-dlp service initialized', component: 'Main');
-    }).catchError((e) {
-      loggingService.warning(
-        'yt-dlp initialization failed: $e',
+      loggingService.info(
+        'Platform detected: ${PlatformUtils.platformName}',
         component: 'Main',
       );
-    });
+      loggingService.info('isAndroid = $isAndroid', component: 'Main');
 
-    runApp(
-      MultiProvider(
-        providers: [
-          ChangeNotifierProvider(
-            create: (_) => PlatformSettingsProvider(
-              settingsService: settingsService,
-              ytdlpService: ytdlpService,
-              ffmpegService: ffmpegService,
-              cookieService: cookieService,
-            )..init(),
-          ),
-          ChangeNotifierProvider(create: (_) => VideoProvider(ytdlpService)),
-          if (PlatformUtils.isMobile)
-            ChangeNotifierProvider<MobileDownloadProvider>(
-              create: (context) => MobileDownloadProvider(
+      // Get platform-specific services
+      final cookieService = services.cookieService;
+      final notificationService = services.notificationService;
+
+      // Only use WebView path if there's an active login
+      final isLoggedIn = await cookieService.isLoggedIn;
+      String? webViewPath;
+      if (!isAndroid) {
+        webViewPath = await cookieService.webViewPath;
+      }
+
+      final effectiveWebViewPath = isLoggedIn ? webViewPath : null;
+
+      // Create platform-specific yt-dlp and FFmpeg services
+      final YtdlpToolService ytdlpService;
+      final FfmpegToolService ffmpegService;
+
+      if (isAndroid) {
+        // Android: use yt-dlp binary service
+        ytdlpService = YtdlpServiceAndroid(
+          cookiePath: settingsService.settings.cookiePath,
+          webViewPath: effectiveWebViewPath,
+          notificationService: notificationService,
+        );
+
+        ffmpegService = FfmpegServiceAndroid();
+
+        loggingService.info(
+          'Using Android YtdlpServiceAndroid',
+          component: 'Main',
+        );
+      } else {
+        // Windows/Desktop: use Process-based yt-dlp service
+        ytdlpService = YtdlpService(
+          ytdlpPath: settingsService.settings.ytdlpPath,
+          cookiePath: settingsService.settings.cookiePath,
+          cookieBrowser: settingsService.settings.cookieBrowser,
+          webViewPath: effectiveWebViewPath,
+          notificationService: notificationService,
+        );
+
+        ffmpegService = FfmpegService(
+          ffmpegPath: settingsService.settings.ffmpegPath,
+        );
+
+        loggingService.info('Using Windows services', component: 'Main');
+      }
+
+      // Warm yt-dlp in the background so the shell can render immediately.
+      ytdlpService
+          .initialize()
+          .then((_) {
+            loggingService.info(
+              'yt-dlp service initialized',
+              component: 'Main',
+            );
+          })
+          .catchError((e) {
+            loggingService.warning(
+              'yt-dlp initialization failed: $e',
+              component: 'Main',
+            );
+          });
+
+      runApp(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider(
+              create: (_) => PlatformSettingsProvider(
+                settingsService: settingsService,
                 ytdlpService: ytdlpService,
+                ffmpegService: ffmpegService,
                 cookieService: cookieService,
-                settingsProvider: context.read<PlatformSettingsProvider>(),
-              )..initialize(),
+              )..init(),
             ),
-          ChangeNotifierProvider<DownloadProvider>(
-            create: (context) => DownloadProvider(
-              ytdlpService,
-              notificationService,
-              context.read<PlatformSettingsProvider>(),
+            ChangeNotifierProvider(create: (_) => VideoProvider(ytdlpService)),
+            if (PlatformUtils.isMobile)
+              ChangeNotifierProvider<MobileDownloadProvider>(
+                create: (context) => MobileDownloadProvider(
+                  ytdlpService: ytdlpService,
+                  cookieService: cookieService,
+                  settingsProvider: context.read<PlatformSettingsProvider>(),
+                )..initialize(),
+              ),
+            ChangeNotifierProvider<DownloadProvider>(
+              create: (context) => DownloadProvider(
+                ytdlpService,
+                notificationService,
+                context.read<PlatformSettingsProvider>(),
+              ),
             ),
-          ),
-          ChangeNotifierProvider(
-            create: (_) => PlaylistProvider(ytdlpService: ytdlpService),
-          ),
-          ChangeNotifierProvider(create: (_) => UpdateProvider()),
-          ChangeNotifierProvider(
-            create: (_) => ToolUpdateProvider(
-              ytdlpService: ytdlpService,
-              ffmpegService: ffmpegService,
-            )..init(),
-          ),
-          ChangeNotifierProvider(create: (_) => SearchProvider()),
-          ChangeNotifierProvider(create: (_) => NavigationProvider()),
-          Provider<CookieService>.value(value: cookieService),
-          Provider<NotificationService>.value(value: notificationService),
-          Provider<LoggingService>.value(value: loggingService),
-          Provider<AuthService>.value(value: authService),
-        ],
-        child: const App(),
-      ),
-    );
-  }, (error, stackTrace) {
-    // Global error handler for all uncaught async errors
-    loggingService.error(
-      'Uncaught async error: $error',
-      error: error,
-      stackTrace: stackTrace,
-    );
-    loggingService.showUserLog(
-      'An unexpected error occurred',
-      isError: true,
-    );
-  });
+            ChangeNotifierProvider(
+              create: (_) => PlaylistProvider(ytdlpService: ytdlpService),
+            ),
+            ChangeNotifierProvider(create: (_) => UpdateProvider()),
+            ChangeNotifierProvider(
+              create: (_) => ToolUpdateProvider(
+                ytdlpService: ytdlpService,
+                ffmpegService: ffmpegService,
+              )..init(),
+            ),
+            ChangeNotifierProvider(create: (_) => SearchProvider()),
+            ChangeNotifierProvider(create: (_) => NavigationProvider()),
+            Provider<CookieService>.value(value: cookieService),
+            Provider<NotificationService>.value(value: notificationService),
+            Provider<LoggingService>.value(value: loggingService),
+            Provider<AuthService>.value(value: authService),
+          ],
+          child: const App(),
+        ),
+      );
+    },
+    (error, stackTrace) {
+      // Global error handler for all uncaught async errors
+      loggingService.error(
+        'Uncaught async error: $error',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      loggingService.showUserLog('An unexpected error occurred', isError: true);
+    },
+  );
 }

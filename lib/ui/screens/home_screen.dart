@@ -159,14 +159,45 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
 
+          // Top Right Actions
           Positioned(
+            top: 24,
             right: 24,
-            bottom: 24,
-            child: SafeArea(
-              minimum: const EdgeInsets.only(right: 0, bottom: 0),
-              child: _buildPasteButton(),
+            child: Row(
+              children: [
+                _buildTopRightPasteButton(context),
+                const SizedBox(width: 12),
+                _buildThemeToggleButton(context),
+              ],
             ),
           ),
+
+          // Bottom Footer Text
+          if (!videoProvider.hasVideo && !videoProvider.isLoading)
+            Positioned(
+              bottom: 32,
+              left: 0,
+              right: 0,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.lock_outline_rounded,
+                    size: 14,
+                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.4),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Secure  •  Fast  •  Reliable',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.4),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
         ],
       );
     }
@@ -546,7 +577,7 @@ class _HomeScreenState extends State<HomeScreen> {
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                AppLogo(size: 104, showGlow: true)
+                AppLogo(size: 104, showGlow: false)
                     .animate()
                     .fadeIn(duration: 450.ms, delay: 50.ms)
                     .scale(
@@ -573,10 +604,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 const SizedBox(height: 8),
 
                 Text(
-                  'Paste and fetch.',
+                  'Paste a link and fetch content instantly.',
                   style: TextStyle(
                     color: theme.colorScheme.onSurface.withValues(alpha: 0.55),
-                    fontSize: 12,
+                    fontSize: 13,
                     height: 1.4,
                   ),
                   textAlign: TextAlign.center,
@@ -681,22 +712,55 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Widget _buildPasteButton() {
+  Widget _buildTopRightPasteButton(BuildContext context) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
 
-    return FloatingActionButton.extended(
+    return OutlinedButton.icon(
       onPressed: _pasteUrl,
-      backgroundColor: theme.colorScheme.surface,
-      foregroundColor: theme.colorScheme.onSurface,
-      elevation: 0,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-      icon: Icon(Icons.content_paste_rounded, color: theme.colorScheme.primary),
-      label: Text(
-        'Paste',
-        style: TextStyle(
-          color: theme.colorScheme.onSurface,
-          fontWeight: FontWeight.w700,
+      style: OutlinedButton.styleFrom(
+        foregroundColor: theme.colorScheme.onSurface,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        side: BorderSide(
+          color: isDark
+              ? Colors.white.withValues(alpha: 0.1)
+              : Colors.black.withValues(alpha: 0.1),
         ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      ),
+      icon: Icon(Icons.content_paste_rounded, size: 18, color: theme.colorScheme.onSurface.withValues(alpha: 0.8)),
+      label: const Text(
+        'Paste',
+        style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+      ),
+    );
+  }
+
+  Widget _buildThemeToggleButton(BuildContext context) {
+    final theme = Theme.of(context);
+    final settingsProvider = context.read<PlatformSettingsProvider>();
+    final isDark = theme.brightness == Brightness.dark;
+
+    return IconButton(
+      onPressed: () {
+        settingsProvider.setThemeMode(
+          isDark ? ThemeMode.light : ThemeMode.dark,
+        );
+      },
+      style: IconButton.styleFrom(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+          side: BorderSide(
+            color: isDark
+                ? Colors.white.withValues(alpha: 0.1)
+                : Colors.black.withValues(alpha: 0.1),
+          ),
+        ),
+      ),
+      icon: Icon(
+        isDark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
+        size: 18,
+        color: theme.colorScheme.onSurface.withValues(alpha: 0.8),
       ),
     );
   }

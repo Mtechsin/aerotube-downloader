@@ -447,11 +447,14 @@ class PlatformSettingsProvider extends ChangeNotifier {
   Color? get accentColor => settings.accentColorValue != null
       ? Color(settings.accentColorValue!)
       : null;
+  bool get enableAnimations => settings.enableAnimations;
 
   bool get enableNotifications => settings.enableNotifications;
   bool get autoCheckUpdates => settings.autoCheckUpdates;
   bool get sponsorBlockEnabled => settings.sponsorBlockEnabled;
   bool get useDownloadArchive => settings.useDownloadArchive;
+  bool get onboardingComplete => settings.onboardingComplete;
+  bool get ytdlpAutoUpdated => settings.ytdlpAutoUpdated;
 
   // New Setters
   Future<void> setIsYtdlpManaged(bool value) async {
@@ -479,6 +482,11 @@ class PlatformSettingsProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> setEnableAnimations(bool value) async {
+    await _settingsService.setEnableAnimations(value);
+    notifyListeners();
+  }
+
   Future<void> setEnableNotifications(bool value) async {
     await _settingsService.setEnableNotifications(value);
     notifyListeners();
@@ -502,6 +510,16 @@ class PlatformSettingsProvider extends ChangeNotifier {
 
   Future<void> setUseDownloadArchive(bool value) async {
     await _settingsService.setUseDownloadArchive(value);
+    notifyListeners();
+  }
+
+  Future<void> setOnboardingComplete(bool value) async {
+    await _settingsService.setOnboardingComplete(value);
+    notifyListeners();
+  }
+
+  Future<void> setYtdlpAutoUpdated(bool value) async {
+    await _settingsService.setYtdlpAutoUpdated(value);
     notifyListeners();
   }
 

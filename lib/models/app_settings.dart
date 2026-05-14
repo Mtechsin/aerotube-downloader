@@ -21,6 +21,7 @@ class AppSettings {
   // Appearance
   final ThemeMode themeMode;
   final int? accentColorValue; // Stored as int for easy persistence
+  final bool enableAnimations;
 
   // Authentication
   final bool enableCookies;
@@ -34,6 +35,10 @@ class AppSettings {
   final bool sponsorBlockEnabled;
   final bool useDownloadArchive;
   final bool enableLogging;
+
+  // First launch
+  final bool onboardingComplete;
+  final bool ytdlpAutoUpdated;
 
   // Constructor with defaults
   AppSettings({
@@ -51,6 +56,7 @@ class AppSettings {
 
     this.themeMode = ThemeMode.system,
     this.accentColorValue,
+    this.enableAnimations = true,
 
     this.enableCookies = false,
     this.cookiePath,
@@ -62,6 +68,8 @@ class AppSettings {
     this.sponsorBlockEnabled = false,
     this.useDownloadArchive = false,
     this.enableLogging = true,
+    this.onboardingComplete = false,
+    this.ytdlpAutoUpdated = false,
   });
 
   // CopyWith for easy updates
@@ -78,6 +86,7 @@ class AppSettings {
     String? defaultSubtitleLanguage,
     ThemeMode? themeMode,
     int? accentColorValue,
+    bool? enableAnimations,
     bool? enableCookies,
     String? cookiePath,
     String? cookieBrowser,
@@ -87,6 +96,8 @@ class AppSettings {
     bool? sponsorBlockEnabled,
     bool? useDownloadArchive,
     bool? enableLogging,
+    bool? onboardingComplete,
+    bool? ytdlpAutoUpdated,
   }) {
     return AppSettings(
       ytdlpPath: ytdlpPath ?? this.ytdlpPath,
@@ -103,6 +114,7 @@ class AppSettings {
           defaultSubtitleLanguage ?? this.defaultSubtitleLanguage,
       themeMode: themeMode ?? this.themeMode,
       accentColorValue: accentColorValue ?? this.accentColorValue,
+      enableAnimations: enableAnimations ?? this.enableAnimations,
       enableCookies: enableCookies ?? this.enableCookies,
       cookiePath: cookiePath ?? this.cookiePath,
       cookieBrowser: cookieBrowser ?? this.cookieBrowser,
@@ -113,6 +125,8 @@ class AppSettings {
       sponsorBlockEnabled: sponsorBlockEnabled ?? this.sponsorBlockEnabled,
       useDownloadArchive: useDownloadArchive ?? this.useDownloadArchive,
       enableLogging: enableLogging ?? this.enableLogging,
+      onboardingComplete: onboardingComplete ?? this.onboardingComplete,
+      ytdlpAutoUpdated: ytdlpAutoUpdated ?? this.ytdlpAutoUpdated,
     );
   }
 }

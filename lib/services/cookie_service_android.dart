@@ -1,7 +1,10 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
+import 'package:crypto/crypto.dart';
 import 'package:flutter_web_auth_2/flutter_web_auth_2.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
@@ -15,6 +18,12 @@ class CookieServiceAndroid extends CookieService {
   static const String _refreshTokenKey = 'youtube_refresh_token';
   static const String _tokenExpiryKey = 'youtube_token_expiry';
   static const String _isLoggedInKey = 'youtube_is_logged_in';
+  static const String _codeVerifierKey = 'youtube_oauth_code_verifier';
+
+  static const String _clientId =
+      'YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com';
+  static const String _redirectUri =
+      'com.youtube.downloader:/oauth2callback';
 
   final FlutterSecureStorage _secureStorage = const FlutterSecureStorage();
   final LoggingService _logger = LoggingService();
@@ -76,20 +85,28 @@ class CookieServiceAndroid extends CookieService {
     try {
       onStatus?.call('Opening YouTube login page...');
 
+      // Generate PKCE code verifier and challenge
+      final codeVerifier = _generateCodeVerifier();
+      final codeChallenge = _generateCodeChallenge(codeVerifier);
+
+      // Persist the verifier so _exchangeCodeForTokens can retrieve it
+      await _secureStorage.write(key: _codeVerifierKey, value: codeVerifier);
+
       // YouTube OAuth URL
       const authUrl = 'https://accounts.google.com/o/oauth2/v2/auth';
-      const clientId = 'YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com';
-      const redirectUri = 'com.youtube.downloader:/oauth2callback';
 
-      // Build authorization URL
+      // Build authorization URL with PKCE
       final authorizationUrl = Uri.parse(authUrl).replace(
         queryParameters: {
-          'client_id': clientId,
-          'redirect_uri': redirectUri,
+          'client_id': _clientId,
+          'redirect_uri': _redirectUri,
           'response_type': 'code',
-          'scope': 'https://www.googleapis.com/auth/youtube.readonly',
+          'scope':
+              'openid email profile https://www.googleapis.com/auth/youtube.readonly',
           'access_type': 'offline',
           'prompt': 'consent',
+          'code_challenge': codeChallenge,
+          'code_challenge_method': 'S256',
         },
       );
 
@@ -98,7 +115,7 @@ class CookieServiceAndroid extends CookieService {
       // Perform authentication
       final result = await FlutterWebAuth2.authenticate(
         url: authorizationUrl.toString(),
-        callbackUrlScheme: 'com.youtube.downloader',
+        callbackUrlScheme: _redirectUri.split('://')[0],
         options: const FlutterWebAuth2Options(preferEphemeral: false),
       );
 
@@ -150,23 +167,49 @@ class CookieServiceAndroid extends CookieService {
     }
   }
 
-  /// Exchange authorization code for tokens
-  /// NOTE: In production, this should be done on a backend server
-  Future<Map<String, String>?> _exchangeCodeForTokens(String code) async {
-    // This is a placeholder - in production:
-    // 1. Send the code to your backend server
-    // 2. Backend exchanges code for tokens with Google
-    // 3. Backend returns tokens to app
-    //
-    // For development/testing, you can use a direct token exchange
-    // but this requires embedding client secrets (not recommended for production)
+  String _generateCodeVerifier() {
+    final random = Random.secure();
+    final bytes = List<int>.generate(32, (_) => random.nextInt(256));
+    return base64Url.encode(bytes).replaceAll('=', '');
+  }
 
+  String _generateCodeChallenge(String verifier) {
+    final bytes = utf8.encode(verifier);
+    final digest = sha256.convert(bytes);
+    return base64Url.encode(digest.bytes).replaceAll('=', '');
+  }
+
+  /// Exchange authorization code for tokens
+  Future<Map<String, String>?> _exchangeCodeForTokens(String code) async {
     try {
-      // Simulated token response - REPLACE WITH ACTUAL IMPLEMENTATION
+      final codeVerifier = await _secureStorage.read(key: _codeVerifierKey);
+      await _secureStorage.delete(key: _codeVerifierKey);
+
+      final response = await http.post(
+        Uri.parse('https://oauth2.googleapis.com/token'),
+        headers: const {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: {
+          'client_id': _clientId,
+          'code': code,
+          'code_verifier': codeVerifier,
+          'grant_type': 'authorization_code',
+          'redirect_uri': _redirectUri,
+        },
+      );
+
+      if (response.statusCode != 200) {
+        _logger.error(
+          'Token exchange failed: ${response.statusCode} ${response.body}',
+          component: 'CookieServiceAndroid',
+        );
+        return null;
+      }
+
+      final Map<String, dynamic> data = json.decode(response.body);
       return {
-        'access_token': 'mock_access_token',
-        'refresh_token': 'mock_refresh_token',
-        'expires_in': '3600',
+        'access_token': data['access_token'] as String,
+        'refresh_token': data['refresh_token'] as String? ?? '',
+        'expires_in': (data['expires_in'] ?? 3600).toString(),
       };
     } catch (e) {
       _logger.error(
@@ -251,17 +294,43 @@ class CookieServiceAndroid extends CookieService {
     }
   }
 
-  /// Refresh token with backend (placeholder)
+  /// Refresh token with Google's token endpoint
   Future<Map<String, String>?> _refreshTokenWithBackend(
     String refreshToken,
   ) async {
-    // In production, call your backend API to refresh the token
-    // Simulated response
-    return {
-      'access_token': 'new_mock_access_token',
-      'refresh_token': refreshToken,
-      'expires_in': '3600',
-    };
+    try {
+      final response = await http.post(
+        Uri.parse('https://oauth2.googleapis.com/token'),
+        headers: const {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: {
+          'client_id': _clientId,
+          'refresh_token': refreshToken,
+          'grant_type': 'refresh_token',
+        },
+      );
+
+      if (response.statusCode != 200) {
+        _logger.error(
+          'Token refresh failed: ${response.statusCode} ${response.body}',
+          component: 'CookieServiceAndroid',
+        );
+        return null;
+      }
+
+      final Map<String, dynamic> data = json.decode(response.body);
+      return {
+        'access_token': data['access_token'] as String,
+        'refresh_token': data['refresh_token'] as String? ?? refreshToken,
+        'expires_in': (data['expires_in'] ?? 3600).toString(),
+      };
+    } catch (e) {
+      _logger.error(
+        'Failed to refresh token',
+        component: 'CookieServiceAndroid',
+        error: e,
+      );
+      return null;
+    }
   }
 
   /// Logout and clear tokens

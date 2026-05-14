@@ -104,9 +104,15 @@ class UpdateProvider extends ChangeNotifier {
     if (_downloadedFilePath == null) return;
 
     try {
-      await _updateService.launchInstaller(_downloadedFilePath!);
-      // Exit the app after launching installer
-      exit(0);
+      if (Platform.isAndroid) {
+        // Trigger Android system APK installer — no exit() needed.
+        // The user confirms installation via the system prompt.
+        await _updateService.launchAndroidInstaller(_downloadedFilePath!);
+      } else {
+        // Windows: launch the installer then close the app.
+        await _updateService.launchInstaller(_downloadedFilePath!);
+        exit(0);
+      }
     } catch (e) {
       _status = UpdateStatus.error;
       _errorMessage = e.toString();

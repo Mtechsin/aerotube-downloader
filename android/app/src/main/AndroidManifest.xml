@@ -26,6 +26,9 @@
     <!-- Wake lock for background downloads -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
+    <!-- Needed on Android 8+ to install APKs from within the app (self-update) -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <application
         android:label="AeroTube"
         android:name=".YtDlpApplication"
@@ -69,7 +72,16 @@
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="myapp" android:host="oauth2callback" />
+            </intent-filter>
+
+            <!-- App URL scheme for direct AeroTube links -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="aerotube" />
             </intent-filter>
 
             <!-- Handle YouTube URLs -->
@@ -77,9 +89,15 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="http" android:host="youtube.com" />
+                <data android:scheme="https" android:host="youtube.com" />
+                <data android:scheme="http" android:host="www.youtube.com" />
+                <data android:scheme="http" android:host="m.youtube.com" />
+                <data android:scheme="http" android:host="music.youtube.com" />
                 <data android:scheme="https" android:host="youtu.be" />
                 <data android:scheme="https" android:host="www.youtube.com" />
                 <data android:scheme="https" android:host="m.youtube.com" />
+                <data android:scheme="https" android:host="music.youtube.com" />
             </intent-filter>
         </activity>
 

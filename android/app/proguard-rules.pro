@@ -51,3 +51,11 @@
 -dontwarn com.google.android.play.core.tasks.OnFailureListener
 -dontwarn com.google.android.play.core.tasks.OnSuccessListener
 -dontwarn com.google.android.play.core.tasks.Task
+
+# Missing Java Beans classes (referenced by Jackson)
+-dontwarn java.beans.ConstructorProperties
+-dontwarn java.beans.Transient
+
+# Jackson
+-keep class com.fasterxml.jackson.** { *; }
+-dontwarn com.fasterxml.jackson.**

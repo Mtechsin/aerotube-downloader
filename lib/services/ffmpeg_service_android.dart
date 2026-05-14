@@ -1,13 +1,16 @@
 import 'logging_service.dart';
+import 'ffmpeg_service.dart';
+import 'ffmpeg_tool_service.dart';
 
 /// Android-specific FFmpeg service
 /// FFmpeg is bundled with youtubedl-android library, no separate installation needed
-class FfmpegServiceAndroid {
+class FfmpegServiceAndroid implements FfmpegToolService {
   bool _isInitialized = false;
   String? _ffmpegVersion;
   final LoggingService _logger = LoggingService();
 
   /// Initialize FFmpeg - with youtubedl-android, FFmpeg is bundled
+  @override
   Future<void> initialize({bool force = false}) async {
     if (_isInitialized && !force) return;
 
@@ -34,6 +37,7 @@ class FfmpegServiceAndroid {
 
   /// Get FFmpeg version
   String? get version => _ffmpegVersion;
+  @override
   Future<String?> getVersion() async => _ffmpegVersion;
 
   /// Android uses bundled FFmpeg from youtubedl-android, so there is no external binary path.
@@ -41,6 +45,7 @@ class FfmpegServiceAndroid {
   set ffmpegPath(String? _) {}
 
   /// Check if FFmpeg is available
+  @override
   bool get isAvailable => _isInitialized;
 
   /// Merge video and audio streams
@@ -105,15 +110,18 @@ class FfmpegServiceAndroid {
 
   /// Check for FFmpeg updates
   /// Note: On Android, FFmpeg is bundled and updated with the library
-  Future<FfmpegAndroidUpdateInfo?> checkForUpdate() async {
+  @override
+  Future<FfmpegUpdateInfo?> checkForUpdate() async {
     return null;
   }
 
   /// Update FFmpeg
   /// Note: On Android, FFmpeg is bundled and updated with the library
+  @override
   Future<bool> update({
     Function(double progress)? onProgress,
     Function(String status)? onStatus,
+    bool Function()? isCancelled,
   }) async {
     _logger.info(
       'FFmpeg is updated automatically with the library on Android',
@@ -124,9 +132,11 @@ class FfmpegServiceAndroid {
 
   /// Download and install FFmpeg
   /// Note: On Android, FFmpeg is bundled and updated with the library
+  @override
   Future<bool> downloadAndInstall({
     required Function(double progress) onProgress,
     required Function(String status) onStatus,
+    bool Function()? isCancelled,
   }) async {
     _logger.info(
       'FFmpeg is updated automatically with the library on Android',
@@ -134,16 +144,6 @@ class FfmpegServiceAndroid {
     );
     return false;
   }
-}
-
-class FfmpegAndroidUpdateInfo {
-  final String currentVersion;
-  final String? latestVersion;
-  
-  FfmpegAndroidUpdateInfo({
-    required this.currentVersion,
-    this.latestVersion,
-  });
 }
 
 class FfmpegAndroidException implements Exception {

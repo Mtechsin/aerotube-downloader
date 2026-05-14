@@ -339,7 +339,7 @@ class VideoInfo {
     // For low quality, return lowest bitrate in tier
     if (quality == AudioQuality.low) {
       formats.sort(
-        (a, b) => (a.audioBitrate ?? 0).compareTo(a.audioBitrate ?? 0),
+        (a, b) => (a.audioBitrate ?? 0).compareTo(b.audioBitrate ?? 0),
       );
     } else {
       formats.sort(

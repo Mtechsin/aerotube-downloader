@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../models/video_info.dart';
 import '../../providers/video_provider.dart';
+import '../../providers/platform_settings_provider.dart';
 import 'animated_button.dart';
 
 class VideoConfigurationWidget extends StatefulWidget {
@@ -39,6 +40,10 @@ class _VideoConfigurationWidgetState extends State<VideoConfigurationWidget> {
 
     final video = videoProvider.videoInfo!;
     final theme = Theme.of(context);
+    final enableAnimations = context.select<PlatformSettingsProvider, bool>(
+      (p) => p.enableAnimations,
+    );
+    final mediumAnim = enableAnimations ? const Duration(milliseconds: 220) : Duration.zero;
 
     // Glassmorphic Container Structure
     return Container(
@@ -110,7 +115,7 @@ class _VideoConfigurationWidgetState extends State<VideoConfigurationWidget> {
           _buildCloseButton(context),
         ],
       ),
-    ).animate().fadeIn(duration: 220.ms).slideY(begin: 0.02, end: 0);
+    ).animate().fadeIn(duration: mediumAnim).slideY(begin: 0.02, end: 0, duration: mediumAnim);
   }
 
   Widget _buildSkeleton(BuildContext context) {
@@ -122,6 +127,9 @@ class _VideoConfigurationWidgetState extends State<VideoConfigurationWidget> {
     if (widget.onClear == null) return const SizedBox.shrink();
     final theme = Theme.of(context);
 
+    final enableAnimations = context.select<PlatformSettingsProvider, bool>(
+      (p) => p.enableAnimations,
+    );
     return Positioned(
       top: 10,
       right: 16,
@@ -136,7 +144,7 @@ class _VideoConfigurationWidgetState extends State<VideoConfigurationWidget> {
         ),
         icon: const Icon(Icons.close_rounded),
         tooltip: 'Close',
-      ).animate().fadeIn(delay: 180.ms, duration: 180.ms),
+      ).animate().fadeIn(delay: enableAnimations ? 180.ms : Duration.zero, duration: enableAnimations ? 180.ms : Duration.zero),
     );
   }
 

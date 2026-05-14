@@ -15,6 +15,7 @@ class SettingsService {
   static const String keyDefaultSubtitleLanguage = 'default_subtitle_language';
   static const String keyThemeMode = 'theme_mode';
   static const String keyAccentColor = 'accent_color';
+  static const String keyEnableAnimations = 'enable_animations';
   static const String keyEnableCookies = 'enable_cookies';
   static const String keyCookiePath = 'cookie_path';
   static const String keyCookieBrowser = 'cookie_browser';
@@ -24,6 +25,8 @@ class SettingsService {
   static const String keySponsorBlockEnabled = 'sponsor_block_enabled';
   static const String keyUseDownloadArchive = 'use_download_archive';
   static const String keyEnableLogging = 'enable_logging';
+  static const String keyOnboardingComplete = 'onboarding_complete';
+  static const String keyYtdlpAutoUpdated = 'ytdlp_auto_updated';
 
   late SharedPreferences _prefs;
   AppSettings _settings = AppSettings();
@@ -54,6 +57,7 @@ class SettingsService {
           ThemeMode.values[(_readInt(keyThemeMode) ?? ThemeMode.system.index)
               .clamp(0, ThemeMode.values.length - 1)],
       accentColorValue: _readInt(keyAccentColor),
+      enableAnimations: _readBool(keyEnableAnimations) ?? true,
 
       enableCookies: _readBool(keyEnableCookies) ?? false,
       cookiePath: _readString(keyCookiePath),
@@ -65,6 +69,8 @@ class SettingsService {
       sponsorBlockEnabled: _readBool(keySponsorBlockEnabled) ?? false,
       useDownloadArchive: _readBool(keyUseDownloadArchive) ?? false,
       enableLogging: _readBool(keyEnableLogging) ?? true,
+      onboardingComplete: _readBool(keyOnboardingComplete) ?? false,
+      ytdlpAutoUpdated: _readBool(keyYtdlpAutoUpdated) ?? false,
     );
   }
 
@@ -116,6 +122,7 @@ class SettingsService {
     } else {
       await _prefs.remove(keyAccentColor);
     }
+    await _prefs.setBool(keyEnableAnimations, _settings.enableAnimations);
 
     await _prefs.setBool(keyEnableCookies, _settings.enableCookies);
     await _prefs.setString(keyCookiePath, _settings.cookiePath ?? '');
@@ -214,6 +221,11 @@ class SettingsService {
     }
   }
 
+  Future<void> setEnableAnimations(bool value) async {
+    _settings = _settings.copyWith(enableAnimations: value);
+    await _prefs.setBool(keyEnableAnimations, value);
+  }
+
   Future<void> setEnableCookies(bool value) async {
     _settings = _settings.copyWith(enableCookies: value);
     await _prefs.setBool(keyEnableCookies, value);
@@ -269,5 +281,15 @@ class SettingsService {
   Future<void> setEnableLogging(bool value) async {
     _settings = _settings.copyWith(enableLogging: value);
     await _prefs.setBool(keyEnableLogging, value);
+  }
+
+  Future<void> setOnboardingComplete(bool value) async {
+    _settings = _settings.copyWith(onboardingComplete: value);
+    await _prefs.setBool(keyOnboardingComplete, value);
+  }
+
+  Future<void> setYtdlpAutoUpdated(bool value) async {
+    _settings = _settings.copyWith(ytdlpAutoUpdated: value);
+    await _prefs.setBool(keyYtdlpAutoUpdated, value);
   }
 }

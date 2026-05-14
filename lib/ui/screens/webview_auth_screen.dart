@@ -4,6 +4,8 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import '../../services/cookie_service.dart';
+import '../../providers/navigation_provider.dart';
+import '../../core/utils/platform_utils.dart';
 
 class WebViewAuthScreen extends StatefulWidget {
   const WebViewAuthScreen({super.key});
@@ -24,6 +26,16 @@ class _WebViewAuthScreenState extends State<WebViewAuthScreen> {
       appBar: AppBar(
         title: const Text('Login to YouTube'),
         actions: [
+          if (PlatformUtils.isAndroid)
+            IconButton(
+              icon: const Icon(Icons.home_outlined),
+              tooltip: 'Home',
+              onPressed: () {
+                final nav = context.read<NavigationProvider>();
+                Navigator.of(context).popUntil((route) => route.isFirst);
+                nav.switchToHome();
+              },
+            ),
           IconButton(
             icon: const Icon(Icons.done_all),
             tooltip: 'Export Cookies & Close',

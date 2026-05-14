@@ -1,10 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/navigation_provider.dart';
-import '../../providers/download_provider.dart';
-import '../../providers/mobile_download_provider.dart';
 import '../../core/utils/platform_utils.dart';
-import 'package:flutter/services.dart';
+import '../../providers/platform_settings_provider.dart';
 import 'mobile_home_screen.dart';
 
 class MobileShell extends StatefulWidget {
@@ -21,237 +19,93 @@ class _MobileShellState extends State<MobileShell> {
   Widget build(BuildContext context) {
     final navigationProvider = context.watch<NavigationProvider>();
     final theme = Theme.of(context);
+    final currentIndex = navigationProvider.currentIndex;
+
+    final enableAnimations = context.select<PlatformSettingsProvider, bool>(
+      (provider) => provider.enableAnimations,
+    );
+
+    // Search FAB — Android only, only on home screen
+    final showSearchFab =
+        PlatformUtils.isAndroid && currentIndex == 0;
 
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, result) {
         if (didPop) return;
-
         if (navigationProvider.currentIndex != 0) {
           navigationProvider.setIndex(0);
         }
       },
       child: Scaffold(
         backgroundColor: theme.scaffoldBackgroundColor,
-        body: IndexedStack(
-          index: navigationProvider.currentIndex,
-          children: widget.screens,
-        ),
-        bottomNavigationBar: _buildBottomNavBar(
-          context,
-          theme,
-          navigationProvider,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildBottomNavBar(
-    BuildContext context,
-    ThemeData theme,
-    NavigationProvider navProvider,
-  ) {
-    final activeDownloads = PlatformUtils.isAndroid
-        ? context.watch<MobileDownloadProvider>().activeDownloadsCount
-        : context.watch<DownloadProvider>().activeCount;
-
-    final primaryColor = theme.colorScheme.primary;
-    final surfaceColor = theme.scaffoldBackgroundColor;
-    final isDark = theme.brightness == Brightness.dark;
-    final systemBottomInset = MediaQuery.of(context).viewPadding.bottom;
-    final bottomSpacing = PlatformUtils.isAndroid ? 2.0 : 6.0;
-
-    return Padding(
-      padding: EdgeInsets.fromLTRB(
-        16,
-        0,
-        16,
-        bottomSpacing + systemBottomInset,
-      ),
-      child: Container(
-        height: 76,
-        decoration: BoxDecoration(
-          color: surfaceColor,
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(
-            color: isDark
-                ? Colors.white.withValues(alpha: 0.16)
-                : Colors.black.withValues(alpha: 0.14),
+        body: AnimatedSwitcher(
+          duration: enableAnimations
+              ? const Duration(milliseconds: 300)
+              : Duration.zero,
+          switchInCurve: Curves.easeOutCubic,
+          switchOutCurve: Curves.easeInCubic,
+          transitionBuilder: (child, animation) {
+            return FadeTransition(
+              opacity: animation,
+              child: SlideTransition(
+                position: Tween<Offset>(
+                  begin: const Offset(0.02, 0),
+                  end: Offset.zero,
+                ).animate(animation),
+                child: child,
+              ),
+            );
+          },
+          child: IndexedStack(
+            key: ValueKey(currentIndex),
+            index: currentIndex,
+            children: widget.screens,
           ),
         ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(24),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: [
-                _NavItem(
-                  icon: Icons.home_outlined,
-                  activeIcon: Icons.home_rounded,
-                  label: 'Home',
-                  isSelected: navProvider.currentIndex == 0,
-                  color: primaryColor,
-                  onTap: () => navProvider.setIndex(0),
+        // Search FAB — Android only
+        floatingActionButton: showSearchFab
+            ? Padding(
+                padding: const EdgeInsets.only(bottom: 80),
+                child: _SearchFab(
+                  onTap: () => navigationProvider.setIndex(1),
+                  enableAnimations: enableAnimations,
                 ),
-                _NavItem(
-                  icon: Icons.search_outlined,
-                  activeIcon: Icons.search_rounded,
-                  label: 'Search',
-                  isSelected: navProvider.currentIndex == 1,
-                  color: primaryColor,
-                  onTap: () => navProvider.setIndex(1),
-                ),
-                _NavItem(
-                  icon: Icons.download_outlined,
-                  activeIcon: Icons.download_rounded,
-                  label: 'Files',
-                  isSelected: navProvider.currentIndex == 2,
-                  color: primaryColor,
-                  badge: activeDownloads > 0 ? activeDownloads : null,
-                  onTap: () => navProvider.setIndex(2),
-                ),
-                _NavItem(
-                  icon: Icons.settings_outlined,
-                  activeIcon: Icons.settings_rounded,
-                  label: 'Settings',
-                  isSelected: navProvider.currentIndex == 3,
-                  color: primaryColor,
-                  onTap: () => navProvider.setIndex(3),
-                ),
-              ],
-            ),
-          ),
-        ),
+              )
+            : null,
+        floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       ),
     );
   }
 }
 
-class _NavItem extends StatefulWidget {
-  final IconData icon;
-  final IconData activeIcon;
-  final String label;
-  final bool isSelected;
-  final Color color;
-  final int? badge;
+class _SearchFab extends StatelessWidget {
   final VoidCallback onTap;
+  final bool enableAnimations;
 
-  const _NavItem({
-    required this.icon,
-    required this.activeIcon,
-    required this.label,
-    required this.isSelected,
-    required this.color,
-    this.badge,
-    required this.onTap,
-  });
+  const _SearchFab({required this.onTap, required this.enableAnimations});
 
-  @override
-  State<_NavItem> createState() => _NavItemState();
-}
-
-class _NavItemState extends State<_NavItem> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-    final textColor = isDark ? Colors.white : Colors.black87;
-    final iconScale = widget.isSelected ? 1.04 : 1.0;
-    final iconOffsetY = widget.isSelected ? -1.0 : 0.0;
-
-    return GestureDetector(
-      onTap: () {
-        HapticFeedback.lightImpact();
-        widget.onTap();
-      },
-      behavior: HitTestBehavior.opaque,
-      child: SizedBox(
-        width: 64,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Stack(
-              clipBehavior: Clip.none,
-              children: [
-                AnimatedSlide(
-                  duration: const Duration(milliseconds: 160),
-                  curve: Curves.easeOutCubic,
-                  offset: Offset(0, iconOffsetY / 24),
-                  child: AnimatedScale(
-                    duration: const Duration(milliseconds: 160),
-                    curve: Curves.easeOutCubic,
-                    scale: iconScale,
-                    child: Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: widget.isSelected
-                            ? widget.color.withValues(alpha: 0.1)
-                            : Colors.transparent,
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: Icon(
-                        widget.isSelected ? widget.activeIcon : widget.icon,
-                        color: widget.isSelected ? widget.color : textColor,
-                        size: 22,
-                      ),
-                    ),
-                  ),
-                ),
-                if (widget.badge != null)
-                  Positioned(
-                    right: -4,
-                    top: -4,
-                    child: Container(
-                      padding: const EdgeInsets.all(4),
-                      decoration: BoxDecoration(
-                        color: Colors.red,
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.red.withValues(alpha: 0.4),
-                            blurRadius: 4,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      constraints: const BoxConstraints(
-                        minWidth: 18,
-                        minHeight: 18,
-                      ),
-                      child: Text(
-                        widget.badge! > 9 ? '9+' : '${widget.badge}',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 2),
-            AnimatedDefaultTextStyle(
-              duration: const Duration(milliseconds: 180),
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: widget.isSelected
-                    ? FontWeight.w700
-                    : FontWeight.w500,
-                color: isDark
-                    ? Colors.white
-                    : (widget.isSelected ? Colors.black : Colors.black87),
-              ),
-              child: Text(
-                widget.label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          ],
+    return FloatingActionButton(
+      onPressed: onTap,
+      elevation: 2,
+      highlightElevation: 4,
+      backgroundColor: theme.colorScheme.surface,
+      foregroundColor: theme.colorScheme.onSurface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: BorderSide(
+          color: theme.colorScheme.onSurface.withValues(alpha: 0.12),
+          width: 1,
         ),
+      ),
+      tooltip: 'Search',
+      child: Icon(
+        Icons.search_rounded,
+        size: 24,
+        color: theme.colorScheme.onSurface.withValues(alpha: 0.75),
       ),
     );
   }

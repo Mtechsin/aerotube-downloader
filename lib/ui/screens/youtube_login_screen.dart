@@ -9,6 +9,8 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import '../../providers/platform_settings_provider.dart';
+import '../../providers/navigation_provider.dart';
+import '../../core/utils/platform_utils.dart';
 import '../../services/logging_service.dart';
 
 class YoutubeLoginScreen extends StatefulWidget {
@@ -428,6 +430,14 @@ class _YoutubeLoginScreenState extends State<YoutubeLoginScreen> {
       appBar: AppBar(
         title: const Text('Login to YouTube'),
         actions: [
+          if (PlatformUtils.isAndroid)
+            IconButton(
+              icon: const Icon(Icons.home_outlined),
+              tooltip: 'Home',
+              onPressed: () {
+                Navigator.of(context).popUntil((route) => route.isFirst);
+              },
+            ),
           if (_isInitialized)
             TextButton(
               onPressed: () async {

@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
-import '../../models/download_mode.dart';
 import '../../providers/video_provider.dart';
 import '../../providers/platform_settings_provider.dart';
+import '../../providers/navigation_provider.dart';
+import '../../providers/download_provider.dart';
 import '../../providers/mobile_download_provider.dart';
-import '../../models/video_info.dart';
+import '../../core/utils/platform_utils.dart';
 import '../widgets/mobile_url_input_card.dart';
-import '../widgets/mobile_video_configuration_widget.dart';
 import '../widgets/app_logo.dart';
 import 'package:flutter/cupertino.dart';
 import 'mobile_result_screen.dart';
@@ -79,249 +79,268 @@ class _MobileHomeScreenState extends State<MobileHomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     final videoProvider = context.watch<VideoProvider>();
     final settingsProvider = context.watch<PlatformSettingsProvider>();
-    final hasResult = videoProvider.hasVideo ||
-        videoProvider.hasPlaylist ||
-        videoProvider.isLoading ||
-        videoProvider.hasError;
+    final navProvider = context.read<NavigationProvider>();
+
+    final activeDownloads = PlatformUtils.isAndroid
+        ? context.watch<MobileDownloadProvider>().activeDownloadsCount
+        : context.watch<DownloadProvider>().activeCount;
 
     return SafeArea(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // App Title
+          // ── Top bar ─────────────────────────────────────────────────
           Padding(
-            padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
-            child: _buildAppTitle(context),
-          ),
-
-          // Status Banners
-          if (!settingsProvider.isInitialized ||
-              !settingsProvider.isYtdlpAvailable ||
-              (settingsProvider.isYtdlpAvailable &&
-                  !settingsProvider.isFfmpegAvailable)) ...[
-            const SizedBox(height: 12),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: Column(
-                children: [
-                  if (!settingsProvider.isInitialized)
-                    _buildInitializingBanner(context),
-                  if (!settingsProvider.isYtdlpAvailable)
-                    _buildCompactStatusBanner(
-                      context,
-                      title: 'yt-dlp Not Found',
-                      message: 'Configure in Settings',
-                      icon: Icons.warning_amber_rounded,
-                      color: Colors.red,
-                    ),
-                  if (settingsProvider.isYtdlpAvailable &&
-                      !settingsProvider.isFfmpegAvailable)
-                    _buildCompactStatusBanner(
-                      context,
-                      title: 'FFmpeg Not Found',
-                      message: 'Some features limited',
-                      icon: Icons.info_outline_rounded,
-                      color: Colors.orange,
-                    ),
-                ],
-              ),
-            ),
-          ],
-
-          // Main Content
-          Expanded(
-            child: SingleChildScrollView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  const SizedBox(height: 80),
-                  MobileUrlInputCard(
-                    controller: _urlController,
-                    onFetch: () => _handleFetch(videoProvider),
-                    isLoading: false,
-                    statusMessage: null,
-                    errorMessage: null,
-                  ),
-                  const SizedBox(height: 32),
-                  _buildMobileEmptyState(context, videoProvider),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildAppTitle(BuildContext context) {
-    final theme = Theme.of(context);
-    return Text(
-      'AeroTube',
-      style: theme.textTheme.headlineSmall?.copyWith(
-        fontWeight: FontWeight.w800,
-        fontSize: 22,
-        letterSpacing: -0.5,
-      ),
-    );
-  }
-
-  Widget _buildInitializingBanner(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.primary.withValues(alpha: 0.06),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 16,
-            height: 16,
-            child: CircularProgressIndicator(
-              strokeWidth: 2,
-              color: theme.colorScheme.primary,
-            ),
-          ),
-          const SizedBox(width: 10),
-          Text(
-            'Initializing...',
-            style: TextStyle(
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-              fontWeight: FontWeight.w500,
-              fontSize: 13,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildCompactStatusBanner(
-    BuildContext context, {
-    required String title,
-    required String message,
-    required IconData icon,
-    required Color color,
-  }) {
-    final theme = Theme.of(context);
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.06),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, color: color, size: 18),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            padding: const EdgeInsets.fromLTRB(22, 18, 12, 0),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                Text(
-                  title,
-                  style: TextStyle(
-                    color: color,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 13,
+                // App name
+                RichText(
+                  text: TextSpan(
+                    children: [
+                      TextSpan(
+                        text: 'Aero',
+                        style: TextStyle(
+                          fontFamily: 'Manrope',
+                          fontSize: 26,
+                          fontWeight: FontWeight.w800,
+                          color: theme.colorScheme.onSurface,
+                          letterSpacing: -0.5,
+                        ),
+                      ),
+                      TextSpan(
+                        text: 'Tube',
+                        style: TextStyle(
+                          fontFamily: 'Manrope',
+                          fontSize: 26,
+                          fontWeight: FontWeight.w300,
+                          color: theme.colorScheme.primary,
+                          letterSpacing: -0.5,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                Text(
-                  message,
-                  style: TextStyle(
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
-                    fontSize: 12,
+                const SizedBox(width: 10),
+                // Status pill — only highest priority
+                if (!settingsProvider.isInitialized)
+                  _buildStatusPill(
+                    context,
+                    label: 'Initializing...',
+                    color: theme.colorScheme.primary,
+                    isLoading: true,
+                  )
+                else if (!settingsProvider.isYtdlpAvailable)
+                  _buildStatusPill(
+                    context,
+                    label: 'yt-dlp missing',
+                    color: Colors.red,
+                  )
+                else if (!settingsProvider.isFfmpegAvailable)
+                  _buildStatusPill(
+                    context,
+                    label: 'FFmpeg missing',
+                    color: Colors.orange,
                   ),
+
+                const Spacer(),
+
+                // Files button with active-download badge
+                _TopBarButton(
+                  icon: Icons.download_outlined,
+                  activeIcon: Icons.download_rounded,
+                  tooltip: 'Downloads',
+                  badge: activeDownloads > 0 ? activeDownloads : null,
+                  onTap: () => navProvider.setIndex(2),
+                ),
+                const SizedBox(width: 2),
+                // Settings button
+                _TopBarButton(
+                  icon: Icons.tune_rounded,
+                  tooltip: 'Settings',
+                  onTap: () => navProvider.setIndex(3),
                 ),
               ],
             ),
           ),
-        ],
-      ),
-    );
-  }
 
-  Widget _buildMobileEmptyState(
-    BuildContext context,
-    VideoProvider videoProvider,
-  ) {
-    final theme = Theme.of(context);
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(
-          Icons.download_rounded,
-          size: 40,
-          color: theme.colorScheme.primary.withValues(alpha: 0.35),
-        ),
-        const SizedBox(height: 16),
-        Text(
-          'Ready to Download',
-          style: theme.textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.w600,
-            color: theme.colorScheme.onSurface.withValues(alpha: 0.85),
-          ),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          'Paste a YouTube link to get started',
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
-          ),
-          textAlign: TextAlign.center,
-        ),
-        const SizedBox(height: 20),
-        Wrap(
-          alignment: WrapAlignment.center,
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            _buildFeaturePill(context, Icons.four_k_rounded, '4K'),
-            _buildFeaturePill(context, Icons.music_note_rounded, 'Audio'),
-            _buildFeaturePill(context, Icons.playlist_play_rounded, 'Playlist'),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _buildFeaturePill(BuildContext context, IconData icon, String label) {
-    final theme = Theme.of(context);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.primary.withValues(alpha: 0.06),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: theme.colorScheme.primary.withValues(alpha: 0.12),
-        ),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            icon,
-            size: 14,
-            color: theme.colorScheme.primary.withValues(alpha: 0.6),
-          ),
-          const SizedBox(width: 6),
-          Text(
-            label,
-            style: TextStyle(
-              color: theme.colorScheme.primary.withValues(alpha: 0.7),
-              fontWeight: FontWeight.w500,
-              fontSize: 12,
+          // ── Main Content — vertically centered ───────────────────────
+          Expanded(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                return SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      minHeight: constraints.maxHeight,
+                    ),
+                    child: Center(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 24,
+                          vertical: 32,
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            MobileUrlInputCard(
+                              controller: _urlController,
+                              onFetch: () => _handleFetch(videoProvider),
+                              isLoading: false,
+                              statusMessage: null,
+                              errorMessage: null,
+                            ),
+                            const SizedBox(height: 20),
+                            _buildCookieToggle(context, settingsProvider),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              },
             ),
           ),
         ],
       ),
+    );
+  }
+
+  /// Cookie enable/disable toggle row
+  Widget _buildCookieToggle(
+    BuildContext context,
+    PlatformSettingsProvider settingsProvider,
+  ) {
+    final theme = Theme.of(context);
+    final enabled = settingsProvider.enableCookies;
+    final isCookieActive = settingsProvider.isCookieActive;
+    final isLoggedIn = settingsProvider.isYouTubeLoggedIn;
+
+    // Build the status label
+    String statusLabel;
+    Color statusColor;
+    IconData statusIcon;
+
+    if (!enabled) {
+      statusLabel = 'Cookies disabled';
+      statusColor = theme.colorScheme.onSurface.withValues(alpha: 0.35);
+      statusIcon = Icons.cookie_outlined;
+    } else if (isLoggedIn) {
+      statusLabel = 'Signed in to YouTube · cookies active';
+      statusColor = Colors.green;
+      statusIcon = Icons.verified_user_rounded;
+    } else if (isCookieActive) {
+      statusLabel = settingsProvider.cookieStatus;
+      statusColor = Colors.orange;
+      statusIcon = Icons.cookie_rounded;
+    } else {
+      statusLabel = 'Cookies enabled · not signed in';
+      statusColor = Colors.orange.withValues(alpha: 0.8);
+      statusIcon = Icons.cookie_rounded;
+    }
+
+    return GestureDetector(
+      onTap: () async {
+        await settingsProvider.setEnableCookies(!enabled);
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 250),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+        decoration: BoxDecoration(
+          color: enabled
+              ? (isLoggedIn
+                  ? Colors.green.withValues(alpha: 0.07)
+                  : theme.colorScheme.primary.withValues(alpha: 0.05))
+              : theme.colorScheme.onSurface.withValues(alpha: 0.03),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: enabled
+                ? (isLoggedIn
+                    ? Colors.green.withValues(alpha: 0.2)
+                    : theme.colorScheme.primary.withValues(alpha: 0.12))
+                : theme.colorScheme.onSurface.withValues(alpha: 0.08),
+            width: 0.8,
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(statusIcon, size: 16, color: statusColor),
+            const SizedBox(width: 9),
+            Expanded(
+              child: Text(
+                statusLabel,
+                style: TextStyle(
+                  color: statusColor,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+            // Toggle switch — compact
+            SizedBox(
+              height: 24,
+              child: FittedBox(
+                fit: BoxFit.contain,
+                child: Switch(
+                  value: enabled,
+                  onChanged: (val) async {
+                    await settingsProvider.setEnableCookies(val);
+                  },
+                  activeThumbColor: isLoggedIn
+                      ? Colors.green
+                      : theme.colorScheme.primary,
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatusPill(
+    BuildContext context, {
+    required String label,
+    required Color color,
+    bool isLoading = false,
+  }) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (isLoading)
+          SizedBox(
+            width: 6,
+            height: 6,
+            child: CircularProgressIndicator(
+              strokeWidth: 1.5,
+              color: color.withValues(alpha: 0.6),
+            ),
+          )
+        else
+          Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.7),
+              shape: BoxShape.circle,
+            ),
+          ),
+        const SizedBox(width: 6),
+        Text(
+          label,
+          style: TextStyle(
+            color: color.withValues(alpha: 0.7),
+            fontSize: 11,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ],
     );
   }
 
@@ -341,6 +360,66 @@ class _MobileHomeScreenState extends State<MobileHomeScreen> {
       CupertinoPageRoute(
         builder: (context) => const MobileResultScreen(),
       ),
+    );
+  }
+}
+
+/// Compact top-bar icon button with optional badge
+class _TopBarButton extends StatelessWidget {
+  final IconData icon;
+  final IconData? activeIcon;
+  final String tooltip;
+  final int? badge;
+  final VoidCallback onTap;
+
+  const _TopBarButton({
+    required this.icon,
+    this.activeIcon,
+    required this.tooltip,
+    this.badge,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        IconButton(
+          icon: Icon(
+            icon,
+            size: 22,
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.55),
+          ),
+          onPressed: onTap,
+          tooltip: tooltip,
+          padding: const EdgeInsets.all(8),
+          constraints: const BoxConstraints(),
+        ),
+        if (badge != null)
+          Positioned(
+            right: 2,
+            top: 2,
+            child: Container(
+              padding: const EdgeInsets.all(3),
+              decoration: const BoxDecoration(
+                color: Colors.red,
+                shape: BoxShape.circle,
+              ),
+              constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+              child: Text(
+                badge! > 9 ? '9+' : '$badge',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 9,
+                  fontWeight: FontWeight.bold,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ),
+          ),
+      ],
     );
   }
 }

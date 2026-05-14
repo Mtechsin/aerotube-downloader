@@ -25,11 +25,17 @@ class MainActivity : FlutterActivity() {
     private val YTDLP_EVENTS_CHANNEL = "com.aerotube.youtube_downloader/ytdlp_android/events"
     private val SERVICE_CHANNEL = "com.aerotube.youtube_downloader/download_service"
     private val FILE_PROVIDER_CHANNEL = "com.aerotube.youtube_downloader/file_provider"
+    private val DEEP_LINK_CHANNEL = "com.aerotube.youtube_downloader/deep_links"
+    private val DEEP_LINK_EVENTS_CHANNEL = "com.aerotube.youtube_downloader/deep_links/events"
     
     // Store active download processes by ID
     private val activeDownloads = ConcurrentHashMap<String, Boolean>()
     @Volatile
     private var downloadEventSink: EventChannel.EventSink? = null
+    @Volatile
+    private var deepLinkEventSink: EventChannel.EventSink? = null
+    @Volatile
+    private var pendingDeepLink: String? = null
     
     companion object {
         private const val TAG = "MainActivity"
@@ -47,6 +53,8 @@ class MainActivity : FlutterActivity() {
         } catch (e: Throwable) {
             Log.e(TAG, "YoutubeDL init failed", e)
         }
+
+        pendingDeepLink = extractDeepLink(intent)
 
         // Original permissions channel
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
@@ -204,6 +212,31 @@ class MainActivity : FlutterActivity() {
                 }
             })
 
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, DEEP_LINK_CHANNEL).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "getInitialLink" -> {
+                    result.success(pendingDeepLink)
+                    pendingDeepLink = null
+                }
+                else -> result.notImplemented()
+            }
+        }
+
+        EventChannel(flutterEngine.dartExecutor.binaryMessenger, DEEP_LINK_EVENTS_CHANNEL)
+            .setStreamHandler(object : EventChannel.StreamHandler {
+                override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                    deepLinkEventSink = events
+                    pendingDeepLink?.let {
+                        events?.success(it)
+                        pendingDeepLink = null
+                    }
+                }
+
+                override fun onCancel(arguments: Any?) {
+                    deepLinkEventSink = null
+                }
+            })
+
         // FileProvider channel — converts raw file paths to shareable content:// URIs
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, FILE_PROVIDER_CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
@@ -228,17 +261,69 @@ class MainActivity : FlutterActivity() {
                         result.error("PROVIDER_ERROR", e.message, e.stackTraceToString())
                     }
                 }
+                "installApk" -> {
+                    val filePath = call.argument<String>("filePath")
+                    if (filePath == null) {
+                        result.error("INVALID_ARGUMENT", "filePath is required", null)
+                        return@setMethodCallHandler
+                    }
+                    try {
+                        val file = File(filePath)
+                        if (!file.exists()) {
+                            result.error("FILE_NOT_FOUND", "APK not found: $filePath", null)
+                            return@setMethodCallHandler
+                        }
+                        val authority = "${applicationContext.packageName}.fileprovider"
+                        val contentUri: Uri = FileProvider.getUriForFile(applicationContext, authority, file)
+                        val intent = Intent(Intent.ACTION_VIEW).apply {
+                            setDataAndType(contentUri, "application/vnd.android.package-archive")
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        startActivity(intent)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "installApk failed", e)
+                        result.error("INSTALL_ERROR", e.message, e.stackTraceToString())
+                    }
+                }
+                "getDeviceAbi" -> {
+                    val primaryAbi = Build.SUPPORTED_ABIS.firstOrNull() ?: ""
+                    result.success(primaryAbi)
+                }
                 else -> result.notImplemented()
             }
         }
     }
 
-    private fun getVersion(): String {
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+
+        val deepLink = extractDeepLink(intent) ?: return
+        if (deepLinkEventSink != null) {
+            deepLinkEventSink?.success(deepLink)
+        } else {
+            pendingDeepLink = deepLink
+        }
+    }
+
+    private fun extractDeepLink(intent: Intent?): String? {
+        if (intent?.action != Intent.ACTION_VIEW) return null
+
+        val uri = intent.data?.toString()?.takeIf { it.isNotBlank() }
+        if (uri != null) {
+            Log.d(TAG, "Received deep link: $uri")
+        }
+        return uri
+    }
+
+    private fun getVersion(): String? {
         return try {
-            YoutubeDL.getInstance().version(applicationContext) ?: "Unknown"
+            YoutubeDL.getInstance().version(applicationContext)
         } catch (e: Throwable) {
             Log.e(TAG, "Failed to get version", e)
-            "Unknown"
+            null
         }
     }
 

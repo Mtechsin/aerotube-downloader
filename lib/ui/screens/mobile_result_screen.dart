@@ -3,6 +3,8 @@ import 'package:flutter/cupertino.dart';
 import 'package:provider/provider.dart';
 import '../../providers/video_provider.dart';
 import '../../providers/mobile_download_provider.dart';
+import '../../providers/navigation_provider.dart';
+import '../../core/utils/platform_utils.dart';
 import '../../models/download_mode.dart';
 import '../../models/playlist_info.dart';
 import '../../models/video_info.dart';
@@ -379,6 +381,18 @@ class _MobileResultScreenState extends State<MobileResultScreen> {
           style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
         ),
         centerTitle: true,
+        actions: [
+          if (PlatformUtils.isAndroid)
+            IconButton(
+              icon: const Icon(Icons.home_outlined),
+              tooltip: 'Home',
+              onPressed: () {
+                final nav = context.read<NavigationProvider>();
+                Navigator.of(context).popUntil((route) => route.isFirst);
+                nav.switchToHome();
+              },
+            ),
+        ],
       ),
       body: SafeArea(
         child: Padding(
