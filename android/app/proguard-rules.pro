@@ -19,10 +19,6 @@
 -dontwarn org.yausername.**
 -dontwarn io.github.junkfood02.**
 
-# Python (for chaquopy / embedded Python)
--keep class com.chaquo.python.** { *; }
--dontwarn com.chaquo.python.**
-
 # FileProvider
 -keep class androidx.core.content.FileProvider { *; }
 
@@ -59,3 +55,11 @@
 # Jackson
 -keep class com.fasterxml.jackson.** { *; }
 -dontwarn com.fasterxml.jackson.**
+
+# flutter_local_notifications uses Gson TypeToken to restore scheduled
+# notifications. R8 removes generic signatures by default, which makes Gson
+# throw "TypeToken must be created with a type argument" in release builds.
+-keepattributes Signature
+-keepattributes *Annotation*
+-keep class com.dexterous.flutterlocalnotifications.** { *; }
+-keep class com.google.gson.** { *; }

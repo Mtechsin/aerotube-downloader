@@ -19,7 +19,7 @@ publish_to: "none" # Remove this line if you wish to publish to pub.dev
 version: 1.1.0+1
 
 environment:
-  sdk: ^3.9.2
+  sdk: ^3.10.0
 
 # Dependencies specify other packages that your package needs in order to work.
 # To automatically upgrade your package dependencies to the latest versions
@@ -46,7 +46,6 @@ dependencies:
   # window_manager: ^0.4.3
 
   # UI/UX
-  google_fonts: ^6.2.1
   flutter_animate: ^4.5.2
   cached_network_image: ^3.4.1
 
@@ -96,6 +95,7 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^5.0.0
+  msix: ^3.17.0
 
 # Launcher icons configuration
 flutter_launcher_icons:
@@ -118,7 +118,7 @@ flutter:
   uses-material-design: true
 
   assets:
-    - assets/images/
+    - assets/images/logo.png
 
   fonts:
     - family: Manrope
