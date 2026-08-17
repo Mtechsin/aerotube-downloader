@@ -3,27 +3,26 @@ import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:path/path.dart' as p;
 import '../models/app_settings.dart';
-import '../services/settings_service.dart';
-import '../services/ytdlp_service.dart';
-import '../services/ytdlp_service_android.dart';
-import '../services/ffmpeg_service.dart';
-import '../services/ffmpeg_service_android.dart';
-import '../services/cookie_service.dart';
-import '../services/logging_service.dart';
+import '../services/ytdlp/ytdlp_tool_service.dart';
+import '../services/ffmpeg/ffmpeg_tool_service.dart';
+import '../services/cookie/cookie_service.dart';
+import '../services/core/logging_service.dart';
 import '../core/utils/platform_utils.dart';
-import '../services/android_storage_service.dart';
+import '../services/core/android_storage_service.dart';
+import '../services/core/settings_service.dart';
 
 /// Platform-aware settings provider with Android-specific defaults
 class PlatformSettingsProvider extends ChangeNotifier {
   final SettingsService _settingsService;
-  final dynamic _ytdlpService; // Can be YtdlpService or YtdlpServiceAndroid
-  final dynamic _ffmpegService; // Can be FfmpegService or FfmpegServiceAndroid
+  final YtdlpToolService _ytdlpService;
+  final FfmpegToolService _ffmpegService;
   final CookieService _cookieService;
   final AndroidStorageService _androidStorageService = AndroidStorageService();
 
   bool _isInitialized = false;
   bool _isYtdlpAvailable = false;
   bool _isFfmpegAvailable = false;
+  bool _hasCheckedTools = false;
   String? _ytdlpVersion;
   String? _ffmpegVersion;
   DateTime? _cookieFileLastModified;
@@ -35,8 +34,8 @@ class PlatformSettingsProvider extends ChangeNotifier {
 
   PlatformSettingsProvider({
     required SettingsService settingsService,
-    required dynamic ytdlpService,
-    required dynamic ffmpegService,
+    required YtdlpToolService ytdlpService,
+    required FfmpegToolService ffmpegService,
     required CookieService cookieService,
   }) : _settingsService = settingsService,
        _ytdlpService = ytdlpService,
@@ -47,15 +46,13 @@ class PlatformSettingsProvider extends ChangeNotifier {
   bool get isInitialized => _isInitialized;
   bool get isYtdlpAvailable => _isYtdlpAvailable;
   bool get isFfmpegAvailable => _isFfmpegAvailable;
+  /// Whether the async tool availability check has completed at least once.
+  /// UI should only show "not found" banners when this is true.
+  bool get hasCheckedTools => _hasCheckedTools;
   String? get ytdlpVersion => _ytdlpVersion;
   String? get ffmpegVersion => _ffmpegVersion;
   String get activeYtdlpPath => _ytdlpService.ytdlpPath;
-  String? get activeFfmpegPath {
-    if (_ffmpegService is FfmpegServiceAndroid) {
-      return null;
-    }
-    return _ffmpegService.ffmpegPath;
-  }
+  String? get activeFfmpegPath => _ffmpegService.ffmpegPath;
 
   ThemeMode get themeMode => settings.themeMode;
   DateTime? get cookieFileLastModified => _cookieFileLastModified;
@@ -64,7 +61,8 @@ class PlatformSettingsProvider extends ChangeNotifier {
   String? get youtubeProfileImageUrl => settings.youtubeProfileImageUrl;
   DateTime? get youTubeLoginTime => _youTubeLoginTime;
   CookieService get cookieService => _cookieService;
-  dynamic get ytdlpService => _ytdlpService;
+  YtdlpToolService get ytdlpService => _ytdlpService;
+  FfmpegToolService get ffmpegService => _ffmpegService;
   bool get enableCookies => settings.enableCookies;
   bool get enableLogging => settings.enableLogging;
   bool get isBatteryOptimizationIgnored =>
@@ -131,31 +129,17 @@ class PlatformSettingsProvider extends ChangeNotifier {
       _ytdlpService.ytdlpPath = settings.ytdlpPath!;
     }
     if (settings.ffmpegPath != null) {
-      if (_ffmpegService is FfmpegService) {
-        (_ffmpegService).ffmpegPath = settings.ffmpegPath!;
-      }
-      if (_ytdlpService is YtdlpService) {
-        (_ytdlpService).ffmpegPath = settings.ffmpegPath!;
-      }
+      _ffmpegService.ffmpegPath = settings.ffmpegPath!;
+      _ytdlpService.ffmpegPath = settings.ffmpegPath!;
     }
     if (settings.cookiePath != null) {
-      if (_ytdlpService is YtdlpService) {
-        (_ytdlpService).cookiePath = settings.cookiePath;
-      } else if (_ytdlpService is YtdlpServiceAndroid) {
-        (_ytdlpService).cookiePath = settings.cookiePath;
-      }
+      _ytdlpService.cookiePath = settings.cookiePath;
       _updateCookieFileMetadata(settings.cookiePath!);
     }
     if (settings.cookieBrowser != null) {
-      if (_ytdlpService is YtdlpService) {
-        (_ytdlpService).cookieBrowser = settings.cookieBrowser;
-      }
+      _ytdlpService.cookieBrowser = settings.cookieBrowser;
     }
-    if (_ytdlpService is YtdlpService) {
-      (_ytdlpService).enableCookies = settings.enableCookies;
-    } else if (_ytdlpService is YtdlpServiceAndroid) {
-      (_ytdlpService).enableCookies = settings.enableCookies;
-    }
+    _ytdlpService.enableCookies = settings.enableCookies;
 
     _isInitialized = true;
     notifyListeners();
@@ -167,9 +151,7 @@ class PlatformSettingsProvider extends ChangeNotifier {
       await refreshBatteryOptimizationStatus();
 
       if (_isFfmpegAvailable && settings.ffmpegPath == null) {
-        if (_ytdlpService is YtdlpService && _ffmpegService is FfmpegService) {
-          (_ytdlpService).ffmpegPath = (_ffmpegService).ffmpegPath;
-        }
+        _ytdlpService.ffmpegPath = _ffmpegService.ffmpegPath;
       }
     });
 
@@ -194,15 +176,12 @@ class PlatformSettingsProvider extends ChangeNotifier {
     // If logged in via WebView, configure ytdlp to use the WebView profile directly
     if (_isYouTubeLoggedIn) {
       final userAgent = await _cookieService.userAgent;
-
-      if (_ytdlpService is YtdlpService) {
-        final webViewPath = await _cookieService.webViewPath;
-        (_ytdlpService).webViewPath = webViewPath;
-        (_ytdlpService).userAgent = userAgent;
-        // Clear other cookie methods to ensure WebView takes precedence
-        (_ytdlpService).cookiePath = null;
-        (_ytdlpService).cookieBrowser = null;
-
+      final webViewPath = await _cookieService.webViewPath;
+      if (!PlatformUtils.isAndroid && webViewPath != null) {
+        _ytdlpService.webViewPath = webViewPath;
+        _ytdlpService.userAgent = userAgent;
+        _ytdlpService.cookiePath = null;
+        _ytdlpService.cookieBrowser = null;
         LoggingService().info(
           'YouTube WebView login detected',
           component: 'PlatformSettingsProvider',
@@ -215,9 +194,8 @@ class PlatformSettingsProvider extends ChangeNotifier {
           'yt-dlp will use: --cookies-from-browser edge:$webViewPath',
           component: 'PlatformSettingsProvider',
         );
-      } else if (_ytdlpService is YtdlpServiceAndroid) {
-        // For Android, also pass the user agent from WebView
-        (_ytdlpService).userAgent = userAgent;
+      } else {
+        _ytdlpService.userAgent = userAgent;
         LoggingService().info(
           'Android: Set user agent from WebView for yt-dlp',
           component: 'PlatformSettingsProvider',
@@ -247,13 +225,12 @@ class PlatformSettingsProvider extends ChangeNotifier {
 
     // Clear cookie path from ytdlp and settings if it was using the WebView cookies
     final cookiePath = await _cookieService.cookieFilePath;
-    if (_ytdlpService is YtdlpService &&
-        (_ytdlpService).cookiePath == cookiePath) {
-      (_ytdlpService).cookiePath = null;
-      (_ytdlpService).userAgent = null;
+    if (_ytdlpService.cookiePath == cookiePath) {
+      _ytdlpService.cookiePath = null;
+      _ytdlpService.userAgent = null;
       await _settingsService.setCookiePath(null);
-    } else if (_ytdlpService is YtdlpServiceAndroid) {
-      (_ytdlpService).userAgent = null;
+    } else {
+      _ytdlpService.userAgent = null;
     }
 
     notifyListeners();
@@ -261,24 +238,16 @@ class PlatformSettingsProvider extends ChangeNotifier {
 
   Future<void> checkToolsAvailability() async {
     _isYtdlpAvailable = await _ytdlpService.isAvailable();
-
-    if (_ffmpegService is FfmpegServiceAndroid) {
-      _isFfmpegAvailable = (_ffmpegService).isAvailable;
-    } else {
-      _isFfmpegAvailable = (_ffmpegService as FfmpegService).isAvailable;
-    }
+    _isFfmpegAvailable = _ffmpegService.isAvailable;
 
     if (_isYtdlpAvailable) {
       _ytdlpVersion = await _ytdlpService.getVersion();
     }
     if (_isFfmpegAvailable) {
-      if (_ffmpegService is FfmpegServiceAndroid) {
-        _ffmpegVersion = await (_ffmpegService).getVersion();
-      } else {
-        _ffmpegVersion = await (_ffmpegService as FfmpegService).getVersion();
-      }
+      _ffmpegVersion = await _ffmpegService.getVersion();
     }
 
+    _hasCheckedTools = true;
     notifyListeners();
   }
 
@@ -310,12 +279,8 @@ class PlatformSettingsProvider extends ChangeNotifier {
 
   Future<void> setFfmpegPath(String? path) async {
     await _settingsService.setFfmpegPath(path);
-    if (_ffmpegService is FfmpegService) {
-      (_ffmpegService).ffmpegPath = path;
-    }
-    if (_ytdlpService is YtdlpService) {
-      (_ytdlpService).ffmpegPath = path;
-    }
+    _ffmpegService.ffmpegPath = path;
+    _ytdlpService.ffmpegPath = path;
     await checkToolsAvailability();
   }
 
@@ -326,11 +291,7 @@ class PlatformSettingsProvider extends ChangeNotifier {
 
   Future<void> setCookiePath(String? path) async {
     await _settingsService.setCookiePath(path);
-    if (_ytdlpService is YtdlpService) {
-      (_ytdlpService).cookiePath = path;
-    } else if (_ytdlpService is YtdlpServiceAndroid) {
-      (_ytdlpService).cookiePath = path;
-    }
+    _ytdlpService.cookiePath = path;
     if (path != null) {
       _updateCookieFileMetadata(path);
     } else {
@@ -357,11 +318,9 @@ class PlatformSettingsProvider extends ChangeNotifier {
 
   Future<void> setCookieBrowser(String? browser) async {
     await _settingsService.setCookieBrowser(browser);
-    if (_ytdlpService is YtdlpService) {
-      (_ytdlpService).cookieBrowser = browser;
-      if (browser != null) {
-        (_ytdlpService).cookiePath = null;
-      }
+    _ytdlpService.cookieBrowser = browser;
+    if (browser != null) {
+      _ytdlpService.cookiePath = null;
     }
     notifyListeners();
   }
@@ -388,11 +347,7 @@ class PlatformSettingsProvider extends ChangeNotifier {
 
   Future<void> setEnableCookies(bool value) async {
     await _settingsService.setEnableCookies(value);
-    if (_ytdlpService is YtdlpService) {
-      (_ytdlpService).enableCookies = value;
-    } else if (_ytdlpService is YtdlpServiceAndroid) {
-      (_ytdlpService).enableCookies = value;
-    }
+    _ytdlpService.enableCookies = value;
     notifyListeners();
   }
 

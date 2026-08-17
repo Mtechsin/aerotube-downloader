@@ -1,18 +1,19 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'app.dart';
-import 'services/ytdlp_service.dart';
-import 'services/ytdlp_service_android.dart';
-import 'services/ytdlp_tool_service.dart';
-import 'services/ffmpeg_service.dart';
-import 'services/ffmpeg_service_android.dart';
-import 'services/ffmpeg_tool_service.dart';
-import 'services/settings_service.dart';
-import 'services/cookie_service.dart';
-import 'services/auth_service.dart';
-import 'services/notification_service.dart';
-import 'services/logging_service.dart';
+import 'services/ytdlp/ytdlp_service_windows.dart';
+import 'services/ytdlp/ytdlp_service_android.dart';
+import 'services/ytdlp/ytdlp_tool_service.dart';
+import 'services/ffmpeg/ffmpeg_service_windows.dart';
+import 'services/ffmpeg/ffmpeg_service_android.dart';
+import 'services/ffmpeg/ffmpeg_tool_service.dart';
+import 'services/core/settings_service.dart';
+import 'services/cookie/cookie_service.dart';
+import 'services/core/auth_service.dart';
+import 'services/notification/notification_service.dart';
+import 'services/core/logging_service.dart';
 import 'services/service_factory.dart';
 
 import 'providers/platform_settings_provider.dart';
@@ -27,7 +28,6 @@ import 'providers/navigation_provider.dart';
 import 'core/utils/platform_utils.dart';
 
 import 'package:hive_flutter/hive_flutter.dart';
-import 'models/download_item.dart';
 
 void main() {
   final loggingService = LoggingService();
@@ -52,25 +52,22 @@ void main() {
         FlutterError.presentError(details);
       };
 
-      // Initialize Hive
-      await Hive.initFlutter();
-
-      // Register Adapters
-      Hive.registerAdapter(DownloadItemAdapter());
-      Hive.registerAdapter(DownloadStatusAdapter());
-
       // Initialize services
       final settingsService = SettingsService();
       final authService = AuthService();
 
-      await settingsService.init();
+      // Batch independent I/O: Hive + settings init in parallel
+      await Future.wait([
+        Hive.initFlutter(),
+        settingsService.init(),
+      ]);
 
       loggingService.info('Application starting...', component: 'Main');
 
       // Limit image cache to reduce memory usage
-      PaintingBinding.instance.imageCache.maximumSize = 500;
+      PaintingBinding.instance.imageCache.maximumSize = 200;
       PaintingBinding.instance.imageCache.maximumSizeBytes =
-          100 * 1024 * 1024; // 100MB
+          50 * 1024 * 1024; // 50MB
 
       // Initialize global services singleton
       await services.initializeAll();
@@ -132,21 +129,27 @@ void main() {
         loggingService.info('Using Windows services', component: 'Main');
       }
 
-      // Warm yt-dlp in the background so the shell can render immediately.
-      ytdlpService
-          .initialize()
-          .then((_) {
-            loggingService.info(
-              'yt-dlp service initialized',
-              component: 'Main',
-            );
-          })
-          .catchError((e) {
-            loggingService.warning(
-              'yt-dlp initialization failed: $e',
-              component: 'Main',
-            );
-          });
+      // Warm yt-dlp via background isolate — offloads Process.run from main thread
+      compute(YtdlpService.checkBinaryAvailable, ytdlpService.ytdlpPath)
+        .then((version) {
+          if (version != null) {
+            ytdlpService.markReady(version);
+          } else {
+            return ytdlpService.initialize(); // fallback: try download
+          }
+        })
+        .then((_) {
+          loggingService.info(
+            'yt-dlp service initialized',
+            component: 'Main',
+          );
+        })
+        .catchError((e) {
+          loggingService.warning(
+            'yt-dlp initialization failed: $e',
+            component: 'Main',
+          );
+        });
 
       runApp(
         MultiProvider(
@@ -180,9 +183,10 @@ void main() {
             ),
             ChangeNotifierProvider(create: (_) => UpdateProvider()),
             ChangeNotifierProvider(
-              create: (_) => ToolUpdateProvider(
+              create: (context) => ToolUpdateProvider(
                 ytdlpService: ytdlpService,
                 ffmpegService: ffmpegService,
+                settingsProvider: context.read<PlatformSettingsProvider>(),
               )..init(),
             ),
             ChangeNotifierProvider(create: (_) => SearchProvider()),

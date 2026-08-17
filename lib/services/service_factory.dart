@@ -1,22 +1,21 @@
 import '../core/utils/platform_utils.dart';
-import 'ytdlp_service.dart';
-import 'ytdlp_service_android.dart';
-import 'ffmpeg_service.dart';
-import 'ffmpeg_service_android.dart';
-import 'cookie_service.dart';
-import 'cookie_service_android.dart';
-import 'notification_service.dart';
-import 'notification_service_android.dart';
-import 'auth_service.dart';
+import 'ytdlp/ytdlp_service_windows.dart';
+import 'ytdlp/ytdlp_service_android.dart';
+import 'ytdlp/ytdlp_tool_service.dart';
+import 'ffmpeg/ffmpeg_service_windows.dart';
+import 'ffmpeg/ffmpeg_service_android.dart';
+import 'ffmpeg/ffmpeg_tool_service.dart';
+import 'cookie/cookie_service.dart';
+import 'cookie/cookie_service_android.dart';
+import 'notification/notification_service.dart';
+import 'notification/notification_service_android.dart';
+import 'core/auth_service.dart';
 
-/// Unified service factory that provides platform-specific implementations
 class Services {
-  // Singleton pattern
   static final Services _instance = Services._internal();
   factory Services() => _instance;
   Services._internal();
 
-  // Service instances
   YtdlpService? _ytdlpServiceWindows;
   YtdlpServiceAndroid? _ytdlpServiceAndroid;
   FfmpegService? _ffmpegServiceWindows;
@@ -27,8 +26,7 @@ class Services {
   NotificationServiceAndroid? _notificationServiceAndroid;
   AuthService? _authService;
 
-  /// Get YtdlpService (platform-specific)
-  dynamic get ytdlpService {
+  YtdlpToolService get ytdlpService {
     if (PlatformUtils.isAndroid) {
       _ytdlpServiceAndroid ??= YtdlpServiceAndroid();
       return _ytdlpServiceAndroid!;
@@ -38,8 +36,7 @@ class Services {
     }
   }
 
-  /// Get FfmpegService (platform-specific)
-  dynamic get ffmpegService {
+  FfmpegToolService get ffmpegService {
     if (PlatformUtils.isAndroid) {
       _ffmpegServiceAndroid ??= FfmpegServiceAndroid();
       return _ffmpegServiceAndroid!;
@@ -49,7 +46,6 @@ class Services {
     }
   }
 
-  /// Get CookieService (platform-specific)
   CookieService get cookieService {
     if (PlatformUtils.isAndroid) {
       _cookieServiceAndroid ??= CookieServiceAndroid();
@@ -60,7 +56,6 @@ class Services {
     }
   }
 
-  /// Get NotificationService (platform-specific)
   NotificationService get notificationService {
     if (PlatformUtils.isAndroid) {
       _notificationServiceAndroid ??= NotificationServiceAndroid();
@@ -71,25 +66,20 @@ class Services {
     }
   }
 
-  /// Get AuthService (available on all platforms, but primarily used on Android)
   AuthService get authService {
     _authService ??= AuthService();
     return _authService!;
   }
 
-  /// Initialize all services
   Future<void> initializeAll() async {
     if (PlatformUtils.isAndroid) {
-      // Initialize Android services
       await (cookieService as CookieServiceAndroid).init();
       await (notificationService as NotificationServiceAndroid).init();
     } else {
-      // Initialize Windows services
       await notificationService.init();
       await cookieService.init();
     }
   }
 }
 
-/// Global service instance for easy access
 final services = Services();
