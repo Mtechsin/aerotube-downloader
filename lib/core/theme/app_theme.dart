@@ -1,269 +1,276 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
+import 'package:flutter/services.dart';
 
 class AppTheme {
   // Color Palette
-  static const Color darkBackground = Color(0xFF0F0F0F); // Very dark grey, almost black
-  static const Color darkSurface = Color(0xFF1E1E1E); // Slightly lighter for cards/sidebar
-  static const Color primaryPurple = Color(0xFF8B5CF6); // Vibrant Purple
+  static const Color darkBackground = Colors.black;
+  static const Color darkSurface = Colors.black;
+  static const Color lightBackground = Colors.white;
+  static const Color lightSurface = Colors.white;
+  static const Color primaryPurple = Color(0xFF8B5CF6);
   static const Color onPrimary = Colors.white;
-  static const Color onSurface = Color(0xFFEEEEEE); // Light grey/white for text
+  static const Color onSurface = Color(0xFFF5F5F5);
+  static const Color lightOnSurface = Color(0xFF111111);
+  static const Color darkOutline = Color(0x33FFFFFF);
+  static const Color lightOutline = Color(0x22000000);
 
-  static ThemeData get darkTheme {
-    return ThemeData(
-      useMaterial3: true,
-      brightness: Brightness.dark,
-      scaffoldBackgroundColor: darkBackground,
-      
-      // Color Scheme
-      colorScheme: const ColorScheme.dark(
-        primary: primaryPurple,
-        onPrimary: onPrimary,
-        surface: darkSurface,
-        onSurface: onSurface,
-        secondary: primaryPurple, // Using purple as main accent
-      ),
+  static const String _fontFamily = 'Manrope';
 
-      // Typography
-      textTheme: GoogleFonts.interTextTheme(ThemeData.dark().textTheme).copyWith(
-        displayLarge: const TextStyle(fontWeight: FontWeight.bold, color: onSurface),
-        displayMedium: const TextStyle(fontWeight: FontWeight.bold, color: onSurface),
-        displaySmall: const TextStyle(fontWeight: FontWeight.bold, color: onSurface),
-        headlineLarge: const TextStyle(fontWeight: FontWeight.bold, color: onSurface),
-        headlineMedium: const TextStyle(fontWeight: FontWeight.bold, color: onSurface),
-        headlineSmall: const TextStyle(fontWeight: FontWeight.bold, color: onSurface),
-        titleLarge: const TextStyle(fontWeight: FontWeight.w600, color: onSurface),
-        bodyLarge: const TextStyle(color: onSurface),
-        bodyMedium: const TextStyle(color: onSurface),
-        labelLarge: const TextStyle(fontWeight: FontWeight.w600), // Buttons
-      ),
+  // Radius vocabulary shared by all component themes.
+  static const double _radiusTile = 12;
+  static const double _radiusComponent = 14;
+  static const double _radiusOverlay = 16;
+  static const double _radiusFab = 18;
 
-      // Component Themes
-      
-      // Navigation Rail (Sidebar)
-      navigationRailTheme: NavigationRailThemeData(
-        backgroundColor: darkSurface,
-        selectedIconTheme: const IconThemeData(color: primaryPurple),
-        unselectedIconTheme: IconThemeData(color: Colors.grey.shade600),
-        labelType: NavigationRailLabelType.all,
-        selectedLabelTextStyle: const TextStyle(color: primaryPurple, fontSize: 12, fontWeight: FontWeight.w600),
-        unselectedLabelTextStyle: TextStyle(color: Colors.grey.shade600, fontSize: 12),
-        groupAlignment: 0.0,
-      ),
+  static ThemeData get darkTheme => _buildTheme(Brightness.dark);
 
-      // Card
-      // Card
-      cardTheme: CardThemeData(
-        color: darkSurface,
-        elevation: 0, // Flat
-        margin: EdgeInsets.zero,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-        ),
-      ),
+  static ThemeData get lightTheme => _buildTheme(Brightness.light);
 
-      // Buttons
-      elevatedButtonTheme: ElevatedButtonThemeData(
-        style: ElevatedButton.styleFrom(
-          backgroundColor: primaryPurple,
-          foregroundColor: onPrimary,
-          elevation: 0,
-          shape: const StadiumBorder(), // Pill shape
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-          textStyle: const TextStyle(fontWeight: FontWeight.bold),
-        ),
-      ),
-      filledButtonTheme: FilledButtonThemeData(
-        style: FilledButton.styleFrom(
-          backgroundColor: primaryPurple,
-          foregroundColor: onPrimary,
-          shape: const StadiumBorder(),
-        ),
-      ),
+  /// Single builder so motion and component configuration can never drift
+  /// between the dark and light themes; only colors/alphas differ below.
+  static ThemeData _buildTheme(Brightness brightness) {
+    final isDark = brightness == Brightness.dark;
+    final background = isDark ? darkBackground : lightBackground;
+    final surface = isDark ? darkSurface : lightSurface;
+    final onSurfaceColor = isDark ? onSurface : lightOnSurface;
+    final outline = isDark ? darkOutline : lightOutline;
+    final unselectedIconColor = isDark
+        ? const Color(0xFF9C9CA1)
+        : const Color(0xFF6D6D72);
+    final listTileIconColor = isDark
+        ? const Color(0xFFB5B5B8)
+        : const Color(0xFF707075);
+    final switchUnselectedThumb = isDark
+        ? const Color(0xFF8A8A8D)
+        : const Color(0xFF9B9BA0);
+    final switchUnselectedTrack = isDark
+        ? const Color(0xFF2A2A2D)
+        : const Color(0xFFE7E7EA);
+    final switchTrackAlpha = isDark ? 0.45 : 0.2;
+    final sliderInactiveAlpha = isDark ? 0.2 : 0.1;
+    final inputFillColor = isDark
+        ? Colors.white.withValues(alpha: 0.06)
+        : Colors.black.withValues(alpha: 0.03);
 
-      // List Tiles
-      listTileTheme: const ListTileThemeData(
-        iconColor: Colors.grey, // Default icon color
-        textColor: onSurface,
-        contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.all(Radius.circular(12))),
-      ),
+    final baseTextTheme = (isDark ? ThemeData.dark() : ThemeData.light())
+        .textTheme
+        .apply(fontFamily: _fontFamily);
 
-      // Switches & Sliders
-      switchTheme: SwitchThemeData(
-        thumbColor: WidgetStateProperty.resolveWith((states) {
-          if (states.contains(WidgetState.selected)) return primaryPurple;
-          return Colors.grey.shade400;
-        }),
-        trackColor: WidgetStateProperty.resolveWith((states) {
-          if (states.contains(WidgetState.selected)) return primaryPurple.withValues(alpha:0.5);
-          return Colors.grey.shade800;
-        }),
-      ),
-      sliderTheme: SliderThemeData(
-        activeTrackColor: primaryPurple,
-        thumbColor: primaryPurple,
-        inactiveTrackColor: primaryPurple.withValues(alpha:0.2),
-      ),
+    // Override weight/color per style with copyWith on the existing style —
+    // replacing with fresh const TextStyles here would drop the Manrope
+    // fontFamily (TextTheme.copyWith replaces whole styles) and silently
+    // fall back to the platform default font.
+    final textTheme = isDark
+        ? baseTextTheme.copyWith(
+            displayLarge: baseTextTheme.displayLarge!
+                .copyWith(fontWeight: FontWeight.w700, color: onSurface),
+            displayMedium: baseTextTheme.displayMedium!
+                .copyWith(fontWeight: FontWeight.w700, color: onSurface),
+            displaySmall: baseTextTheme.displaySmall!
+                .copyWith(fontWeight: FontWeight.w700, color: onSurface),
+            headlineLarge: baseTextTheme.headlineLarge!
+                .copyWith(fontWeight: FontWeight.w700, color: onSurface),
+            headlineMedium: baseTextTheme.headlineMedium!
+                .copyWith(fontWeight: FontWeight.w700, color: onSurface),
+            headlineSmall: baseTextTheme.headlineSmall!
+                .copyWith(fontWeight: FontWeight.w700, color: onSurface),
+            titleLarge: baseTextTheme.titleLarge!
+                .copyWith(fontWeight: FontWeight.w600, color: onSurface),
+            bodyLarge: baseTextTheme.bodyLarge!.copyWith(color: onSurface),
+            bodyMedium: baseTextTheme.bodyMedium!.copyWith(color: onSurface),
+            labelLarge: baseTextTheme.labelLarge!
+                .copyWith(fontWeight: FontWeight.w600),
+          )
+        : baseTextTheme.apply(
+            bodyColor: lightOnSurface,
+            displayColor: lightOnSurface,
+          );
 
-      // Inputs
-      inputDecorationTheme: InputDecorationTheme(
-        filled: true,
-        fillColor: const Color(0xFF2C2C2C), // Darker than surface
-        hintStyle: TextStyle(color: Colors.grey.shade500),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(30), // Fully rounded
-          borderSide: BorderSide.none,
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(30),
-          borderSide: BorderSide.none,
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(30),
-          borderSide: const BorderSide(color: primaryPurple, width: 1.5),
-        ),
-      ),
-      
-      // Dialogs & Bottom Sheets
-      dialogTheme: DialogThemeData(
-        backgroundColor: darkSurface,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      ),
-      bottomSheetTheme: const BottomSheetThemeData(
-        backgroundColor: darkSurface,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-        ),
-      ),
+    final colorScheme = isDark
+        ? const ColorScheme.dark(
+            primary: primaryPurple,
+            onPrimary: onPrimary,
+            surface: darkSurface,
+            onSurface: onSurface,
+            secondary: primaryPurple,
+            outline: darkOutline,
+          )
+        : const ColorScheme.light(
+            primary: primaryPurple,
+            onPrimary: onPrimary,
+            surface: lightSurface,
+            onSurface: lightOnSurface,
+            secondary: primaryPurple,
+            surfaceContainer: Colors.white,
+            outline: lightOutline,
+          );
+
+    // M3 Expressive page transition for pushed routes (playlist, login, ...).
+    const pageTransitionsTheme = PageTransitionsTheme(
+      builders: {
+        TargetPlatform.android: FadeForwardsPageTransitionsBuilder(),
+        TargetPlatform.iOS: FadeForwardsPageTransitionsBuilder(),
+        TargetPlatform.windows: FadeForwardsPageTransitionsBuilder(),
+        TargetPlatform.macOS: FadeForwardsPageTransitionsBuilder(),
+        TargetPlatform.linux: FadeForwardsPageTransitionsBuilder(),
+      },
     );
-  }
 
-  static ThemeData get lightTheme {
-    const Color lightBackground = Color(0xFFF9FAFB); // Light Grey/White
-    const Color lightSurface = Colors.white;
-    
     return ThemeData(
       useMaterial3: true,
-      brightness: Brightness.light,
-      scaffoldBackgroundColor: lightBackground,
-      
-      // Color Scheme
-      colorScheme: const ColorScheme.light(
-        primary: primaryPurple,
-        onPrimary: onPrimary,
-        surface: lightSurface,
-        onSurface: Color(0xFF1F2937), // Dark grey for text
-        secondary: primaryPurple,
-        surfaceContainer: Color(0xFFF3F4F6), // Slightly darker for inputs/containers
+      brightness: brightness,
+      scaffoldBackgroundColor: background,
+      colorScheme: colorScheme,
+      pageTransitionsTheme: pageTransitionsTheme,
+      appBarTheme: AppBarTheme(
+        backgroundColor: background,
+        foregroundColor: onSurfaceColor,
+        elevation: 0,
+        systemOverlayStyle: isDark
+            ? const SystemUiOverlayStyle(
+                statusBarColor: Colors.transparent,
+                statusBarIconBrightness: Brightness.light,
+                systemNavigationBarColor: darkBackground,
+                systemNavigationBarIconBrightness: Brightness.light,
+              )
+            : null,
       ),
-
-      // Typography - Auto-adapts but we ensure color is correct
-      textTheme: GoogleFonts.interTextTheme(ThemeData.light().textTheme).apply(
-        bodyColor: const Color(0xFF1F2937),
-        displayColor: const Color(0xFF1F2937),
-      ),
-
-      // Component Themes
-      
-      // Navigation Rail
+      textTheme: textTheme,
       navigationRailTheme: NavigationRailThemeData(
-        backgroundColor: lightSurface,
+        backgroundColor: surface,
         selectedIconTheme: const IconThemeData(color: primaryPurple),
-        unselectedIconTheme: IconThemeData(color: Colors.grey.shade600),
-        labelType: NavigationRailLabelType.all,
-        selectedLabelTextStyle: const TextStyle(color: primaryPurple, fontSize: 12, fontWeight: FontWeight.w600),
-        unselectedLabelTextStyle: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+        unselectedIconTheme: IconThemeData(color: unselectedIconColor),
+        labelType: NavigationRailLabelType.none,
+        selectedLabelTextStyle: const TextStyle(
+          color: primaryPurple,
+          fontSize: 11,
+          fontWeight: FontWeight.w500,
+        ),
+        unselectedLabelTextStyle: TextStyle(
+          color: unselectedIconColor,
+          fontSize: 11,
+        ),
         groupAlignment: 0.0,
       ),
-
-      // Card
       cardTheme: CardThemeData(
-        color: lightSurface,
+        color: surface,
         elevation: 0,
         margin: EdgeInsets.zero,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-          side: BorderSide(color: Colors.grey.shade200), // Subtle border for light mode cards
+          borderRadius: BorderRadius.circular(_radiusComponent),
+          side: BorderSide(color: outline),
         ),
       ),
-
-      // Buttons
+      floatingActionButtonTheme: FloatingActionButtonThemeData(
+        backgroundColor: surface,
+        foregroundColor: onSurfaceColor.withValues(alpha: 0.75),
+        elevation: 2,
+        highlightElevation: 4,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(_radiusFab),
+          side: BorderSide(color: onSurfaceColor.withValues(alpha: 0.12)),
+        ),
+      ),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
           backgroundColor: primaryPurple,
           foregroundColor: onPrimary,
           elevation: 0,
-          shape: const StadiumBorder(),
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-          textStyle: const TextStyle(fontWeight: FontWeight.bold),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(_radiusComponent),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+          textStyle: const TextStyle(fontFamily: _fontFamily, fontWeight: FontWeight.w600),
         ),
       ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
           backgroundColor: primaryPurple,
           foregroundColor: onPrimary,
-          shape: const StadiumBorder(),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(_radiusComponent),
+          ),
+          textStyle: const TextStyle(fontFamily: _fontFamily, fontWeight: FontWeight.w600),
         ),
       ),
-
-      // List Tiles
-      listTileTheme: const ListTileThemeData(
-        iconColor: Colors.grey,
-        textColor: Color(0xFF1F2937),
-        contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.all(Radius.circular(12))),
+      listTileTheme: ListTileThemeData(
+        iconColor: listTileIconColor,
+        textColor: onSurfaceColor,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.all(Radius.circular(_radiusTile)),
+        ),
       ),
-
-      // Switches & Sliders
       switchTheme: SwitchThemeData(
         thumbColor: WidgetStateProperty.resolveWith((states) {
           if (states.contains(WidgetState.selected)) return primaryPurple;
-          return Colors.grey.shade400;
+          return switchUnselectedThumb;
         }),
         trackColor: WidgetStateProperty.resolveWith((states) {
-          if (states.contains(WidgetState.selected)) return primaryPurple.withValues(alpha:0.2);
-          return Colors.grey.shade200;
+          if (states.contains(WidgetState.selected)) {
+            return primaryPurple.withValues(alpha: switchTrackAlpha);
+          }
+          return switchUnselectedTrack;
         }),
       ),
       sliderTheme: SliderThemeData(
         activeTrackColor: primaryPurple,
         thumbColor: primaryPurple,
-        inactiveTrackColor: primaryPurple.withValues(alpha:0.1),
+        inactiveTrackColor: primaryPurple.withValues(
+          alpha: sliderInactiveAlpha,
+        ),
       ),
-
-      // Inputs
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: Colors.white,
-        hintStyle: TextStyle(color: Colors.grey.shade500),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        fillColor: inputFillColor,
+        hintStyle: TextStyle(
+          fontFamily: _fontFamily,
+          color: isDark ? const Color(0xFF94949A) : const Color(0xFF8A8A90),
+        ),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 14,
+        ),
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(30),
-          borderSide: BorderSide(color: Colors.grey.shade300),
+          borderRadius: BorderRadius.circular(_radiusComponent),
+          borderSide: BorderSide(color: outline),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(30),
-          borderSide: BorderSide(color: Colors.grey.shade300),
+          borderRadius: BorderRadius.circular(_radiusComponent),
+          borderSide: BorderSide(color: outline),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(30),
-          borderSide: const BorderSide(color: primaryPurple, width: 1.5),
+          borderRadius: BorderRadius.circular(_radiusComponent),
+          borderSide: const BorderSide(color: primaryPurple, width: 1.2),
         ),
       ),
-      
-      // Dialogs & Bottom Sheets
       dialogTheme: DialogThemeData(
-        backgroundColor: lightSurface,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        titleTextStyle: const TextStyle(color: Color(0xFF1F2937), fontSize: 20, fontWeight: FontWeight.bold),
-        contentTextStyle: const TextStyle(color: Color(0xFF374151), fontSize: 16),
-      ),
-      bottomSheetTheme: const BottomSheetThemeData(
-        backgroundColor: lightSurface,
+        backgroundColor: surface,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          borderRadius: BorderRadius.circular(_radiusOverlay),
+        ),
+        titleTextStyle: isDark
+            ? null
+            : const TextStyle(
+                fontFamily: _fontFamily,
+                color: lightOnSurface,
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+              ),
+        contentTextStyle: isDark
+            ? null
+            : const TextStyle(
+                fontFamily: _fontFamily,
+                color: Color(0xFF3A3A3F),
+                fontSize: 14,
+              ),
+      ),
+      bottomSheetTheme: BottomSheetThemeData(
+        backgroundColor: surface,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(
+            top: Radius.circular(_radiusOverlay),
+          ),
         ),
       ),
     );

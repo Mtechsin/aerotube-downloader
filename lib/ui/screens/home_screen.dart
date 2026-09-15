@@ -1,17 +1,20 @@
-import 'dart:io';
+import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'mobile_home_layout.dart';
+import '../../core/utils/responsive_layout.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
 import '../../models/download_mode.dart';
 import '../../providers/video_provider.dart';
 import '../../providers/download_provider.dart';
-import '../../providers/settings_provider.dart';
+import '../../providers/platform_settings_provider.dart';
 import '../../providers/playlist_provider.dart';
+import '../../providers/navigation_provider.dart';
 import '../../models/video_info.dart';
 import '../widgets/video_configuration_widget.dart';
 import '../widgets/url_input_card.dart';
-import '../widgets/app_logo.dart';
 import 'playlist_screen.dart';
+import '../../core/utils/error_helper.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -22,6 +25,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final _urlController = TextEditingController();
+  final _urlFocusNode = FocusNode();
   VideoProvider? _videoProvider;
 
   @override
@@ -33,29 +37,37 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
+  bool _isShowingAuthDialog = false;
+
   @override
   void dispose() {
+    _isShowingAuthDialog = false;
     _videoProvider?.removeListener(_onVideoProviderChange);
     _urlController.dispose();
+    _urlFocusNode.dispose();
     super.dispose();
   }
 
   void _onVideoProviderChange() {
-    if (_videoProvider == null) return;
-    
+    if (!mounted || _videoProvider == null) return;
+
     // Sync URL controller
-    if (_urlController.text != _videoProvider!.currentUrl && _videoProvider!.currentUrl.isNotEmpty) {
+    if (_urlController.text != _videoProvider!.currentUrl &&
+        _videoProvider!.currentUrl.isNotEmpty) {
       _urlController.text = _videoProvider!.currentUrl;
     }
 
-    if (_videoProvider!.hasError &&
-        (_videoProvider!.errorMessage!.contains('Authentication') ||
-            _videoProvider!.errorMessage!.contains('cookies.txt'))) {
-      _showAuthErrorDialog(_videoProvider!.errorMessage!);
+    if (_videoProvider!.hasError) {
+      final parsed = ErrorHelper.parse(_videoProvider!.errorMessage!);
+      if (parsed.category == ErrorCategory.authentication) {
+        _showAuthErrorDialog(parsed.suggestion ?? _videoProvider!.errorMessage!);
+      }
     }
   }
 
   void _showAuthErrorDialog(String message) {
+    if (!mounted || _isShowingAuthDialog) return;
+    _isShowingAuthDialog = true;
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -74,29 +86,101 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-    );
+    ).then((_) {
+      if (mounted) _isShowingAuthDialog = false;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    final videoProvider = context.watch<VideoProvider>();
-    final settingsProvider = context.watch<SettingsProvider>();
+    final vp = context.select<VideoProvider, ({
+      bool hasVideo,
+      bool isLoading,
+      bool hasError,
+      String? errorMessage,
+      String loadingStatus,
+    })>((p) => (
+      hasVideo: p.hasVideo,
+      isLoading: p.isLoading,
+      hasError: p.hasError,
+      errorMessage: p.errorMessage,
+      loadingStatus: p.loadingStatus,
+    ));
 
-    return Stack(
-      children: [
-        // Content Area - No scroll needed
-        Positioned.fill(
-          top: 100,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
+    final sp = context.select<PlatformSettingsProvider, ({
+      bool isInitialized,
+      bool hasCheckedTools,
+      bool isYtdlpAvailable,
+      bool isFfmpegAvailable,
+    })>((p) => (
+      isInitialized: p.isInitialized,
+      hasCheckedTools: p.hasCheckedTools,
+      isYtdlpAvailable: p.isYtdlpAvailable,
+      isFfmpegAvailable: p.isFfmpegAvailable,
+    ));
+
+    final screenType = ResponsiveLayout.getScreenType(context);
+    if (screenType == ScreenType.mobile) {
+      return const MobileHomeLayout();
+    } else {
+      return Stack(
+        children: [
+          // Content Area - No scroll needed
+          Positioned.fill(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 28),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 1180),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      if (vp.hasVideo ||
+                          vp.isLoading ||
+                          vp.hasError) ...[
+                        const SizedBox(height: 24),
+                        Center(
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 860),
+                            child: _buildCommandCapsule(context, context.read<VideoProvider>()),
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                      ],
+                      Expanded(
+                        child: vp.hasVideo || vp.isLoading
+                            ? VideoConfigurationWidget(
+                                onDownload: _startDownload,
+                                onClear: () {
+                                  context.read<VideoProvider>().clear();
+                                  _urlController.clear();
+                                },
+                              )
+                            : vp.hasError
+                            ? _buildDesktopErrorState(context, context.read<VideoProvider>())
+                            : _buildAeroTubeEmptyState(context, context.read<VideoProvider>()),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+
+          // Top Right Actions
+          Positioned(
+            top: 24,
+            right: 24,
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
+              crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                // Status Banners - Compact
-                if (!settingsProvider.isInitialized)
+                _buildThemeToggleButton(context),
+                const SizedBox(height: 12),
+                if (!sp.isInitialized)
                   _buildInitializingBanner(context)
                 else ...[
-                  if (!settingsProvider.isYtdlpAvailable)
+                  if (sp.hasCheckedTools &&
+                      !sp.isYtdlpAvailable)
                     _buildCompactStatusBanner(
                       context,
                       title: 'yt-dlp Not Found',
@@ -104,9 +188,9 @@ class _HomeScreenState extends State<HomeScreen> {
                       icon: Icons.warning_amber_rounded,
                       color: Colors.red,
                     ),
-
-                  if (settingsProvider.isYtdlpAvailable &&
-                      !settingsProvider.isFfmpegAvailable)
+                  if (sp.hasCheckedTools &&
+                      sp.isYtdlpAvailable &&
+                      !sp.isFfmpegAvailable)
                     _buildCompactStatusBanner(
                       context,
                       title: 'FFmpeg Not Found',
@@ -115,46 +199,45 @@ class _HomeScreenState extends State<HomeScreen> {
                       color: Colors.orange,
                     ),
                 ],
-
-                const SizedBox(height: 12),
-
-                // Loaded State OR Empty State - Expanded to fill space
-                Expanded(
-                  child: videoProvider.hasVideo || videoProvider.isLoading
-                      ? VideoConfigurationWidget(
-                          onDownload: _startDownload,
-                          onClear: () {
-                            videoProvider.clear();
-                            _urlController.clear();
-                          },
-                        )
-                      : !videoProvider.isLoading && !videoProvider.hasError
-                      ? _buildCompactEmptyState(context, videoProvider)
-                      : const SizedBox.shrink(),
-                ),
               ],
             ),
           ),
-        ),
 
-        // Floating Command Capsule (Top)
-        Positioned(
-          top: 24,
-          left: 24,
-          right: 24,
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 900),
-              child: _buildCommandCapsule(context, videoProvider),
+          // Bottom Footer Text
+          if (!vp.hasVideo &&
+              !vp.isLoading &&
+              !vp.hasError)
+            Positioned(
+              bottom: 32,
+              left: 0,
+              right: 0,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.lock_outline_rounded,
+                    size: 14,
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.onSurface.withValues(alpha: 0.4),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Secure  •  Fast  •  Reliable',
+                    style: TextStyle(
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.onSurface.withValues(alpha: 0.4),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-        ),
-
-        // Professional Initialization Overlay
-        if (!settingsProvider.isInitialized)
-          _buildInitializationOverlay(context, settingsProvider),
-      ],
-    );
+        ],
+      );
+    }
   }
 
   Widget _buildCommandCapsule(
@@ -163,200 +246,16 @@ class _HomeScreenState extends State<HomeScreen> {
   ) {
     return UrlInputCard(
       controller: _urlController,
+      focusNode: _urlFocusNode,
+      showPasteButton: true,
       onFetch: () => _handleFetch(videoProvider),
+      onCancel: () => videoProvider.cancelFetch(),
       isLoading: videoProvider.isLoading,
       statusMessage: videoProvider.loadingStatus.isEmpty
           ? null
           : videoProvider.loadingStatus,
       errorMessage: videoProvider.hasError ? videoProvider.errorMessage : null,
     ).animate().slideY(begin: -1, curve: Curves.easeOutBack, duration: 600.ms);
-  }
-
-  Widget _buildInitializationOverlay(
-    BuildContext context,
-    SettingsProvider settingsProvider,
-  ) {
-    final theme = Theme.of(context);
-
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 500),
-      curve: Curves.easeOutQuart,
-      color: theme.colorScheme.surface.withValues(alpha: 0.98),
-      child: Center(
-        child: Container(
-          constraints: const BoxConstraints(maxWidth: 500),
-          padding: const EdgeInsets.all(48),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              // Animated Logo Image
-              AppLogo(size: 140)
-                  .animate()
-                  .fadeIn(duration: 800.ms)
-                  .scale(begin: const Offset(0.8, 0.8), curve: Curves.easeOutBack),
-
-              const SizedBox(height: 40),
-
-              // Title
-              Text(
-                    'YouTube Downloader',
-                    style: theme.textTheme.headlineMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      color: theme.colorScheme.onSurface,
-                    ),
-                  )
-                  .animate()
-                  .fadeIn(duration: 600.ms, delay: 200.ms)
-                  .slideY(begin: 0.2, end: 0),
-
-              const SizedBox(height: 12),
-
-              // Subtitle
-              Text(
-                    'Initializing application...',
-                    style: theme.textTheme.bodyLarge?.copyWith(
-                      color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-                    ),
-                  )
-                  .animate()
-                  .fadeIn(duration: 600.ms, delay: 400.ms)
-                  .slideY(begin: 0.2, end: 0),
-
-              const SizedBox(height: 48),
-
-              // Progress Steps
-              _buildProgressStep(
-                context,
-                icon: Icons.check_circle_rounded,
-                title: 'Loading settings',
-                isComplete: true,
-                delay: 600.ms,
-              ),
-
-              const SizedBox(height: 16),
-
-              _buildProgressStep(
-                context,
-                icon: Icons.terminal_rounded,
-                title: 'Checking yt-dlp',
-                isLoading: true,
-                delay: 800.ms,
-              ),
-
-              const SizedBox(height: 16),
-
-              _buildProgressStep(
-                context,
-                icon: Icons.movie_rounded,
-                title: 'Checking FFmpeg',
-                isPending: true,
-                delay: 1000.ms,
-              ),
-
-              const SizedBox(height: 48),
-
-              // Loading Bar
-              Container(
-                width: 200,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.primary.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(2),
-                ),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 1500),
-                  curve: Curves.easeInOut,
-                  width: 120,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [
-                        theme.colorScheme.primary,
-                        theme.colorScheme.primary.withValues(alpha: 0.5),
-                      ],
-                    ),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ).animate().fadeIn(duration: 600.ms, delay: 1200.ms),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildProgressStep(
-    BuildContext context, {
-    required IconData icon,
-    required String title,
-    bool isComplete = false,
-    bool isLoading = false,
-    bool isPending = false,
-    Duration delay = Duration.zero,
-  }) {
-    final theme = Theme.of(context);
-
-    Color iconColor;
-    Widget trailing;
-
-    if (isComplete) {
-      iconColor = Colors.green;
-      trailing = Icon(Icons.check_rounded, color: Colors.green, size: 20);
-    } else if (isLoading) {
-      iconColor = theme.colorScheme.primary;
-      trailing = SizedBox(
-        width: 16,
-        height: 16,
-        child: CircularProgressIndicator(
-          strokeWidth: 2,
-          color: theme.colorScheme.primary,
-        ),
-      );
-    } else {
-      iconColor = theme.colorScheme.onSurface.withValues(alpha: 0.3);
-      trailing = const SizedBox(width: 20);
-    }
-
-    return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-          decoration: BoxDecoration(
-            color: isLoading
-                ? theme.colorScheme.primary.withValues(alpha: 0.05)
-                : isComplete
-                ? Colors.green.withValues(alpha: 0.05)
-                : theme.colorScheme.surface,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: isLoading
-                  ? theme.colorScheme.primary.withValues(alpha: 0.2)
-                  : isComplete
-                  ? Colors.green.withValues(alpha: 0.2)
-                  : theme.colorScheme.onSurface.withValues(alpha: 0.1),
-            ),
-          ),
-          child: Row(
-            children: [
-              Icon(icon, color: iconColor, size: 24),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Text(
-                  title,
-                  style: TextStyle(
-                    color: isPending
-                        ? theme.colorScheme.onSurface.withValues(alpha: 0.4)
-                        : theme.colorScheme.onSurface,
-                    fontWeight: isLoading ? FontWeight.w600 : FontWeight.normal,
-                    fontSize: 15,
-                  ),
-                ),
-              ),
-              trailing,
-            ],
-          ),
-        )
-        .animate()
-        .fadeIn(duration: 400.ms, delay: delay)
-        .slideX(begin: -0.1, end: 0);
   }
 
   Widget _buildInitializingBanner(BuildContext context) {
@@ -366,15 +265,10 @@ class _HomeScreenState extends State<HomeScreen> {
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            theme.colorScheme.primary.withValues(alpha: 0.1),
-            theme.colorScheme.primary.withValues(alpha: 0.05),
-          ],
-        ),
+        color: theme.scaffoldBackgroundColor,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: theme.colorScheme.primary.withValues(alpha: 0.2),
+          color: theme.colorScheme.primary.withValues(alpha: 0.35),
         ),
       ),
       child: Row(
@@ -403,70 +297,6 @@ class _HomeScreenState extends State<HomeScreen> {
     ).animate().fadeIn(duration: 400.ms).slideY(begin: -0.1, end: 0);
   }
 
-  Widget _buildStatusBanner(
-    BuildContext context, {
-    required String title,
-    required String message,
-    required IconData icon,
-    required Color color,
-    Widget? action,
-  }) {
-    final theme = Theme.of(context);
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [color.withValues(alpha: 0.1), color.withValues(alpha: 0.05)],
-        ),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withValues(alpha: 0.2)),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.15),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(icon, color: color, size: 24),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: TextStyle(
-                    color: color,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  message,
-                  style: TextStyle(
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
-                    fontSize: 13,
-                    height: 1.4,
-                  ),
-                ),
-                if (action != null) ...[const SizedBox(height: 12), action],
-              ],
-            ),
-          ),
-        ],
-      ),
-    ).animate().fadeIn(duration: 400.ms).slideY(begin: -0.1, end: 0);
-  }
-
   Widget _buildCompactStatusBanner(
     BuildContext context, {
     required String title,
@@ -475,232 +305,351 @@ class _HomeScreenState extends State<HomeScreen> {
     required Color color,
   }) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [color.withValues(alpha: 0.1), color.withValues(alpha: 0.05)],
+    return Center(
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 16),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          color: isDark 
+              ? color.withValues(alpha: 0.1) 
+              : color.withValues(alpha: 0.05),
+          borderRadius: BorderRadius.circular(100),
+          border: Border.all(
+            color: color.withValues(alpha: 0.2),
+            width: 1,
+          ),
         ),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withValues(alpha: 0.2)),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, color: color, size: 20),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: TextStyle(
-                    color: color,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
-                  ),
-                ),
-                Text(
-                  message,
-                  style: TextStyle(
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
-                    fontSize: 12,
-                  ),
-                ),
-              ],
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: color, size: 16),
+            const SizedBox(width: 8),
+            Text(
+              title,
+              style: TextStyle(
+                color: theme.colorScheme.onSurface,
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+                letterSpacing: 0.2,
+              ),
             ),
-          ),
-        ],
-      ),
-    ).animate().fadeIn(duration: 400.ms).slideY(begin: -0.1, end: 0);
-  }
-
-  Widget _buildModernEmptyState(
-    BuildContext context,
-    VideoProvider videoProvider,
-  ) {
-    final theme = Theme.of(context);
-
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 100),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          // Animated Illustration Container
-          const AppLogo(size: 160),
-
-          const SizedBox(height: 48),
-
-          // Title
-          Text(
-                'Ready to Download',
-                style: theme.textTheme.displaySmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: theme.colorScheme.onSurface,
-                  letterSpacing: -0.5,
-                ),
-              )
-              .animate()
-              .fadeIn(duration: 600.ms, delay: 200.ms)
-              .slideY(begin: 0.2, end: 0),
-
-          const SizedBox(height: 16),
-
-          // Subtitle
-          Text(
-                'Paste a YouTube link to start downloading videos or music',
-                style: theme.textTheme.bodyLarge?.copyWith(
-                  color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-                  height: 1.5,
-                ),
-                textAlign: TextAlign.center,
-              )
-              .animate()
-              .fadeIn(duration: 600.ms, delay: 400.ms)
-              .slideY(begin: 0.2, end: 0),
-
-          const SizedBox(height: 56),
-
-          // Feature Cards
-          Wrap(
-            spacing: 16,
-            runSpacing: 16,
-            alignment: WrapAlignment.center,
-            children: [
-              _buildFeatureCard(
-                context,
-                icon: Icons.four_k_rounded,
-                title: 'Up to 4K',
-                description: 'High quality video',
-                delay: 600.ms,
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 8),
+              width: 4,
+              height: 4,
+              decoration: BoxDecoration(
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.3),
+                shape: BoxShape.circle,
               ),
-              _buildFeatureCard(
-                context,
-                icon: Icons.audiotrack_rounded,
-                title: 'Audio Only',
-                description: 'Extract music tracks',
-                isActive: videoProvider.audioOnly,
-                onTap: () {},
-                delay: 700.ms,
+            ),
+            Text(
+              message,
+              style: TextStyle(
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
               ),
-              _buildFeatureCard(
-                context,
-                icon: Icons.playlist_play_rounded,
-                title: 'Playlists',
-                description: 'Download multiple videos',
-                delay: 800.ms,
-              ),
-            ],
-          ),
-        ],
-      ),
+            ),
+          ],
+        ),
+      ).animate().fadeIn(duration: 400.ms).slideY(begin: -0.1, end: 0),
     );
   }
 
-  Widget _buildCompactEmptyState(
+  Widget _buildAeroTubeEmptyState(
     BuildContext context,
     VideoProvider videoProvider,
   ) {
     final theme = Theme.of(context);
 
     return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Compact Logo
-          const AppLogo(size: 80, showGlow: false),
+      child: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 44),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 820),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Text(
+                      'Download YouTube content cleanly',
+                      style: theme.textTheme.displaySmall?.copyWith(
+                        fontSize: 34,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.9,
+                        height: 1.05,
+                      ),
+                      textAlign: TextAlign.center,
+                    )
+                    .animate()
+                    .fadeIn(duration: 300.ms, delay: 120.ms)
+                    .slideY(begin: 0.06, end: 0),
 
-          const SizedBox(height: 28),
+                const SizedBox(height: 10),
 
-          // Title
-          Text(
-                'Ready to Download',
-                style: theme.textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: theme.colorScheme.onSurface,
-                ),
-              )
-              .animate()
-              .fadeIn(duration: 500.ms, delay: 200.ms)
-              .slideY(begin: 0.2, end: 0),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 560),
+                  child: Text(
+                    'Paste a video or playlist URL from YouTube or any site yt-dlp supports, choose your format, and keep downloads organized without extra clutter.',
+                    style: TextStyle(
+                      color: theme.colorScheme.onSurface.withValues(
+                        alpha: 0.58,
+                      ),
+                      fontSize: 14,
+                      height: 1.55,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ).animate().fadeIn(duration: 240.ms, delay: 170.ms),
 
-          const SizedBox(height: 8),
+                const SizedBox(height: 28),
 
-          // Subtitle
-          Text(
-                'Paste a YouTube link to start',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-                ),
-                textAlign: TextAlign.center,
-              )
-              .animate()
-              .fadeIn(duration: 500.ms, delay: 300.ms)
-              .slideY(begin: 0.2, end: 0),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 780),
+                  child: UrlInputCard(
+                    controller: _urlController,
+                    focusNode: _urlFocusNode,
+                    showPasteButton: true,
+                    onFetch: () => _handleFetch(videoProvider),
+                    onCancel: () => videoProvider.cancelFetch(),
+                    isLoading: videoProvider.isLoading,
+                    statusMessage: videoProvider.loadingStatus.isEmpty
+                        ? null
+                        : videoProvider.loadingStatus,
+                    errorMessage: videoProvider.hasError
+                        ? videoProvider.errorMessage
+                        : null,
+                  ),
+                ).animate().fadeIn(duration: 250.ms, delay: 220.ms),
 
-          const SizedBox(height: 32),
+                const SizedBox(height: 18),
 
-          // Compact Feature Chips
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _buildCompactFeatureChip(
-                context,
-                icon: Icons.four_k_rounded,
-                label: '4K',
-              ),
-              const SizedBox(width: 8),
-              _buildCompactFeatureChip(
-                context,
-                icon: Icons.audiotrack_rounded,
-                label: 'Audio',
-              ),
-              const SizedBox(width: 8),
-              _buildCompactFeatureChip(
-                context,
-                icon: Icons.playlist_play_rounded,
-                label: 'Playlists',
-              ),
-            ],
-          ).animate().fadeIn(duration: 400.ms, delay: 400.ms),
-        ],
+                Wrap(
+                  alignment: WrapAlignment.center,
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: [
+                    _buildFeaturePill(
+                      context,
+                      Icons.flash_on_rounded,
+                      'Fast fetch',
+                    ),
+                    _buildFeaturePill(
+                      context,
+                      Icons.high_quality_rounded,
+                      'Quality control',
+                    ),
+                    _buildFeaturePill(
+                      context,
+                      Icons.playlist_play_rounded,
+                      'Playlist ready',
+                    ),
+                  ],
+                ).animate().fadeIn(duration: 240.ms, delay: 260.ms),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
 
-  Widget _buildCompactFeatureChip(
-    BuildContext context, {
-    required IconData icon,
-    required String label,
-  }) {
+  Widget _buildDesktopErrorState(
+    BuildContext context,
+    VideoProvider videoProvider,
+  ) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final error = videoProvider.errorMessage ?? 'An unexpected error occurred';
+
+    return Center(
+      child: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 44),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 560),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                // Error icon
+                Container(
+                      width: 72,
+                      height: 72,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: theme.colorScheme.error.withValues(alpha: 0.1),
+                        border: Border.all(
+                          color: theme.colorScheme.error.withValues(
+                            alpha: 0.25,
+                          ),
+                        ),
+                      ),
+                      child: Icon(
+                        Icons.error_outline_rounded,
+                        color: theme.colorScheme.error,
+                        size: 34,
+                      ),
+                    )
+                    .animate()
+                    .fadeIn(duration: 260.ms)
+                    .scale(
+                      begin: const Offset(0.92, 0.92),
+                      end: const Offset(1, 1),
+                      duration: 260.ms,
+                      curve: Curves.easeOutCubic,
+                    ),
+
+                const SizedBox(height: 22),
+
+                // Title
+                Text(
+                  'Something went wrong',
+                  style: theme.textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.4,
+                  ),
+                  textAlign: TextAlign.center,
+                ).animate().fadeIn(duration: 260.ms, delay: 80.ms),
+
+                const SizedBox(height: 12),
+
+                // Error message
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(14),
+                  child: BackdropFilter(
+                    filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 16,
+                      ),
+                      decoration: BoxDecoration(
+                        color: isDark
+                            ? Colors.white.withValues(alpha: 0.06)
+                            : Colors.white.withValues(alpha: 0.55),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: isDark
+                              ? Colors.white.withValues(alpha: 0.1)
+                              : Colors.white.withValues(alpha: 0.25),
+                        ),
+                      ),
+                      child: Text(
+                        error,
+                        style: TextStyle(
+                          color: theme.colorScheme.onSurface.withValues(
+                            alpha: 0.65,
+                          ),
+                          fontSize: 13,
+                          height: 1.5,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ),
+                ).animate().fadeIn(duration: 240.ms, delay: 140.ms),
+
+                const SizedBox(height: 28),
+
+                // Action buttons
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        videoProvider.clear();
+                        _urlController.clear();
+                        _urlFocusNode.requestFocus();
+                      },
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: theme.colorScheme.onSurface,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 20,
+                          vertical: 14,
+                        ),
+                        side: BorderSide(
+                          color: theme.colorScheme.onSurface.withValues(
+                            alpha: 0.12,
+                          ),
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      icon: const Icon(Icons.refresh_rounded, size: 18),
+                      label: const Text(
+                        'Try again',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    FilledButton.icon(
+                      onPressed: () {
+                        _urlController.clear();
+                        _urlFocusNode.requestFocus();
+                      },
+                      style: FilledButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 20,
+                          vertical: 14,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      icon: const Icon(Icons.link_rounded, size: 18),
+                      label: const Text(
+                        'New URL',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ),
+                  ],
+                ).animate().fadeIn(duration: 240.ms, delay: 200.ms),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFeaturePill(BuildContext context, IconData icon, String label) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: theme.colorScheme.onSurface.withValues(alpha: 0.05),
-        borderRadius: BorderRadius.circular(20),
+        color: isDark
+            ? Colors.white.withValues(alpha: 0.045)
+            : Colors.black.withValues(alpha: 0.035),
+        borderRadius: BorderRadius.circular(999),
         border: Border.all(
-          color: theme.colorScheme.onSurface.withValues(alpha: 0.1),
+          color: theme.colorScheme.onSurface.withValues(alpha: 0.08),
         ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 14, color: theme.colorScheme.primary),
-          const SizedBox(width: 6),
+          Icon(icon, size: 15, color: theme.colorScheme.primary),
+          const SizedBox(width: 7),
           Text(
             label,
             style: TextStyle(
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.68),
               fontSize: 12,
-              fontWeight: FontWeight.w600,
+              fontWeight: FontWeight.w700,
             ),
           ),
         ],
@@ -708,93 +657,15 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildFeatureCard(
-    BuildContext context, {
-    required IconData icon,
-    required String title,
-    required String description,
-    bool isActive = false,
-    VoidCallback? onTap,
-    Duration delay = Duration.zero,
-  }) {
-    final theme = Theme.of(context);
 
-    return MouseRegion(
-          cursor: onTap != null
-              ? SystemMouseCursors.click
-              : SystemMouseCursors.basic,
-          child: GestureDetector(
-            onTap: onTap,
-            child: Container(
-              width: 160,
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: isActive
-                    ? theme.colorScheme.primary.withValues(alpha: 0.1)
-                    : theme.colorScheme.surface,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(
-                  color: isActive
-                      ? theme.colorScheme.primary.withValues(alpha: 0.3)
-                      : theme.colorScheme.onSurface.withValues(alpha: 0.08),
-                  width: 1.5,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: theme.colorScheme.shadow.withValues(alpha: 0.05),
-                    blurRadius: 20,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: isActive
-                          ? theme.colorScheme.primary.withValues(alpha: 0.15)
-                          : theme.colorScheme.primary.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Icon(
-                      icon,
-                      size: 28,
-                      color: theme.colorScheme.primary,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    title,
-                    style: TextStyle(
-                      color: theme.colorScheme.onSurface,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 15,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    description,
-                    style: TextStyle(
-                      color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
-                      fontSize: 12,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ],
-              ),
-            ),
-          ),
-        )
-        .animate()
-        .fadeIn(duration: 500.ms, delay: delay)
-        .slideY(begin: 0.3, end: 0);
-  }
 
   Future<void> _handleFetch(VideoProvider videoProvider) async {
-    final url = _urlController.text;
+    final url = _urlController.text.trim();
     if (url.isEmpty) return;
+
+    // Apply default quality from settings before fetching formats.
+    final settings = context.read<PlatformSettingsProvider>();
+    videoProvider.setPreferredQuality(settings.defaultQuality);
 
     if (url.contains('list=') || url.contains('/playlist')) {
       if (mounted) {
@@ -810,22 +681,50 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Widget _buildThemeToggleButton(BuildContext context) {
+    final theme = Theme.of(context);
+    final settingsProvider = context.read<PlatformSettingsProvider>();
+    final isDark = theme.brightness == Brightness.dark;
+
+    return IconButton(
+      onPressed: () {
+        settingsProvider.setThemeMode(
+          isDark ? ThemeMode.light : ThemeMode.dark,
+        );
+      },
+      style: IconButton.styleFrom(
+        backgroundColor: isDark
+            ? Colors.white.withValues(alpha: 0.035)
+            : Colors.black.withValues(alpha: 0.025),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: BorderSide(
+            color: isDark
+                ? Colors.white.withValues(alpha: 0.08)
+                : Colors.black.withValues(alpha: 0.08),
+          ),
+        ),
+      ),
+      icon: Icon(
+        isDark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
+        size: 18,
+        color: theme.colorScheme.onSurface.withValues(alpha: 0.8),
+      ),
+    );
+  }
+
   Future<void> _startDownload() async {
     final videoProvider = context.read<VideoProvider>();
     final downloadProvider = context.read<DownloadProvider>();
-    final settingsProvider = context.read<SettingsProvider>();
+    final settingsProvider = context.read<PlatformSettingsProvider>();
 
     if (videoProvider.videoInfo == null) return;
 
     final outputPath =
         settingsProvider.settings.outputPath ??
-        '${Platform.environment['USERPROFILE']}\\Downloads';
+        await settingsProvider.getDefaultOutputPath();
 
-    final dir = Directory(outputPath);
-    if (!dir.existsSync()) {
-      dir.createSync(recursive: true);
-    }
-
+    final estimatedSize = videoProvider.totalEstimatedDownloadSize;
     downloadProvider.startDownload(
       video: videoProvider.videoInfo!,
       outputPath: outputPath,
@@ -838,8 +737,16 @@ class _HomeScreenState extends State<HomeScreen> {
       audioQuality: videoProvider.selectedAudioQuality.ytdlpValue,
       embedThumbnail: settingsProvider.settings.embedThumbnail,
       embedMetadata: settingsProvider.settings.embedMetadata,
+      subtitleLanguages: videoProvider.selectedSubtitles
+          .map((s) => s.languageCode)
+          .toList(),
+      embedSubtitles: videoProvider.embedSubtitles,
+      sponsorBlock: settingsProvider.sponsorBlockEnabled,
+      useDownloadArchive: settingsProvider.useDownloadArchive,
+      estimatedFileSize: estimatedSize > 0 ? estimatedSize : null,
     );
 
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Row(
@@ -857,7 +764,10 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        action: SnackBarAction(label: 'View', onPressed: () {}),
+        action: SnackBarAction(
+          label: 'View',
+          onPressed: () => context.read<NavigationProvider>().setIndex(2),
+        ),
       ),
     );
 

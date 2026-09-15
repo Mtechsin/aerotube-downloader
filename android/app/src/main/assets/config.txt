@@ -1,0 +1,11 @@
+# youtubedl-android configuration file
+# This file contains default options for yt-dlp
+
+# Don't preserve the modification time of the video
+--no-mtime
+
+# Output template - save to Downloads folder
+-o /sdcard/Download/youtubedl-android/%(title)s.%(ext)s
+
+# Format selection: best mp4 video with audio
+-f "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"

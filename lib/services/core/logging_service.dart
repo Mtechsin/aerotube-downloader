@@ -1,0 +1,621 @@
+import 'dart:async';
+import 'dart:io';
+import 'package:flutter/foundation.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as p;
+import 'package:shared_preferences/shared_preferences.dart';
+import '../../core/constants/app_constants.dart';
+import '../../core/utils/url_sanitizer.dart';
+
+/// Log level enumeration
+enum LogLevel { debug, info, warning, error }
+
+/// Log entry model
+class LogEntry {
+  final DateTime timestamp;
+  final LogLevel level;
+  final String message;
+  final String? component;
+  final dynamic error;
+  final StackTrace? stackTrace;
+  final bool sanitizeUrls;
+
+  LogEntry({
+    required this.timestamp,
+    required this.level,
+    required this.message,
+    this.component,
+    this.error,
+    this.stackTrace,
+    this.sanitizeUrls = true,
+  });
+
+  String get formattedTimestamp {
+    return '${timestamp.hour.toString().padLeft(2, '0')}:${timestamp.minute.toString().padLeft(2, '0')}:${timestamp.second.toString().padLeft(2, '0')}';
+  }
+
+  String get compactTimestamp {
+    return '${timestamp.hour.toString().padLeft(2, '0')}:${timestamp.minute.toString().padLeft(2, '0')}';
+  }
+
+  String get levelEmoji {
+    switch (level) {
+      case LogLevel.debug:
+        return '🐛';
+      case LogLevel.info:
+        return 'ℹ️';
+      case LogLevel.warning:
+        return '⚠️';
+      case LogLevel.error:
+        return '❌';
+    }
+  }
+
+  @override
+  String toString() => toStringWithSanitization(sanitizeUrls);
+
+  /// Renders this entry, optionally forcing sanitization on regardless of the
+  /// per-entry [sanitizeUrls] flag.
+  ///
+  /// Exported logs (which leave the device) must always be sanitized — the
+  /// user toggle only governs in-memory/live logging — so the export path
+  /// passes [forceSanitize] = true (M4).
+  String toStringWithSanitization(bool shouldSanitize) {
+    final buffer = StringBuffer();
+    buffer.write('[$formattedTimestamp] $levelEmoji ');
+    if (component != null) buffer.write('[$component] ');
+    buffer.write(shouldSanitize ? UrlSanitizer.sanitize(message) : message);
+    if (error != null) {
+      final errorStr = error.toString();
+      buffer.write(
+        '\n  Error: ${shouldSanitize ? UrlSanitizer.sanitize(errorStr) : errorStr}',
+      );
+    }
+    if (stackTrace != null) buffer.write('\n  Stack: $stackTrace');
+    return buffer.toString();
+  }
+}
+
+/// User-facing log entry (simplified)
+class UserLogEntry {
+  final String id;
+  final DateTime timestamp;
+  final String message;
+  final bool isError;
+  final bool isWarning;
+  final Duration? autoDismissDuration;
+
+  UserLogEntry({
+    required this.id,
+    required this.timestamp,
+    required this.message,
+    this.isError = false,
+    this.isWarning = false,
+    this.autoDismissDuration,
+  });
+
+  bool get shouldAutoDismiss => autoDismissDuration != null;
+}
+
+/// Comprehensive logging service for both developer and user logs
+class LoggingService {
+  static final LoggingService _instance = LoggingService._internal();
+  factory LoggingService() => _instance;
+  LoggingService._internal();
+
+  /// Short unique id for this app launch. Written into every file log line so
+  /// exported logs from one session can be distinguished from another.
+  final String sessionId = _generateSessionId();
+
+  static String _generateSessionId() {
+    final now = DateTime.now().microsecondsSinceEpoch;
+    final rand = now.toRadixString(36).toUpperCase();
+    return rand.substring(rand.length > 6 ? rand.length - 6 : 0);
+  }
+
+  // Dev logs
+  final List<LogEntry> _devLogs = [];
+  final _devLogsController = StreamController<List<LogEntry>>.broadcast();
+  Stream<List<LogEntry>> get devLogsStream => _devLogsController.stream;
+  List<LogEntry> get devLogs => List.unmodifiable(_devLogs);
+
+  // User logs (temporary, auto-dismiss)
+  final List<UserLogEntry> _userLogs = [];
+  final _userLogsController = StreamController<List<UserLogEntry>>.broadcast();
+  Stream<List<UserLogEntry>> get userLogsStream => _userLogsController.stream;
+  List<UserLogEntry> get userLogs => List.unmodifiable(_userLogs);
+
+  // Configuration
+  static const int _maxDevLogs = 1000;
+  static const int _maxUserLogs = 5;
+  static const Duration _userLogDefaultDuration = Duration(seconds: 5);
+  static const Duration _userLogErrorDuration = Duration(seconds: 8);
+  static const int _maxLogFileSize = 5 * 1024 * 1024; // 5MB
+  static const int _maxRotatedFiles = 3;
+
+  bool _isInitialized = false;
+  bool _loggingEnabled = true;
+  bool _sanitizeUrls = true;
+  late File _logFile;
+
+  bool get isEnabled => _loggingEnabled;
+  bool get isSanitizeUrlsEnabled => _sanitizeUrls;
+  bool get isInitialized => _isInitialized;
+
+  /// Absolute path of the current on-disk log file (empty until [init]).
+  String get logFilePath => _isInitialized ? _logFile.path : '';
+
+  Future<void> setEnabled(bool enabled) async {
+    _loggingEnabled = enabled;
+    if (enabled) {
+      info('Logging enabled', component: 'LoggingService');
+    } else {
+      debugPrint('Logging disabled');
+    }
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(AppConstants.prefEnableLogging, enabled);
+  }
+
+  Future<void> setSanitizeUrlsEnabled(bool enabled) async {
+    _sanitizeUrls = enabled;
+    if (enabled) {
+      info('URL sanitization enabled', component: 'LoggingService');
+    } else {
+      info('URL sanitization disabled', component: 'LoggingService');
+    }
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(AppConstants.prefSanitizeUrls, enabled);
+  }
+
+  // Progress tracking for downloads
+  final Map<String, double> _downloadProgress = {};
+  final _progressController = StreamController<Map<String, double>>.broadcast();
+  Stream<Map<String, double>> get progressStream => _progressController.stream;
+
+  Future<void> init() async {
+    if (_isInitialized) return;
+
+    try {
+      final appDir = await getApplicationSupportDirectory();
+      final logDir = Directory(p.join(appDir.path, 'logs'));
+      if (!await logDir.exists()) {
+        await logDir.create(recursive: true);
+      }
+
+      _logFile = File(p.join(logDir.path, 'app.log'));
+      _isInitialized = true;
+
+      final prefs = await SharedPreferences.getInstance();
+      _loggingEnabled = prefs.getBool(AppConstants.prefEnableLogging) ??
+          prefs.getBool('logging_enabled') ??
+          true;
+      _sanitizeUrls = prefs.getBool(AppConstants.prefSanitizeUrls) ??
+          prefs.getBool('sanitize_urls') ??
+          true;
+
+      await cleanupOldLogs(maxAgeDays: 7);
+
+      info(
+        'LoggingService initialized (session $sessionId)',
+        component: 'LoggingService',
+      );
+    } catch (e) {
+      debugPrint('Failed to initialize LoggingService: $e');
+    }
+  }
+
+  /// Writes a one-shot environment dump so bug reports can show what the
+  /// app was running on without the user hunting for version numbers.
+  Future<void> logEnvironment({
+    required String appVersion,
+    required String buildNumber,
+    required String platform,
+    String? ytdlpVersion,
+    String? ffmpegVersion,
+    String? locale,
+    Map<String, String>? extra,
+  }) async {
+    final lines = <String>[
+      'session:     $sessionId',
+      'app:         $appVersion+$buildNumber',
+      'platform:    $platform',
+      'locale:      ${locale ?? 'unknown'}',
+      'yt-dlp:      ${ytdlpVersion ?? 'not ready'}',
+      'ffmpeg:      ${ffmpegVersion ?? 'not ready'}',
+      'logging:     ${_loggingEnabled ? 'on' : 'off'}',
+      'url redact:  ${_sanitizeUrls ? 'on' : 'off'}',
+    ];
+    if (extra != null) {
+      for (final entry in extra.entries) {
+        lines.add('${entry.key}: ${entry.value}');
+      }
+    }
+    final dump = [
+      '── Session environment ─────────────────────────',
+      ...lines,
+      '───────────────────────────────────────────────',
+    ].join('\n');
+    info(dump, component: 'Environment');
+  }
+
+  void setLoggingEnabled(bool enabled) {
+    _loggingEnabled = enabled;
+    if (enabled) {
+      info('Logging enabled', component: 'LoggingService');
+    } else {
+      debugPrint('Logging disabled');
+    }
+  }
+
+  /// Log a debug message (dev only)
+  void debug(
+    String message, {
+    String? component,
+    dynamic error,
+    StackTrace? stackTrace,
+  }) {
+    _log(
+      LogLevel.debug,
+      message,
+      component: component,
+      error: error,
+      stackTrace: stackTrace,
+    );
+  }
+
+  /// Log an info message
+  void info(
+    String message, {
+    String? component,
+    dynamic error,
+    StackTrace? stackTrace,
+  }) {
+    _log(
+      LogLevel.info,
+      message,
+      component: component,
+      error: error,
+      stackTrace: stackTrace,
+    );
+  }
+
+  /// Log a warning
+  void warning(
+    String message, {
+    String? component,
+    dynamic error,
+    StackTrace? stackTrace,
+  }) {
+    _log(
+      LogLevel.warning,
+      message,
+      component: component,
+      error: error,
+      stackTrace: stackTrace,
+    );
+  }
+
+  /// Log an error
+  void error(
+    String message, {
+    String? component,
+    dynamic error,
+    StackTrace? stackTrace,
+  }) {
+    _log(
+      LogLevel.error,
+      message,
+      component: component,
+      error: error,
+      stackTrace: stackTrace,
+    );
+  }
+
+  void _log(
+    LogLevel level,
+    String message, {
+    String? component,
+    dynamic error,
+    StackTrace? stackTrace,
+  }) {
+    final entry = LogEntry(
+      timestamp: DateTime.now(),
+      level: level,
+      message: message,
+      component: component,
+      error: error,
+      stackTrace: stackTrace,
+      sanitizeUrls: _sanitizeUrls,
+    );
+
+    // Always show in console for debug builds (not gated by _loggingEnabled)
+    if (kDebugMode) {
+      debugPrint(entry.toString());
+    }
+
+    // In-memory store and file write respect the user toggle
+    if (!_loggingEnabled) return;
+
+    _devLogs.add(entry);
+    if (_devLogs.length > _maxDevLogs) {
+      _devLogs.removeAt(0);
+    }
+    _devLogsController.add(List.unmodifiable(_devLogs));
+
+    _writeToFile(entry);
+  }
+
+  Future<void> _writeToFile(LogEntry entry) async {
+    if (!_isInitialized || !_loggingEnabled) return;
+
+    try {
+      // Check and rotate log file if needed
+      await _rotateLogFileIfNeeded();
+
+      // The on-disk log file is always sanitized, regardless of the in-memory
+      // toggle — anything written to disk is an export/leak surface (M4).
+      final line = '${entry.toStringWithSanitization(true)}\n';
+      await _logFile.writeAsString(line, mode: FileMode.append);
+    } catch (e) {
+      debugPrint('Failed to write to log file: $e');
+    }
+  }
+
+  /// Returns the last [limit] log entries, newest last. Used by bug reports.
+  List<LogEntry> recentEntries({int limit = 80}) {
+    if (_devLogs.isEmpty) return const [];
+    final start = _devLogs.length > limit ? _devLogs.length - limit : 0;
+    return _devLogs.sublist(start);
+  }
+
+  /// Returns recent error entries (with stack traces when present).
+  List<LogEntry> recentErrors({int limit = 10}) {
+    final errors = _devLogs
+        .where((e) => e.level == LogLevel.error)
+        .toList();
+    if (errors.length <= limit) return errors;
+    return errors.sublist(errors.length - limit);
+  }
+
+  /// Count of error entries in the current in-memory buffer.
+  int get errorCount =>
+      _devLogs.where((e) => e.level == LogLevel.error).length;
+
+  /// Count of warning entries in the current in-memory buffer.
+  int get warningCount =>
+      _devLogs.where((e) => e.level == LogLevel.warning).length;
+
+  Future<void> _rotateLogFileIfNeeded() async {
+    try {
+      if (!await _logFile.exists()) return;
+
+      final fileSize = await _logFile.length();
+      if (fileSize < _maxLogFileSize) return;
+
+      // Rotate files: app.log.2 → app.log.3, app.log.1 → app.log.2, app.log → app.log.1
+      for (int i = _maxRotatedFiles - 1; i >= 1; i--) {
+        final sourceFile = File('${_logFile.path}.$i');
+        if (await sourceFile.exists()) {
+          if (i == _maxRotatedFiles - 1) {
+            // Delete oldest file
+            await sourceFile.delete();
+          } else {
+            // Move to next number
+            await sourceFile.rename('${_logFile.path}.${i + 1}');
+          }
+        }
+      }
+
+      // Rename current log to app.log.1
+      await _logFile.rename('${_logFile.path}.1');
+
+      // Create new log file
+      _logFile = File(p.join(_logFile.parent.path, 'app.log'));
+      await _logFile.create();
+
+      info('Log file rotated', component: 'LoggingService');
+    } catch (e) {
+      debugPrint('Failed to rotate log file: $e');
+    }
+  }
+
+  Future<void> cleanupOldLogs({int maxAgeDays = 30}) async {
+    try {
+      final logDir = _logFile.parent;
+      if (!await logDir.exists()) return;
+
+      final logFiles = <File>[];
+      await for (final entity in logDir.list()) {
+        if (entity is File &&
+            (entity.path.endsWith('.log') || entity.path.contains('.log.'))) {
+          logFiles.add(entity);
+        }
+      }
+
+      final cutoffDate = DateTime.now().subtract(Duration(days: maxAgeDays));
+
+      for (final file in logFiles) {
+        final stat = await file.stat();
+        if (stat.modified.isBefore(cutoffDate)) {
+          await file.delete();
+          debugPrint('Deleted old log file: ${file.path}');
+        }
+      }
+    } catch (e) {
+      debugPrint('Failed to cleanup old logs: $e');
+    }
+  }
+
+  /// Show a user-facing log message (appears in UI, auto-dismisses)
+  void showUserLog(
+    String message, {
+    bool isError = false,
+    bool isWarning = false,
+    Duration? autoDismissDuration,
+  }) {
+    final entry = UserLogEntry(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      timestamp: DateTime.now(),
+      message: message,
+      isError: isError,
+      isWarning: isWarning,
+      autoDismissDuration:
+          autoDismissDuration ??
+          (isError ? _userLogErrorDuration : _userLogDefaultDuration),
+    );
+
+    _userLogs.add(entry);
+    if (_userLogs.length > _maxUserLogs) {
+      _userLogs.removeAt(0);
+    }
+    _userLogsController.add(List.unmodifiable(_userLogs));
+
+    // Auto-dismiss after duration
+    if (entry.shouldAutoDismiss) {
+      Timer(entry.autoDismissDuration!, () {
+        dismissUserLog(entry.id);
+      });
+    }
+
+    // Also log to dev logs
+    if (isError) {
+      error(message, component: 'UserLog');
+    } else if (isWarning) {
+      warning(message, component: 'UserLog');
+    } else {
+      info(message, component: 'UserLog');
+    }
+  }
+
+  /// Dismiss a specific user log
+  void dismissUserLog(String id) {
+    _userLogs.removeWhere((log) => log.id == id);
+    _userLogsController.add(List.unmodifiable(_userLogs));
+  }
+
+  /// Clear all user logs
+  void clearUserLogs() {
+    _userLogs.clear();
+    _userLogsController.add([]);
+  }
+
+  /// Update download progress
+  void updateDownloadProgress(String downloadId, double progress) {
+    _downloadProgress[downloadId] = progress.clamp(0.0, 1.0);
+    _progressController.add(Map.unmodifiable(_downloadProgress));
+  }
+
+  /// Remove download progress
+  void removeDownloadProgress(String downloadId) {
+    _downloadProgress.remove(downloadId);
+    _progressController.add(Map.unmodifiable(_downloadProgress));
+  }
+
+  /// Get current progress for a download
+  double getDownloadProgress(String downloadId) {
+    return _downloadProgress[downloadId] ?? 0.0;
+  }
+
+  /// Get overall progress (average of all active downloads)
+  double get overallProgress {
+    if (_downloadProgress.isEmpty) return 0.0;
+    final total = _downloadProgress.values.reduce((a, b) => a + b);
+    return total / _downloadProgress.length;
+  }
+
+  /// Check if any downloads are in progress
+  bool get hasActiveDownloads => _downloadProgress.isNotEmpty;
+
+  /// Get count of active downloads
+  int get activeDownloadCount => _downloadProgress.length;
+
+  /// Clear all dev logs
+  void clearDevLogs() {
+    _devLogs.clear();
+    _devLogsController.add([]);
+  }
+
+  /// Export logs to a string.
+  ///
+  /// Exports ALWAYS sanitize URLs/headers, regardless of the in-memory toggle
+  /// (`sanitizeUrls` param is accepted for backwards compatibility but no
+  /// longer lets callers disable redaction). The export is where logs leave
+  /// the device, so leaking tokens here is the high-impact failure mode (M4).
+  String exportLogs({bool? sanitizeUrls}) {
+    return _devLogs
+        .map((e) => e.toStringWithSanitization(true))
+        .join('\n');
+  }
+
+  /// Export a tail of the log as plain text (always sanitized).
+  /// Used by bug reports so attachments stay small and useful.
+  String exportRecentLogTail({int limit = 80}) {
+    return recentEntries(limit: limit)
+        .map((e) => e.toStringWithSanitization(true))
+        .join('\n');
+  }
+
+  /// Export logs to a file in the selected output directory.
+  ///
+  /// The exported file is written to `outputPath/app.log`.
+  Future<String> exportLogsToFile(String outputPath) async {
+    if (!_isInitialized) {
+      throw StateError('Logging service is not initialized yet.');
+    }
+
+    if (outputPath.trim().isEmpty) {
+      throw ArgumentError.value(
+        outputPath,
+        'outputPath',
+        'A valid directory is required.',
+      );
+    }
+
+    final outputDir = Directory(outputPath);
+    await outputDir.create(recursive: true);
+
+    final exportFile = File(p.join(outputDir.path, 'app.log'));
+    final sourceFileExists = await _logFile.exists();
+    final hasInMemoryLogs = _devLogs.isNotEmpty;
+
+    if (!sourceFileExists && !hasInMemoryLogs) {
+      throw StateError(
+        'No log file exists and there are no in-memory log entries to export.',
+      );
+    }
+
+    if (sourceFileExists) {
+      await _logFile.copy(exportFile.path);
+      final sourceStat = await _logFile.stat();
+      final pendingLogs = _devLogs
+          .where((entry) => entry.timestamp.isAfter(sourceStat.modified))
+          .toList();
+
+      if (pendingLogs.isNotEmpty) {
+        // Pending logs were held in memory (potentially unsanitized); force
+        // sanitization when appending to the export (M4).
+        final pendingText = pendingLogs
+            .map((entry) => entry.toStringWithSanitization(true))
+            .join('\n');
+        await exportFile.writeAsString('$pendingText\n', mode: FileMode.append);
+      }
+    } else {
+      final logsText = exportLogs();
+      await exportFile.writeAsString('$logsText\n', mode: FileMode.write);
+    }
+
+    return exportFile.path;
+  }
+
+  /// Dispose resources
+  void dispose() {
+    _devLogsController.close();
+    _userLogsController.close();
+    _progressController.close();
+  }
+}
+
+// Global extension for easy logging
+extension LoggingExtension on Object {
+  LoggingService get logger => LoggingService();
+}
