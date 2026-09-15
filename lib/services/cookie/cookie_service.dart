@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+import '../../core/utils/platform_utils.dart';
 import '../core/logging_service.dart';
 
 class CookieService {
@@ -16,7 +17,7 @@ class CookieService {
   }
 
   Future<void> _checkLoginStatus() async {
-    if (Platform.isAndroid || Platform.isIOS) {
+    if (PlatformUtils.isMobile) {
       // On mobile, check if we have YouTube cookies
       final cookies = await CookieManager.instance().getCookies(
         url: WebUri('https://youtube.com'),
@@ -100,7 +101,7 @@ class CookieService {
   }
 
   Future<void> clearCookies() async {
-    if (Platform.isAndroid || Platform.isIOS) {
+    if (PlatformUtils.isMobile) {
       await CookieManager.instance().deleteAllCookies();
     } else {
       final path = await webViewPath;

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../../services/logging_service.dart';
+import '../../services/core/logging_service.dart';
 
 /// Developer logs viewer widget
 class LogsViewer extends StatelessWidget {

@@ -4,15 +4,19 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_animate/flutter_animate.dart';
-import 'package:url_launcher/url_launcher.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import '../../providers/platform_settings_provider.dart';
 import '../../providers/update_provider.dart';
 import '../../providers/tool_update_provider.dart';
 import '../../providers/navigation_provider.dart';
 import '../../core/utils/platform_utils.dart';
-import '../../services/logging_service.dart';
+import '../../services/core/android_storage_service.dart';
+import '../../services/core/logging_service.dart';
+import '../../core/utils/error_helper.dart';
+import '../widgets/error_details_dialog.dart';
 import '../widgets/update_dialog.dart';
 import '../widgets/logs_viewer.dart';
+import '../widgets/bug_report_dialog.dart';
 import '../widgets/floating_progress_overlay.dart';
 import '../widgets/app_logo.dart';
 
@@ -23,10 +27,14 @@ class SettingsScreen extends StatefulWidget {
   State<SettingsScreen> createState() => _SettingsScreenState();
 }
 
-class _SettingsScreenState extends State<SettingsScreen> {
+class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObserver {
+  String _appVersion = '';
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _loadAppVersion();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final provider = context.read<PlatformSettingsProvider>();
@@ -34,6 +42,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
         provider.refreshBatteryOptimizationStatus();
       }
     });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Re-check battery optimization when the user returns from the system dialog.
+    if (state == AppLifecycleState.resumed && mounted) {
+      final provider = context.read<PlatformSettingsProvider>();
+      if (provider.isAndroid) {
+        provider.refreshBatteryOptimizationStatus();
+      }
+    }
+  }
+
+  Future<void> _loadAppVersion() async {
+    final info = await PackageInfo.fromPlatform();
+    if (mounted) {
+      setState(() {
+        _appVersion = info.version;
+      });
+    }
   }
 
   @override
@@ -111,8 +145,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ],
           ),
-          // Floating progress overlay
-          const FloatingProgressOverlay(),
+          // Floating progress overlay — PF8: RepaintBoundary to isolate repaints
+          const RepaintBoundary(child: FloatingProgressOverlay()),
         ],
       ),
     );
@@ -208,7 +242,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               ),
                               fontSize: 12,
                             ),
-                            maxLines: 1,
+                            maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                           ),
                         ],
@@ -276,7 +310,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               title: 'yt-dlp',
               icon: Icons.terminal_rounded,
               state: ytdlpState,
-              onCheckUpdate: () => toolProvider.checkYtdlpForUpdate(),
+              onCheckUpdate: () => toolProvider.checkYtdlpForUpdate(force: true),
               onUpdate: ytdlpState.hasUpdate
                   ? () => toolProvider.updateYtdlp()
                   : null,
@@ -296,7 +330,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               title: 'FFmpeg',
               icon: Icons.video_settings_rounded,
               state: ffmpegState,
-              onCheckUpdate: () => toolProvider.checkFfmpegForUpdate(),
+              onCheckUpdate: () => toolProvider.checkFfmpegForUpdate(force: true),
               onUpdate: ffmpegState.hasUpdate
                   ? () => toolProvider.updateFfmpeg()
                   : null,
@@ -338,16 +372,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
     Color iconColor;
     Widget? trailing;
 
+    VoidCallback? tileTap;
     if (state.status == ToolUpdateStatus.error) {
-      subtitle =
+      final rawError =
           state.errorMessage ??
           state.statusMessage ??
-          'Operation failed. Tap Check to retry.';
+          'Operation failed. Tap to inspect.';
+      final parsed = ErrorHelper.parse(rawError);
+      subtitle = '${parsed.friendlyMessage} (Tap for info)';
       iconColor = Colors.red;
+      tileTap = () => ErrorDetailsDialog.show(
+        context,
+        error: parsed,
+        customTitle: '$title Error',
+        onRetry: onCheckUpdate,
+      );
       trailing = Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _buildSmallButton('Check', onCheckUpdate),
+          IconButton(
+            icon: Icon(
+              Icons.info_outline_rounded,
+              size: 20,
+              color: theme.colorScheme.error,
+            ),
+            tooltip: 'View Error Details',
+            onPressed: tileTap,
+            visualDensity: VisualDensity.compact,
+          ),
+          const SizedBox(width: 4),
+          _buildSmallButton('Retry', onCheckUpdate),
           const SizedBox(width: 8),
           _buildAdvancedButton(onAdvanced),
         ],
@@ -460,6 +514,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       icon: icon,
       iconColor: iconColor,
       trailing: trailing,
+      onTap: tileTap,
       showDivider: showDivider,
     );
   }
@@ -468,6 +523,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget _buildLogsSection(BuildContext context) {
     return _buildSettingsSection(
       children: [
+        _buildSettingsTile(
+          title: 'Report a Bug',
+          subtitle: 'Build a report (copy / save / file on GitHub)',
+          icon: Icons.pest_control_rounded,
+          iconColor: Theme.of(context).colorScheme.primary,
+          trailing: Icon(
+            Icons.chevron_right_rounded,
+            color: Theme.of(
+              context,
+            ).colorScheme.onSurface.withValues(alpha: 0.5),
+          ),
+          onTap: () => BugReportDialog.show(context),
+        ),
         _buildSettingsTile(
           title: 'Export Logs',
           subtitle: 'Save app.log to a folder you choose',
@@ -484,7 +552,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _buildSettingsTile(
           title: 'View Logs',
           subtitle: 'Developer logs and debugging info',
-          icon: Icons.bug_report_rounded,
+          icon: Icons.receipt_long_rounded,
           trailing: Icon(
             Icons.chevron_right_rounded,
             color: Theme.of(
@@ -518,6 +586,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
       );
 
       if (pickedPath == null) return;
+
+      // Fail fast on SD-card / unwritable picks: FilePicker returns a raw
+      // path with no persistable SAF grant, so yt-dlp-style raw writes would
+      // fail later. Validate before attempting the export.
+      if (PlatformUtils.isAndroid) {
+        final validation =
+            await AndroidStorageService().validateCustomDirectory(pickedPath);
+        if (!validation.ok) {
+          if (!mounted) return;
+          messenger.showSnackBar(
+            SnackBar(content: Text(validation.reason ?? 'Folder not usable.')),
+          );
+          return;
+        }
+      }
 
       final exportedPath = await service.exportLogsToFile(pickedPath);
       if (!mounted) return;
@@ -567,31 +650,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
         ),
         child: const LogsViewer(),
-      ),
-    );
-  }
-
-  void _showFFmpegUpdateInfo(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('FFmpeg Update'),
-        content: const Text(
-          'FFmpeg updates require manual download from the official website. Would you like to open the download page?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              launchUrl(Uri.parse('https://www.gyan.dev/ffmpeg/builds/'));
-              Navigator.pop(context);
-            },
-            child: const Text('Open Download Page'),
-          ),
-        ],
       ),
     );
   }
@@ -666,16 +724,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Widget _buildBatteryOptimizationTile(PlatformSettingsProvider provider) {
     final theme = Theme.of(context);
-    final isEnabled = provider.isBatteryOptimizationIgnored;
+    final isExempt = provider.isBatteryOptimizationIgnored;
     final isChecking = provider.isCheckingBatteryOptimization;
-    final color = isEnabled ? Colors.green : Colors.orange;
+    final color = isExempt ? Colors.green : Colors.orange;
 
     return _buildSettingsTile(
-      title: 'Battery Optimization',
-      subtitle: isEnabled
-          ? 'Background downloads can keep running when the screen turns off'
-          : 'Allow AeroTube to ignore battery optimizations for smoother downloads',
-      icon: isEnabled
+      title: 'Unrestricted Battery',
+      subtitle: isExempt
+          ? 'Allowed — downloads keep running when the screen is off'
+          : 'Restricted — Android may pause downloads when the screen is off. Tap to allow.',
+      icon: isExempt
           ? Icons.battery_charging_full_rounded
           : Icons.battery_alert_rounded,
       iconColor: color,
@@ -688,51 +746,87 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 color: theme.colorScheme.primary,
               ),
             )
-          : _buildStatusChip(isEnabled ? 'Enabled' : 'Set up', color: color),
+          : _buildStatusChip(isExempt ? 'ALLOWED' : 'RESTRICTED', color: color),
       onTap: isChecking
           ? null
           : () async {
               final messenger = ScaffoldMessenger.of(context);
-              final granted = await provider
-                  .requestBatteryOptimizationExemption();
+              // Blocks until the user responds to the system dialog (or
+              // returns from the fallback battery settings page).
+              final granted =
+                  await provider.requestBatteryOptimizationExemption();
               if (!mounted) return;
 
-              messenger.showSnackBar(
-                SnackBar(
-                  content: Text(
-                    granted
-                        ? 'Battery optimization is now disabled for AeroTube.'
-                        : 'Battery optimization is still enabled. Tap again to retry.',
+              if (granted) {
+                messenger.showSnackBar(
+                  SnackBar(
+                    content: const Text(
+                      'Unrestricted battery allowed — downloads will keep running in the background.',
+                    ),
+                    behavior: SnackBarBehavior.floating,
                   ),
-                  behavior: SnackBarBehavior.floating,
-                ),
-              );
+                );
+              } else {
+                _showBatteryHelpDialog(provider);
+              }
             },
       showDivider: true,
     );
   }
 
-  Future<void> _updateTool(
-    BuildContext context,
-    PlatformSettingsProvider provider,
-    String toolName,
-  ) async {
-    final messenger = ScaffoldMessenger.of(context);
-    messenger.showSnackBar(
-      SnackBar(content: Text('Checking for $toolName updates...')),
+  Widget _buildOemAutostartTile(PlatformSettingsProvider provider) {
+    final rawManufacturer = provider.deviceManufacturer ?? 'Device';
+    final manufacturer = rawManufacturer.isNotEmpty
+        ? '${rawManufacturer[0].toUpperCase()}${rawManufacturer.substring(1)}'
+        : 'OEM';
+
+    return _buildSettingsTile(
+      title: '$manufacturer Autostart Settings',
+      subtitle:
+          'Open $manufacturer settings to permit autostart and unrestricted background execution',
+      icon: Icons.power_settings_new_rounded,
+      iconColor: Colors.blueAccent,
+      trailing: const Icon(Icons.open_in_new_rounded, size: 20),
+      onTap: () async {
+        await provider.openOemAutostartSettings();
+      },
+      showDivider: true,
     );
+  }
 
-    bool result = false;
-    if (toolName == 'yt-dlp') {
-      result = await provider.updateYtdlp();
-    }
-
-    messenger.hideCurrentSnackBar();
-    messenger.showSnackBar(
-      SnackBar(
-        content: Text(
-          result ? '$toolName is up to date!' : 'Failed to update $toolName',
+  /// Shown when the exemption request came back without a grant — either the
+  /// user denied the prompt, or their device (Samsung/Xiaomi/...) skipped the
+  /// prompt and sent them to the settings list instead. Offers a one-tap jump
+  /// to the battery-optimization list page.
+  void _showBatteryHelpDialog(PlatformSettingsProvider provider) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        icon: Icon(
+          Icons.battery_alert_rounded,
+          color: Theme.of(dialogContext).colorScheme.error,
         ),
+        title: const Text('Downloads may pause'),
+        content: const Text(
+          'Your device didn\'t grant unrestricted battery. Some phones '
+          '(Samsung, Xiaomi, etc.) hide the usual prompt.\n\n'
+          'To fix it, find this app in the battery optimization list and '
+          'set it to "Don\'t optimize" / "Unrestricted".',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Later'),
+          ),
+          FilledButton.icon(
+            icon: const Icon(Icons.settings_rounded, size: 18),
+            label: const Text('Open battery settings'),
+            onPressed: () {
+              Navigator.of(dialogContext).pop();
+              provider.openBatteryOptimizationSettings();
+            },
+          ),
+        ],
       ),
     );
   }
@@ -775,35 +869,38 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           onTap: () async {
             final result = await FilePicker.platform.getDirectoryPath();
-            if (result != null) {
-              provider.setOutputPath(result);
+            if (result == null) return;
+            if (!context.mounted) return;
+            // FilePicker gives a raw path with no persistable SAF grant.
+            // Validate writability now (blocks SD-card trap) instead of
+            // saving a folder that will fail writes later.
+            if (provider.isAndroid) {
+              final validation = await AndroidStorageService()
+                  .validateCustomDirectory(result);
+              if (!context.mounted) return;
+              if (!validation.ok) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(validation.reason ?? 'Folder not usable.'),
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+                return;
+              }
             }
+            await provider.setOutputPath(result);
+            if (!context.mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Download location set to $result'),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
           },
         ),
-        _buildSettingsTile(
-          title: 'Concurrent Downloads',
-          subtitle: '${provider.maxConcurrentDownloads} active downloads',
-          icon: Icons.downloading_rounded,
-          showDivider: false,
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(64, 0, 16, 16),
-          child: SliderTheme(
-            data: SliderTheme.of(context).copyWith(
-              trackHeight: 4,
-              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
-              overlayShape: const RoundSliderOverlayShape(overlayRadius: 16),
-            ),
-            child: Slider(
-              value: provider.maxConcurrentDownloads.toDouble(),
-              min: 1,
-              max: 6,
-              divisions: 5,
-              label: '${provider.maxConcurrentDownloads}',
-              onChanged: (v) => provider.setMaxConcurrentDownloads(v.toInt()),
-            ),
-          ),
-        ),
+        if (provider.isAndroid)
+          _AndroidStoragePermissionTile(provider: provider),
+        const _ConcurrentDownloadsControl(),
         _buildToggleTile(
           title: 'Embed Thumbnail',
           subtitle: 'Add thumbnail to downloaded files',
@@ -1124,16 +1221,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
             }
           },
         ),
-        _buildSettingsTile(
-          title: 'Use Browser Cookies',
-          subtitle: _getBrowserLabel(provider.settings.cookieBrowser),
-          icon: Icons.cookie_rounded,
-          trailing: Icon(
-            Icons.chevron_right_rounded,
-            color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+        // Browser cookie extraction (--cookies-from-browser) is a desktop-only
+        // yt-dlp feature; on Android it silently fails. Hide the tile there.
+        if (!provider.isAndroid)
+          _buildSettingsTile(
+            title: 'Use Browser Cookies',
+            subtitle: _getBrowserLabel(provider.settings.cookieBrowser),
+            icon: Icons.cookie_rounded,
+            trailing: Icon(
+              Icons.chevron_right_rounded,
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+            ),
+            onTap: () => _showBrowserSheet(context, provider),
           ),
-          onTap: () => _showBrowserSheet(context, provider),
-        ),
         _buildToggleTile(
           title: 'Enable Cookies File',
           subtitle: 'Import Netscape format cookies.txt',
@@ -1230,27 +1330,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
               }
             },
           ),
-          _buildSheetOption(
-            label: 'Select Custom Binary',
-            subtitle: 'Choose an existing .exe file',
-            isSelected: false,
-            icon: Icons.file_open_rounded,
-            onTap: () async {
-              Navigator.pop(context);
-              final result = await FilePicker.platform.pickFiles(
-                type: FileType.custom,
-                allowedExtensions: ['exe'],
-              );
-              if (result != null && result.files.single.path != null) {
-                if (isYtdlp) {
-                  await provider.setYtdlpPath(result.files.single.path);
-                } else {
-                  await provider.setFfmpegPath(result.files.single.path);
+          if (PlatformUtils.isWindows)
+            _buildSheetOption(
+              label: 'Select Custom Binary',
+              subtitle: 'Choose an existing .exe file',
+              isSelected: false,
+              icon: Icons.file_open_rounded,
+              onTap: () async {
+                Navigator.pop(context);
+                final result = await FilePicker.platform.pickFiles(
+                  type: FileType.custom,
+                  allowedExtensions: ['exe'],
+                );
+                if (result != null && result.files.single.path != null) {
+                  if (isYtdlp) {
+                    await provider.setYtdlpPath(result.files.single.path);
+                  } else {
+                    await provider.setFfmpegPath(result.files.single.path);
+                  }
+                  await toolProvider.refreshAvailability();
                 }
-                await toolProvider.refreshAvailability();
-              }
-            },
-          ),
+              },
+            ),
           _buildSheetOption(
             label: 'Reset to Managed',
             subtitle: 'Use app-managed or system version',
@@ -1297,31 +1398,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           overflow: TextOverflow.ellipsis,
         ),
       ],
-    );
-  }
-
-  void _showFFmpegDownloadNotice(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Download FFmpeg'),
-        content: const Text(
-          'FFmpeg is a complex tool. We recommend downloading the "release-essentials" zip from Gyan.dev, extracting it, and selecting the ffmpeg.exe using "Select Custom Binary".\n\nWould you like to open the download page?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              launchUrl(Uri.parse('https://www.gyan.dev/ffmpeg/builds/'));
-              Navigator.pop(context);
-            },
-            child: const Text('Open Page'),
-          ),
-        ],
-      ),
     );
   }
 
@@ -1458,7 +1534,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 decoration: BoxDecoration(
                   color: isSelected
                       ? theme.colorScheme.primary.withValues(alpha: 0.2)
-                      : Colors.white.withValues(alpha: 0.1),
+                      : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Icon(
@@ -1466,7 +1542,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   size: 20,
                   color: isSelected
                       ? theme.colorScheme.primary
-                      : Colors.white70,
+                      : theme.colorScheme.onSurface.withValues(alpha: 0.7),
                 ),
               ),
               const SizedBox(width: 16),
@@ -1482,7 +1558,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         fontSize: 14,
                         color: isSelected
                             ? theme.colorScheme.primary
-                            : Colors.white,
+                            : theme.colorScheme.onSurface,
                       ),
                     ),
                     if (subtitle != null) ...[
@@ -1491,7 +1567,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         subtitle,
                         style: TextStyle(
                           fontSize: 12,
-                          color: Colors.white.withValues(alpha: 0.5),
+                          color: theme.colorScheme.onSurface.withValues(alpha: 0.55),
                         ),
                       ),
                     ],
@@ -1546,6 +1622,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         onChanged: provider.setSponsorBlockEnabled,
       ),
       if (provider.isAndroid) _buildBatteryOptimizationTile(provider),
+      if (provider.isAndroid && provider.isAggressiveOem)
+        _buildOemAutostartTile(provider),
       _buildToggleTile(
         title: 'Download Archive',
         subtitle: 'Avoid re-downloading videos',
@@ -1622,8 +1700,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
               onTap: updateProvider.isChecking
                   ? null
                   : () async {
-                      showUpdateDialogWrapper(context);
-                      await updateProvider.checkForUpdates();
+                      // Manual check always hits GitHub (force = true).
+                      await updateProvider.checkForUpdates(force: true);
+                      if (!context.mounted) return;
+                      // Show the dialog for both update-available and
+                      // up-to-date so the user always gets feedback.
+                      if (updateProvider.status == UpdateStatus.available ||
+                          updateProvider.status == UpdateStatus.upToDate ||
+                          updateProvider.status == UpdateStatus.error) {
+                        showUpdateDialogWrapper(context);
+                      }
                     },
             ),
             _buildToggleTile(
@@ -1652,15 +1738,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
     BuildContext context,
     PlatformSettingsProvider provider,
   ) {
+    final theme = Theme.of(context);
     return Center(
       child: Column(
         children: [
           const AppLogo(size: 80, showGlow: true),
           const SizedBox(height: 16),
           Text(
-            'YouTube Downloader v1.0.0',
+            'AeroTube v$_appVersion',
             style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.4),
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
               fontSize: 13,
             ),
           ),
@@ -1671,7 +1758,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               Text(
                 'Made with ',
                 style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.3),
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
                   fontSize: 12,
                 ),
               ),
@@ -1679,7 +1766,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               Text(
                 ' by Agent',
                 style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.3),
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
                   fontSize: 12,
                 ),
               ),
@@ -1687,6 +1774,257 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         ],
       ).animate().fadeIn(delay: 200.ms),
+    );
+  }
+}
+
+/// Shows current public-Downloads access and lets the user grant it
+/// (system dialog or All-files-access settings, depending on Android version).
+class _AndroidStoragePermissionTile extends StatefulWidget {
+  const _AndroidStoragePermissionTile({required this.provider});
+
+  final PlatformSettingsProvider provider;
+
+  @override
+  State<_AndroidStoragePermissionTile> createState() =>
+      _AndroidStoragePermissionTileState();
+}
+
+class _AndroidStoragePermissionTileState
+    extends State<_AndroidStoragePermissionTile>
+    with WidgetsBindingObserver {
+  bool _granted = true;
+  bool _checking = true;
+  bool _requesting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _refresh();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && mounted) {
+      _refresh();
+    }
+  }
+
+  Future<void> _refresh() async {
+    if (!mounted) return;
+    setState(() => _checking = true);
+    try {
+      final storage = AndroidStorageService();
+      final granted = await storage.hasStoragePermission();
+      if (!mounted) return;
+      setState(() {
+        _granted = granted;
+        _checking = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _checking = false);
+    }
+  }
+
+  Future<void> _request() async {
+    if (_requesting) return;
+    setState(() => _requesting = true);
+    try {
+      final storage = AndroidStorageService();
+      await storage.requestStoragePermission();
+      if (!mounted) return;
+      final granted = await storage.hasStoragePermission();
+      // If still blocked, open All-files-access settings as a fallback.
+      if (!granted) {
+        await storage.openManageStorageSettings();
+      }
+      await _refresh();
+      // After a successful grant, switch downloads back to public Downloads.
+      if (mounted && _granted) {
+        try {
+          final preferred = await storage.getPreferredDownloadDirectory();
+          if (preferred != widget.provider.outputPath) {
+            await widget.provider.setOutputPath(preferred);
+          }
+        } catch (_) {}
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _requesting = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final title = _granted ? 'Storage Access' : 'Grant Storage Access';
+    final subtitle = _checking
+        ? 'Checking…'
+        : _granted
+            ? 'Public Downloads folder is writable'
+            : 'Allow All files access so downloads save to Downloads/AeroTube';
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: _requesting ? null : _request,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Row(
+            children: [
+              Icon(
+                _granted
+                    ? Icons.sd_storage_rounded
+                    : Icons.warning_amber_rounded,
+                color: _granted
+                    ? theme.colorScheme.primary
+                    : Colors.amber.shade700,
+                size: 22,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: theme.colorScheme.onSurface,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: theme.colorScheme.onSurface
+                            .withValues(alpha: 0.55),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (_requesting || _checking)
+                const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              else
+                Icon(
+                  Icons.chevron_right_rounded,
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Debounced concurrency control — local drag value, persist only on changeEnd
+/// so dragging does NOT trigger per-tick disk write + notifyListeners + SliverList rebuild.
+class _ConcurrentDownloadsControl extends StatefulWidget {
+  const _ConcurrentDownloadsControl();
+
+  @override
+  State<_ConcurrentDownloadsControl> createState() =>
+      _ConcurrentDownloadsControlState();
+}
+
+class _ConcurrentDownloadsControlState
+    extends State<_ConcurrentDownloadsControl> {
+  double? _dragValue;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final persisted =
+        context.select<PlatformSettingsProvider, int>((p) => p.maxConcurrentDownloads);
+    final displayed = (_dragValue ?? persisted.toDouble()).clamp(1.0, 6.0);
+
+    return Column(
+      children: [
+        // Title row — mirrors _buildSettingsTile styling without divider
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primary.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  Icons.downloading_rounded,
+                  size: 20,
+                  color: theme.colorScheme.primary,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Concurrent Downloads',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${displayed.toInt()} active downloads',
+                      style: TextStyle(
+                        color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(64, 0, 16, 16),
+          child: SliderTheme(
+            data: SliderTheme.of(context).copyWith(
+              trackHeight: 4,
+              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
+              overlayShape: const RoundSliderOverlayShape(overlayRadius: 16),
+            ),
+            child: Slider(
+              value: displayed,
+              min: 1,
+              max: 6,
+              divisions: 5,
+              label: '${displayed.toInt()}',
+              onChanged: (v) => setState(() => _dragValue = v),
+              onChangeEnd: (v) {
+                setState(() => _dragValue = null);
+                context
+                    .read<PlatformSettingsProvider>()
+                    .setMaxConcurrentDownloads(v.toInt());
+              },
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

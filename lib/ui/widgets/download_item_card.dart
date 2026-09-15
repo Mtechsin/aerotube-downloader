@@ -1,6 +1,9 @@
 import 'dart:io';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import '../../services/core/logging_service.dart';
+import '../../core/theme/app_motion.dart';
+import '../../core/utils/platform_utils.dart';
 import '../../models/download_item.dart';
 import 'animated_button.dart';
 
@@ -29,28 +32,33 @@ class DownloadItemCard extends StatefulWidget {
 }
 
 class _DownloadItemCardState extends State<DownloadItemCard> {
-
   Future<void> _openContainingFolder() async {
     final path = widget.item.savePath ?? widget.item.outputPath;
 
-    if (Platform.isWindows) {
+    if (PlatformUtils.isWindows) {
       try {
         // Use explorer /select to highlight the file
         // Quote the path to handle spaces
         await Process.run('explorer.exe', ['/select,', path]);
-      } catch (e) {
-        debugPrint('Error opening folder: $e');
+      } catch (e, st) {
+        LoggingService().warning(
+          'Error opening folder: $e',
+          component: 'DownloadItemCard',
+          error: e,
+          stackTrace: st,
+        );
       }
     } else {
-       // Fallback for other platforms if needed, but requirements are Windows focussed
-       widget.onOpenFolder?.call();
+      // Fallback for other platforms if needed, but requirements are Windows focussed
+      widget.onOpenFolder?.call();
     }
   }
 
   @override
   Widget build(BuildContext context) {
     // Determine active state for animation
-    final isActive = widget.item.status == DownloadStatus.downloadingVideo ||
+    final isActive =
+        widget.item.status == DownloadStatus.downloadingVideo ||
         widget.item.status == DownloadStatus.downloadingAudio ||
         widget.item.status == DownloadStatus.merging;
 
@@ -59,7 +67,8 @@ class _DownloadItemCardState extends State<DownloadItemCard> {
     final isFailed = widget.item.status == DownloadStatus.failed;
 
     return Container(
-      height: 120, // Slightly reduced height for better density but large enough for thumbnail
+      height:
+          136, // Slightly increased height to prevent clipping when title, error, and progress are visible
       margin: const EdgeInsets.only(bottom: 16),
       decoration: BoxDecoration(
         color: theme.colorScheme.surfaceContainer,
@@ -77,109 +86,147 @@ class _DownloadItemCardState extends State<DownloadItemCard> {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-          // 1. Thumbnail (Left side, full height)
-          // "make it from top to bottom with no margin or with a little margin" -> No margin implementation
-          AspectRatio(
-            aspectRatio: 16 / 9,
-            child: widget.item.thumbnailPath != null && File(widget.item.thumbnailPath!).existsSync()
-                ? Image.file(
-                    File(widget.item.thumbnailPath!),
-                    fit: BoxFit.cover,
-                    cacheWidth: 480, // Optimize RAM: Limit decode size
-                    errorBuilder: (_, __, ___) => _buildNetworkThumbnail(theme),
-                  )
-                : _buildNetworkThumbnail(theme),
-          ),
+            // 1. Thumbnail (Left side, full height)
+            // "make it from top to bottom with no margin or with a little margin" -> No margin implementation
+            AspectRatio(
+              aspectRatio: 16 / 9,
+              child:
+                  widget.item.thumbnailPath != null &&
+                      widget.item.thumbnailExists
+                  ? Image.file(
+                      File(widget.item.thumbnailPath!),
+                      fit: BoxFit.cover,
+                      cacheWidth: 480, // Optimize RAM: Limit decode size
+                      errorBuilder: (_, __, ___) =>
+                          _buildNetworkThumbnail(theme),
+                    )
+                  : _buildNetworkThumbnail(theme),
+            ),
 
-          // 2. Content (Right side)
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  // Top Row: Title and Actions
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: Text(
-                          widget.item.title,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                            height: 1.2,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                      _buildActions(context),
-                    ],
-                  ),
-
-                  // Bottom Row: Status, Progress, Speed/Eta
-                  Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Row(
-                        children: [
-                          _buildStatusBadge(context),
-                          const Spacer(),
-                          if (isActive) ...[
-                             _buildInfoTag(context, Icons.speed, widget.item.formattedSpeed),
-                             const SizedBox(width: 10),
-                             _buildInfoTag(context, Icons.timer_outlined, widget.item.formattedEta),
-                          ] else if (isCompleted) ...[
-                             _buildInfoTag(context, Icons.calendar_today_outlined, _formatDate(widget.item.completedDate)),
-                          ]
-                        ],
-                      ),
-                      const SizedBox(height: 10), // Spacing before progress bar
-                      
-                      // Progress Bar
-                      if (isActive || (widget.item.progress > 0 && !isCompleted))
-                        TweenAnimationBuilder<double>(
-                          tween: Tween<double>(begin: 0, end: widget.item.progress),
-                          duration: const Duration(milliseconds: 180),
-                          curve: Curves.easeOutCubic,
-                          builder: (context, value, child) {
-                            return ClipRRect(
-                              borderRadius: BorderRadius.circular(999),
-                              child: LinearProgressIndicator(
-                                value: value.clamp(0.0, 1.0),
-                                minHeight: 6,
-                                backgroundColor:
-                                    theme.colorScheme.surfaceContainerHighest,
-                                valueColor: AlwaysStoppedAnimation<Color>(
-                                  _getProgressColor(context),
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                        
-                      if (isFailed && widget.item.error != null)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 4),
+            // 2. Content (Right side)
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    // Top Row: Title and Actions
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
                           child: Text(
-                            widget.item.error!,
-                            maxLines: 1,
+                            widget.item.title,
+                            maxLines: 2,
                             overflow: TextOverflow.ellipsis,
-                            style: TextStyle(color: theme.colorScheme.error, fontSize: 11),
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.bold,
+                              height: 1.2,
+                            ),
                           ),
                         ),
-                    ],
-                  ),
-                ],
+                        const SizedBox(width: 4),
+                        _buildActions(context),
+                      ],
+                    ),
+
+                    // Bottom Row: Status, Progress, Speed/Eta
+                    Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Row(
+                          children: [
+                            _buildStatusBadge(context),
+                            const Spacer(),
+                            if (widget.item.status ==
+                                    DownloadStatus.downloadingVideo ||
+                                widget.item.status ==
+                                    DownloadStatus.downloadingAudio) ...[
+                              _buildInfoTag(
+                                context,
+                                Icons.speed,
+                                _formatSpeed(),
+                              ),
+                              const SizedBox(width: 10),
+                              _buildInfoTag(
+                                context,
+                                Icons.timer_outlined,
+                                _formatEta(),
+                              ),
+                            ] else if (isCompleted) ...[
+                              _buildInfoTag(
+                                context,
+                                Icons.calendar_today_outlined,
+                                _formatDate(widget.item.completedDate),
+                              ),
+                            ],
+                          ],
+                        ),
+                        const SizedBox(
+                          height: 10,
+                        ), // Spacing before progress bar
+                        // Progress Bar
+                        if (isActive ||
+                            (widget.item.progress > 0 && !isCompleted))
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(999),
+                            child: TweenAnimationBuilder<double>(
+                              tween: Tween(
+                                end: widget.item.progress.clamp(0.0, 1.0),
+                              ),
+                              duration: appMotionDuration(
+                                context,
+                                const Duration(milliseconds: 320),
+                              ),
+                              curve: AppMotion.decelerate,
+                              builder: (context, value, _) =>
+                                  LinearProgressIndicator(
+                                    value: value,
+                                    minHeight: 6,
+                                    backgroundColor: theme
+                                        .colorScheme
+                                        .surfaceContainerHighest,
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                      _getProgressColor(context),
+                                    ),
+                                  ),
+                            ),
+                          ),
+
+                        if (isFailed && widget.item.error != null)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: Text(
+                              widget.item.error!,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: theme.colorScheme.error,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-        ],
-      ),
+          ],
+        ),
       ),
     );
+  }
+
+  String _formatSpeed() {
+    if (widget.item.speed <= 0) return 'Starting...';
+    return widget.item.formattedSpeed;
+  }
+
+  String _formatEta() {
+    if (widget.item.eta <= 0) return 'Calculating...';
+    return widget.item.formattedEta;
   }
 
   Widget _buildInfoTag(BuildContext context, IconData icon, String text) {
@@ -191,7 +238,11 @@ class _DownloadItemCardState extends State<DownloadItemCard> {
         const SizedBox(width: 4),
         Text(
           text,
-          style: TextStyle(color: theme.colorScheme.onSurfaceVariant, fontSize: 11, fontWeight: FontWeight.w500),
+          style: TextStyle(
+            color: theme.colorScheme.onSurfaceVariant,
+            fontSize: 11,
+            fontWeight: FontWeight.w500,
+          ),
         ),
       ],
     );
@@ -256,9 +307,16 @@ class _DownloadItemCardState extends State<DownloadItemCard> {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-           Icon(icon, size: 10, color: color),
-           const SizedBox(width: 4),
-           Text(text, style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.bold)),
+          Icon(icon, size: 10, color: color),
+          const SizedBox(width: 4),
+          Text(
+            text,
+            style: TextStyle(
+              color: color,
+              fontSize: 10,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
         ],
       ),
     );
@@ -268,11 +326,10 @@ class _DownloadItemCardState extends State<DownloadItemCard> {
     final theme = Theme.of(context);
     // Helper for circular button style
 
-    
     // Using simple Row of IconButtons for cleaner look on light background
 
     // Active Actions (downloading)
-    if (widget.item.status == DownloadStatus.downloadingVideo || 
+    if (widget.item.status == DownloadStatus.downloadingVideo ||
         widget.item.status == DownloadStatus.downloadingAudio ||
         widget.item.status == DownloadStatus.merging) {
       return Row(
@@ -281,24 +338,28 @@ class _DownloadItemCardState extends State<DownloadItemCard> {
           AnimatedButton(
             onPressed: widget.onPause,
             child: Container(
-               padding: const EdgeInsets.all(6),
-               decoration: BoxDecoration(
-                 color: theme.colorScheme.surfaceContainerHighest,
-                 shape: BoxShape.circle,
-               ),
-               child: Icon(Icons.pause_rounded, color: Colors.amber, size: 20),
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surfaceContainerHighest,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(Icons.pause_rounded, color: Colors.amber, size: 20),
             ),
           ),
           const SizedBox(width: 4),
           AnimatedButton(
             onPressed: widget.onCancel,
             child: Container(
-               padding: const EdgeInsets.all(6),
-               decoration: BoxDecoration(
-                 color: theme.colorScheme.surfaceContainerHighest,
-                 shape: BoxShape.circle,
-               ),
-               child: Icon(Icons.stop_rounded, color: theme.colorScheme.error, size: 20),
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surfaceContainerHighest,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.stop_rounded,
+                color: theme.colorScheme.error,
+                size: 20,
+              ),
             ),
           ),
         ],
@@ -313,24 +374,32 @@ class _DownloadItemCardState extends State<DownloadItemCard> {
           AnimatedButton(
             onPressed: widget.onResume,
             child: Container(
-               padding: const EdgeInsets.all(6),
-               decoration: BoxDecoration(
-                 color: theme.colorScheme.surfaceContainerHighest,
-                 shape: BoxShape.circle,
-               ),
-               child: Icon(Icons.play_arrow_rounded, color: theme.colorScheme.primary, size: 20),
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surfaceContainerHighest,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.play_arrow_rounded,
+                color: theme.colorScheme.primary,
+                size: 20,
+              ),
             ),
           ),
           const SizedBox(width: 4),
           AnimatedButton(
             onPressed: widget.onCancel,
             child: Container(
-               padding: const EdgeInsets.all(6),
-               decoration: BoxDecoration(
-                 color: theme.colorScheme.surfaceContainerHighest,
-                 shape: BoxShape.circle,
-               ),
-               child: Icon(Icons.stop_rounded, color: theme.colorScheme.error, size: 20),
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surfaceContainerHighest,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.stop_rounded,
+                color: theme.colorScheme.error,
+                size: 20,
+              ),
             ),
           ),
         ],
@@ -338,20 +407,24 @@ class _DownloadItemCardState extends State<DownloadItemCard> {
     }
 
     // Queued/Pending Actions
-    if (widget.item.status == DownloadStatus.pending || 
+    if (widget.item.status == DownloadStatus.pending ||
         widget.item.status == DownloadStatus.queued) {
       return AnimatedButton(
         onPressed: widget.onCancel,
         child: Container(
-           padding: const EdgeInsets.all(6),
-           decoration: BoxDecoration(
-             color: theme.colorScheme.surfaceContainerHighest,
-             shape: BoxShape.circle,
-           ),
-           child: Icon(Icons.stop_rounded, color: theme.colorScheme.error, size: 20),
+          padding: const EdgeInsets.all(6),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surfaceContainerHighest,
+            shape: BoxShape.circle,
+          ),
+          child: Icon(
+            Icons.stop_rounded,
+            color: theme.colorScheme.error,
+            size: 20,
+          ),
         ),
       );
-    } 
+    }
 
     // History Actions
     if (widget.item.status == DownloadStatus.completed) {
@@ -361,70 +434,90 @@ class _DownloadItemCardState extends State<DownloadItemCard> {
           AnimatedButton(
             onPressed: _openContainingFolder,
             child: Container(
-               padding: const EdgeInsets.all(6),
-               decoration: BoxDecoration(
-                 color: Colors.transparent,
-                 shape: BoxShape.circle,
-               ),
-               child: Icon(Icons.folder_open_rounded, color: theme.colorScheme.primary, size: 25),
-            ),
-          ),
-          const SizedBox(width: 4),
-          if (widget.onDelete != null)
-             AnimatedButton(
-            onPressed: widget.onDelete,
-            child: Container(
-               padding: const EdgeInsets.all(6),
-               decoration: BoxDecoration(
-                 color: theme.colorScheme.surfaceContainerHighest,
-                 shape: BoxShape.circle,
-               ),
-               child: Icon(Icons.close_rounded, color: theme.colorScheme.onSurfaceVariant, size: 25),
-            ),
-          ),
-        ],
-      );
-    }
-    
-    // Failed/Cancelled Actions
-    return Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (widget.onRetry != null)
-            AnimatedButton(
-              onPressed: widget.onRetry,
-              child: Container(
-                 padding: const EdgeInsets.all(6),
-                 decoration: BoxDecoration(
-                   color: theme.colorScheme.primaryContainer,
-                   shape: BoxShape.circle,
-                 ),
-                 child: Icon(Icons.refresh_rounded, color: theme.colorScheme.primary, size: 16),
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: Colors.transparent,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.folder_open_rounded,
+                color: theme.colorScheme.primary,
+                size: 25,
               ),
             ),
+          ),
           const SizedBox(width: 4),
           if (widget.onDelete != null)
             AnimatedButton(
               onPressed: widget.onDelete,
               child: Container(
-                 padding: const EdgeInsets.all(6),
-                 decoration: BoxDecoration(
-                   color: theme.colorScheme.surfaceContainerHighest,
-                   shape: BoxShape.circle,
-                 ),
-                 child: Icon(Icons.delete_outline_rounded, color: theme.colorScheme.onSurfaceVariant, size: 16),
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceContainerHighest,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  Icons.close_rounded,
+                  color: theme.colorScheme.onSurfaceVariant,
+                  size: 25,
+                ),
               ),
             ),
         ],
       );
+    }
+
+    // Failed/Cancelled Actions
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (widget.onRetry != null)
+          AnimatedButton(
+            onPressed: widget.onRetry,
+            child: Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.primaryContainer,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.refresh_rounded,
+                color: theme.colorScheme.primary,
+                size: 16,
+              ),
+            ),
+          ),
+        const SizedBox(width: 4),
+        if (widget.onDelete != null)
+          AnimatedButton(
+            onPressed: widget.onDelete,
+            child: Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surfaceContainerHighest,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.delete_outline_rounded,
+                color: theme.colorScheme.onSurfaceVariant,
+                size: 16,
+              ),
+            ),
+          ),
+      ],
+    );
   }
-  
+
   Color _getProgressColor(BuildContext context) {
-     if (widget.item.status == DownloadStatus.merging) return Colors.orangeAccent;
-     if (widget.item.status == DownloadStatus.downloadingAudio) return Colors.deepPurpleAccent;
-     return Theme.of(context).colorScheme.primary;
+    if (widget.item.status == DownloadStatus.merging) {
+      return Colors.orangeAccent;
+    }
+    if (widget.item.status == DownloadStatus.downloadingAudio) {
+      return Colors.deepPurpleAccent;
+    }
+    return Theme.of(context).colorScheme.primary;
   }
-  
+
   String _formatDate(DateTime? date) {
     if (date == null) return '';
     return '${date.day}/${date.month}/${date.year}';
@@ -436,8 +529,10 @@ class _DownloadItemCardState extends State<DownloadItemCard> {
             imageUrl: widget.item.thumbnailUrl!,
             fit: BoxFit.cover,
             memCacheWidth: 480, // Optimize RAM: Limit decode size
-            placeholder: (context, url) => _buildPlaceholder(theme, Icons.movie_outlined),
-            errorWidget: (context, url, error) => _buildPlaceholder(theme, Icons.broken_image_outlined),
+            placeholder: (context, url) =>
+                _buildPlaceholder(theme, Icons.movie_outlined),
+            errorWidget: (context, url, error) =>
+                _buildPlaceholder(theme, Icons.broken_image_outlined),
           )
         : _buildPlaceholder(theme, Icons.movie_outlined);
   }

@@ -3,12 +3,15 @@ import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
 import '../../providers/platform_settings_provider.dart';
+import '../../providers/video_provider.dart';
 import '../../core/utils/error_helper.dart';
+import 'url_input_helper.dart';
 
 /// Mobile-optimized URL input card — minimalist single-row layout
 class MobileUrlInputCard extends StatefulWidget {
   final TextEditingController controller;
   final VoidCallback onFetch;
+  final VoidCallback? onCancel;
   final bool isLoading;
   final String? statusMessage;
   final String? errorMessage;
@@ -17,6 +20,7 @@ class MobileUrlInputCard extends StatefulWidget {
     super.key,
     required this.controller,
     required this.onFetch,
+    this.onCancel,
     this.isLoading = false,
     this.errorMessage,
     this.statusMessage,
@@ -53,13 +57,14 @@ class _MobileUrlInputCardState extends State<MobileUrlInputCard> {
     try {
       final data = await Clipboard.getData('text/plain');
       final text = data?.text?.trim() ?? '';
-      final isYouTube = text.contains('youtube.com/') ||
-          text.contains('youtu.be/') ||
-          text.contains('youtube.com/shorts/') ||
-          text.contains('music.youtube.com/');
+      // Accept any http(s) media URL — yt-dlp supports hundreds of sites.
+      final isMediaUrl =
+          text.isNotEmpty &&
+          (text.startsWith('http://') || text.startsWith('https://')) &&
+          Uri.tryParse(text)?.host.contains('.') == true;
       if (mounted) {
         setState(() {
-          _clipboardYoutubeUrl = isYouTube ? text : null;
+          _clipboardYoutubeUrl = isMediaUrl ? text : null;
         });
       }
     } catch (_) {
@@ -78,7 +83,9 @@ class _MobileUrlInputCardState extends State<MobileUrlInputCard> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final hasError = widget.errorMessage != null;
-    final errorHelper = hasError ? ErrorHelper.parse(widget.errorMessage!) : null;
+    final errorHelper = hasError
+        ? ErrorHelper.parse(widget.errorMessage!)
+        : null;
 
     final enableAnimations = context.select<PlatformSettingsProvider, bool>(
       (p) => p.enableAnimations,
@@ -93,22 +100,24 @@ class _MobileUrlInputCardState extends State<MobileUrlInputCard> {
       (p) => p.cookieStatus,
     );
 
-    final animDuration =
-        enableAnimations ? const Duration(milliseconds: 300) : Duration.zero;
-    final shortAnimDuration =
-        enableAnimations ? const Duration(milliseconds: 200) : Duration.zero;
+    final animDuration = enableAnimations
+        ? const Duration(milliseconds: 300)
+        : Duration.zero;
+    final shortAnimDuration = enableAnimations
+        ? const Duration(milliseconds: 200)
+        : Duration.zero;
 
     // Border styling
     final Color borderColor = hasError
         ? theme.colorScheme.error.withValues(alpha: 0.55)
         : _isFocused
-            ? theme.colorScheme.primary.withValues(alpha: 0.45)
-            : theme.colorScheme.onSurface.withValues(alpha: 0.15);
+        ? theme.colorScheme.primary.withValues(alpha: 0.45)
+        : theme.colorScheme.onSurface.withValues(alpha: 0.15);
     final double borderWidth = hasError
         ? 1.4
         : _isFocused
-            ? 1.4
-            : 1.0;
+        ? 1.4
+        : 1.0;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -143,19 +152,21 @@ class _MobileUrlInputCardState extends State<MobileUrlInputCard> {
                         fontWeight: FontWeight.w500,
                       ),
                       decoration: InputDecoration(
-                        hintText: 'Paste YouTube URL...',
+                        hintText: 'Paste a video URL…',
                         hintStyle: TextStyle(
                           fontSize: 15,
                           fontWeight: FontWeight.normal,
-                          color: theme.colorScheme.onSurface
-                              .withValues(alpha: 0.35),
+                          color: theme.colorScheme.onSurface.withValues(
+                            alpha: 0.35,
+                          ),
                         ),
                         border: InputBorder.none,
                         enabledBorder: InputBorder.none,
                         focusedBorder: InputBorder.none,
                         filled: false,
-                        contentPadding:
-                            const EdgeInsets.symmetric(vertical: 16),
+                        contentPadding: const EdgeInsets.symmetric(
+                          vertical: 16,
+                        ),
                         isDense: true,
                       ),
                       onChanged: (_) => setState(() {}),
@@ -167,8 +178,9 @@ class _MobileUrlInputCardState extends State<MobileUrlInputCard> {
                     ),
                   ),
                 ),
-                // Clear Button — only when text present
-                if (widget.controller.text.isNotEmpty)
+                // Clear Button — only when text present and not loading;
+                // the slot button below is the single cancel affordance then
+                if (widget.controller.text.isNotEmpty && !widget.isLoading)
                   _iconBtn(
                     icon: Icons.clear_rounded,
                     color: theme.colorScheme.onSurface.withValues(alpha: 0.35),
@@ -178,18 +190,23 @@ class _MobileUrlInputCardState extends State<MobileUrlInputCard> {
                       setState(() {});
                     },
                   ),
-                // Fetch Arrow Button
+                // Fetch / Cancel Button
                 _iconBtn(
-                  icon: Icons.arrow_forward_rounded,
-                  color: widget.controller.text.isEmpty
+                  icon: widget.isLoading
+                      ? Icons.close_rounded
+                      : Icons.arrow_forward_rounded,
+                  color: widget.isLoading
+                      ? theme.colorScheme.onSurface.withValues(alpha: 0.55)
+                      : widget.controller.text.isEmpty
                       ? theme.colorScheme.onSurface.withValues(alpha: 0.22)
                       : theme.colorScheme.primary,
                   size: 22,
-                  onTap: widget.isLoading || widget.controller.text.isEmpty
-                      ? null
-                      : widget.onFetch,
-                  loading: widget.isLoading,
-                  loadingColor: theme.colorScheme.primary,
+                  onTap: widget.isLoading
+                      ? widget.onCancel
+                      : (widget.controller.text.isEmpty
+                            ? null
+                            : widget.onFetch),
+                  loading: false,
                 ),
                 const SizedBox(width: 6),
               ],
@@ -201,43 +218,53 @@ class _MobileUrlInputCardState extends State<MobileUrlInputCard> {
         if (_clipboardYoutubeUrl != null &&
             widget.controller.text != _clipboardYoutubeUrl)
           Padding(
-            padding: const EdgeInsets.only(top: 10),
-            child: GestureDetector(
-              onTap: _pasteClipboardUrl,
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.primary.withValues(alpha: 0.07),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(
-                    color: theme.colorScheme.primary.withValues(alpha: 0.18),
-                    width: 0.8,
-                  ),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.content_paste_rounded,
-                      size: 13,
-                      color: theme.colorScheme.primary.withValues(alpha: 0.75),
+                padding: const EdgeInsets.only(top: 10),
+                child: GestureDetector(
+                  onTap: _pasteClipboardUrl,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
                     ),
-                    const SizedBox(width: 5),
-                    Text(
-                      'Paste copied URL',
-                      style: TextStyle(
-                        color:
-                            theme.colorScheme.primary.withValues(alpha: 0.85),
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.primary.withValues(alpha: 0.07),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: theme.colorScheme.primary.withValues(
+                          alpha: 0.18,
+                        ),
+                        width: 0.8,
                       ),
                     ),
-                  ],
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.content_paste_rounded,
+                          size: 13,
+                          color: theme.colorScheme.primary.withValues(
+                            alpha: 0.75,
+                          ),
+                        ),
+                        const SizedBox(width: 5),
+                        Text(
+                          'Paste copied URL',
+                          style: TextStyle(
+                            color: theme.colorScheme.primary.withValues(
+                              alpha: 0.85,
+                            ),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
-              ),
-            ),
-          ).animate().fadeIn(duration: animDuration).slideY(
+              )
+              .animate()
+              .fadeIn(duration: animDuration)
+              .slideY(
                 begin: -0.15,
                 end: 0,
                 curve: Curves.easeOut,
@@ -277,63 +304,94 @@ class _MobileUrlInputCardState extends State<MobileUrlInputCard> {
         // ── Error Message ────────────────────────────────────────────
         if (hasError && errorHelper != null)
           Container(
-            margin: const EdgeInsets.only(top: 10),
-            padding:
-                const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: BoxDecoration(
-              color: theme.colorScheme.errorContainer.withValues(alpha: 0.15),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(
-                color: theme.colorScheme.error.withValues(alpha: 0.25),
-                width: 0.8,
-              ),
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(
-                  Icons.error_outline_rounded,
-                  color: theme.colorScheme.error,
-                  size: 18,
+                margin: const EdgeInsets.only(top: 10),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
                 ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        errorHelper.friendlyMessage,
-                        style: TextStyle(
-                          color: theme.colorScheme.error,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 13,
-                        ),
-                      ),
-                      if (errorHelper.suggestion != null) ...[
-                        const SizedBox(height: 2),
-                        Text(
-                          errorHelper.suggestion!,
-                          style: TextStyle(
-                            color: theme.colorScheme.onSurface
-                                .withValues(alpha: 0.6),
-                            fontSize: 12,
-                            height: 1.4,
-                          ),
-                        ),
-                      ],
-                    ],
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.errorContainer.withValues(
+                    alpha: 0.15,
+                  ),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: theme.colorScheme.error.withValues(alpha: 0.25),
+                    width: 0.8,
                   ),
                 ),
-              ],
-            ),
-          )
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(
+                      Icons.error_outline_rounded,
+                      color: theme.colorScheme.error,
+                      size: 18,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            errorHelper.friendlyMessage,
+                            style: TextStyle(
+                              color: theme.colorScheme.error,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
+                            ),
+                          ),
+                          if (errorHelper.suggestion != null) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              errorHelper.suggestion!,
+                              style: TextStyle(
+                                color: theme.colorScheme.onSurface.withValues(
+                                  alpha: 0.6,
+                                ),
+                                fontSize: 12,
+                                height: 1.4,
+                              ),
+                            ),
+                          ],
+                          if (errorHelper.category ==
+                                  ErrorCategory.outdatedTool ||
+                              errorHelper.category ==
+                                  ErrorCategory.toolUpdate) ...[
+                            const SizedBox(height: 8),
+                            FilledButton.tonalIcon(
+                              onPressed: () {
+                                context
+                                    .read<VideoProvider>()
+                                    .updateYtdlpAndRetry();
+                              },
+                              icon: const Icon(Icons.refresh_rounded, size: 15),
+                              label: const Text(
+                                'Update & Retry',
+                                style: TextStyle(fontSize: 12),
+                              ),
+                              style: FilledButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 6,
+                                ),
+                                visualDensity: VisualDensity.compact,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              )
               .animate()
               .fadeIn(duration: animDuration)
               .slideY(
-                  begin: -0.2,
-                  end: 0,
-                  curve: Curves.easeOut,
-                  duration: animDuration),
+                begin: -0.2,
+                end: 0,
+                curve: Curves.easeOut,
+                duration: animDuration,
+              ),
 
         // ── Loading Status ───────────────────────────────────────────
         if (widget.isLoading && widget.statusMessage != null)
@@ -373,51 +431,44 @@ class _MobileUrlInputCardState extends State<MobileUrlInputCard> {
   }
 
   Widget _buildLoadingStatus(
-      ThemeData theme, String status, Duration animDuration) {
-    IconData icon = Icons.hourglass_empty_rounded;
-    if (status.contains('Connecting')) {
-      icon = Icons.wifi_rounded;
-    } else if (status.contains('Fetching') || status.contains('Loading')) {
-      icon = Icons.cloud_download_rounded;
-    } else if (status.contains('Processing')) {
-      icon = Icons.settings_rounded;
-    } else if (status.contains('Found playlist')) {
-      icon = Icons.playlist_play_rounded;
-    } else if (status.contains('Retrying')) {
-      icon = Icons.refresh_rounded;
-    }
+    ThemeData theme,
+    String status,
+    Duration animDuration,
+  ) {
+    final IconData icon = UrlInputHelper.getStatusIcon(status);
 
     return Padding(
-      padding: const EdgeInsets.only(top: 12),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          SizedBox(
-            width: 14,
-            height: 14,
-            child: CircularProgressIndicator(
-              strokeWidth: 2,
-              color: theme.colorScheme.primary,
-            ),
-          ),
-          const SizedBox(width: 10),
-          Icon(icon, size: 16, color: theme.colorScheme.primary),
-          const SizedBox(width: 6),
-          Expanded(
-            child: Text(
-              status,
-              style: TextStyle(
-                color: theme.colorScheme.onSurface.withValues(alpha: 0.65),
-                fontSize: 12,
-                fontWeight: FontWeight.w400,
+          padding: const EdgeInsets.only(top: 12),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: theme.colorScheme.primary,
+                ),
               ),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
+              const SizedBox(width: 10),
+              Icon(icon, size: 16, color: theme.colorScheme.primary),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  status,
+                  style: TextStyle(
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.65),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w400,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              // No Cancel pill here: the single cancel affordance lives in the
+              // input row's action slot (the fetch button swaps to an ×).
+            ],
           ),
-        ],
-      ),
-    )
+        )
         .animate()
         .fadeIn(duration: animDuration)
         .slideY(begin: -0.1, end: 0, duration: animDuration);

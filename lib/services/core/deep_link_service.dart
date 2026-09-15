@@ -39,14 +39,15 @@ class DeepLinkService {
       return _normalizeMediaUrlWithDepth(nestedUrl, depth + 1);
     }
 
-    final host = uri.host.toLowerCase();
-    final isYoutubeHost =
-        host == 'youtu.be' ||
-        host == 'youtube.com' ||
-        host == 'www.youtube.com' ||
-        host == 'm.youtube.com' ||
-        host == 'music.youtube.com';
+    // Accept any http(s) media URL — yt-dlp supports hundreds of extractors.
+    // YouTube remains the primary target, but Vimeo/Twitter/etc. also work.
+    final scheme = uri.scheme.toLowerCase();
+    if ((scheme == 'http' || scheme == 'https') &&
+        uri.host.isNotEmpty &&
+        uri.host.contains('.')) {
+      return uri.toString();
+    }
 
-    return isYoutubeHost ? uri.toString() : null;
+    return null;
   }
 }

@@ -8,6 +8,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
+import '../../core/constants/app_constants.dart';
 import '../core/logging_service.dart';
 
 import 'cookie_service.dart';
@@ -16,8 +17,8 @@ import 'cookie_service.dart';
 class CookieServiceAndroid extends CookieService {
   static const String _authTokenKey = 'youtube_auth_token';
   static const String _refreshTokenKey = 'youtube_refresh_token';
-  static const String _tokenExpiryKey = 'youtube_token_expiry';
-  static const String _isLoggedInKey = 'youtube_is_logged_in';
+  static const String _tokenExpiryKey = AppConstants.prefAuthTokenExpiry;
+  static const String _isLoggedInKey = AppConstants.prefAuthIsLoggedIn;
   static const String _codeVerifierKey = 'youtube_oauth_code_verifier';
 
   static const String _clientId =
@@ -123,7 +124,7 @@ class CookieServiceAndroid extends CookieService {
       // Perform authentication
       final result = await FlutterWebAuth2.authenticate(
         url: authorizationUrl.toString(),
-        callbackUrlScheme: _redirectUri.split('://')[0],
+        callbackUrlScheme: Uri.parse(_redirectUri).scheme,
         options: const FlutterWebAuth2Options(preferEphemeral: false),
       );
 
@@ -203,7 +204,7 @@ class CookieServiceAndroid extends CookieService {
           'grant_type': 'authorization_code',
           'redirect_uri': _redirectUri,
         },
-      );
+      ).timeout(const Duration(seconds: 15));
 
       if (response.statusCode != 200) {
         _logger.error(
@@ -315,7 +316,7 @@ class CookieServiceAndroid extends CookieService {
           'refresh_token': refreshToken,
           'grant_type': 'refresh_token',
         },
-      );
+      ).timeout(const Duration(seconds: 15));
 
       if (response.statusCode != 200) {
         _logger.error(

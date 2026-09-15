@@ -1,3 +1,5 @@
+import 'video_display_item.dart';
+
 class PlaylistInfo {
   final String id;
   final String title;
@@ -29,17 +31,30 @@ class PlaylistInfo {
   }
 }
 
-class PlaylistVideoItem {
+class PlaylistVideoItem with VideoDisplayItem {
+  @override
   final String id;
+  @override
   final String title;
+  @override
   final String channel;
   final int duration;
+  @override
   final String? thumbnailUrl;
+  @override
   final String url;
+  @override
   final int? viewCount;
+  @override
   final String? uploadDate;
   
   bool isSelected = true; // Default to selected
+
+  @override
+  String get author => channel;
+
+  @override
+  int? get durationSeconds => duration;
 
   PlaylistVideoItem({
     required this.id,
@@ -72,6 +87,7 @@ class PlaylistVideoItem {
     );
   }
 
+  @override
   String get formattedDuration {
     final hours = duration ~/ 3600;
     final minutes = (duration % 3600) ~/ 60;

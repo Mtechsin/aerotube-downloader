@@ -1,8 +1,11 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import '../models/playlist_info.dart';
 import '../models/video_info.dart';
-import '../services/ytdlp_service.dart';
-import '../services/ytdlp_service_android.dart';
+import '../services/ytdlp/ytdlp_service_windows.dart';
+import '../services/ytdlp/ytdlp_service_android.dart';
+import '../services/core/logging_service.dart';
+import '../core/utils/error_helper.dart';
 import 'download_provider.dart';
 import '../models/download_mode.dart';
 
@@ -50,10 +53,45 @@ class PlaylistProvider extends ChangeNotifier {
   bool get audioOnly => _audioOnly;
   AudioQuality get audioQuality => _audioQuality;
 
+  // VPN/clunkiness guards
+  int _fetchGen = 0;
+  DateTime _lastStatus = DateTime.fromMillisecondsSinceEpoch(0);
+  static const Duration _throttle = Duration(milliseconds: 250);
+
+  void _throttledStatus(String s) {
+    _loadingStatus = s;
+    final now = DateTime.now();
+    if (now.difference(_lastStatus) >= _throttle) {
+      _lastStatus = now;
+      notifyListeners();
+    }
+  }
+
+  bool _isVpnError(String m) {
+    final l = m.toLowerCase();
+    return l.contains('timed out') || l.contains('timeout') || l.contains('vpn') || l.contains('unable to download');
+  }
+
+  /// Cancel in-flight playlist fetch (Windows & Android).
+  Future<void> cancelFetch() async {
+    if (!_isLoading) return;
+    _fetchGen++;
+    _isLoading = false;
+    _loadingStatus = null;
+    try {
+      // ignore: avoid_dynamic_calls
+      await _ytdlpService.cancelFetch();
+    } catch (_) {}
+    LoggingService().info('Playlist fetch cancelled by user', component: 'PlaylistProvider');
+    notifyListeners();
+  }
+
   // Actions
 
   Future<void> fetchPlaylist(String url) async {
     if (url.isEmpty) return;
+    if (_isLoading) _fetchGen++;
+    final myGen = ++_fetchGen;
 
     _isLoading = true;
     _error = null;
@@ -62,24 +100,48 @@ class PlaylistProvider extends ChangeNotifier {
     _selectedIds.clear();
     _loadingStatus = 'Initializing...';
     notifyListeners();
+    _lastStatus = DateTime.now();
 
     try {
-      final info = await _ytdlpService.getPlaylistInfo(
+      final future = _ytdlpService.getPlaylistInfo(
         url,
         onProgress: (status) {
-          _loadingStatus = status;
-          notifyListeners();
+          if (myGen != _fetchGen) return;
+          _throttledStatus(status);
         },
+      ) as Future<PlaylistInfo>;
+      final info = await future.timeout(
+        const Duration(seconds: 90),
+        onTimeout: () => throw TimeoutException(
+          'Fetch timed out - VPN may be slowing connection, try again or disable VPN',
+          Duration(seconds: 90),
+        ),
       );
+      if (myGen != _fetchGen) return;
 
       _playlist = info;
       _selectedIds.addAll(info.videos.map((v) => v.id));
-    } catch (e) {
-      _error = e.toString();
+    } catch (e, stackTrace) {
+      if (myGen != _fetchGen) return;
+      LoggingService().error(
+        'Playlist fetch failed for $url: $e',
+        component: 'PlaylistProvider',
+        error: e,
+        stackTrace: stackTrace,
+      );
+      var cleaned = ErrorHelper.clean(e.toString());
+      if (e is TimeoutException || _isVpnError(cleaned)) {
+        if (!cleaned.toLowerCase().contains('vpn')) {
+          cleaned = 'Fetch timed out - VPN may be slowing connection, try again or disable VPN. ($cleaned)';
+        }
+      }
+      _error = cleaned;
     } finally {
-      _isLoading = false;
-      _loadingStatus = null;
-      notifyListeners();
+      if (myGen == _fetchGen) {
+        _isLoading = false;
+        _loadingStatus = null;
+        notifyListeners();
+      }
     }
   }
 
@@ -143,23 +205,29 @@ class PlaylistProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  void downloadSelected(DownloadProvider downloadProvider, String outputPath) {
+  Future<void> downloadSelected(
+    DownloadProvider downloadProvider,
+    String outputPath,
+  ) async {
     if (_playlist == null || _selectedIds.isEmpty) return;
 
     final videosToDownload = _playlist!.videos
         .where((v) => _selectedIds.contains(v.id))
         .toList();
+    if (videosToDownload.isEmpty) return;
 
-    for (final video in videosToDownload) {
-      downloadProvider.startDownload(
-        video: _createMinimalVideoInfo(video),
-        outputPath: outputPath,
-        mode: _audioOnly ? DownloadMode.audioOnly : DownloadMode.videoWithAudio,
-        targetHeight: _parseTargetHeight(_selectedFormatId),
-        audioQuality: _audioQuality.ytdlpValue,
-      );
-    }
-    // Optionally deselect or notify user via callback
+    // PF10 fix: single Hive write + single notify via batched API.
+    final videoInfos = videosToDownload
+        .map(_createMinimalVideoInfo)
+        .toList(growable: false);
+
+    await downloadProvider.startDownloadsBatch(
+      videos: videoInfos,
+      outputPath: outputPath,
+      mode: _audioOnly ? DownloadMode.audioOnly : DownloadMode.videoWithAudio,
+      targetHeight: _parseTargetHeight(_selectedFormatId),
+      audioQuality: _audioQuality.ytdlpValue,
+    );
   }
 
   VideoInfo _createMinimalVideoInfo(PlaylistVideoItem item) {
@@ -182,5 +250,20 @@ class PlaylistProvider extends ChangeNotifier {
   int? _parseTargetHeight(String formatId) {
     if (formatId == 'best') return null;
     return int.tryParse(formatId);
+  }
+
+  bool _isDisposed = false;
+
+  @override
+  void notifyListeners() {
+    if (!_isDisposed) {
+      super.notifyListeners();
+    }
+  }
+
+  @override
+  void dispose() {
+    _isDisposed = true;
+    super.dispose();
   }
 }

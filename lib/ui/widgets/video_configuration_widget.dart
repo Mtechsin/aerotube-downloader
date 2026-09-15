@@ -1,3 +1,4 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
@@ -5,6 +6,8 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../../models/video_info.dart';
 import '../../providers/video_provider.dart';
 import '../../providers/platform_settings_provider.dart';
+import '../../providers/download_provider.dart';
+import '../../models/download_item.dart';
 import 'animated_button.dart';
 
 class VideoConfigurationWidget extends StatefulWidget {
@@ -24,10 +27,7 @@ class VideoConfigurationWidget extends StatefulWidget {
 }
 
 class _VideoConfigurationWidgetState extends State<VideoConfigurationWidget> {
-  // Download Button State
-  bool _isPreparing = false;
-  bool _isDownloading = false;
-  double _downloadProgress = 0.0;
+  // Download Button State is derived from DownloadProvider activeDownloads
 
   @override
   Widget build(BuildContext context) {
@@ -40,82 +40,119 @@ class _VideoConfigurationWidgetState extends State<VideoConfigurationWidget> {
 
     final video = videoProvider.videoInfo!;
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     final enableAnimations = context.select<PlatformSettingsProvider, bool>(
       (p) => p.enableAnimations,
     );
-    final mediumAnim = enableAnimations ? const Duration(milliseconds: 220) : Duration.zero;
+    final mediumAnim = enableAnimations
+        ? const Duration(milliseconds: 220)
+        : Duration.zero;
 
     // Glassmorphic Container Structure
-    return Container(
-      decoration: BoxDecoration(
-        color: theme.scaffoldBackgroundColor, // Fallback
-        borderRadius: BorderRadius.circular(24),
-      ),
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          // 1. Background Image (Blurred)
-          ClipRRect(
-            borderRadius: BorderRadius.circular(24),
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                CachedNetworkImage(
-                  imageUrl: video.thumbnailUrl,
-                  fit: BoxFit.cover,
-                  memCacheWidth: 160,
-                  fadeInDuration: Duration.zero,
-                  fadeOutDuration: Duration.zero,
-                  filterQuality: FilterQuality.low,
-                  errorWidget: (_, __, ___) =>
-                      Container(color: theme.colorScheme.surface),
+    return ClipRRect(
+          borderRadius: BorderRadius.circular(24),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+            child: Container(
+              decoration: BoxDecoration(
+                color: isDark
+                    ? Colors.white.withValues(alpha: 0.06)
+                    : Colors.white.withValues(alpha: 0.65),
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(
+                  color: isDark
+                      ? Colors.white.withValues(alpha: 0.1)
+                      : Colors.white.withValues(alpha: 0.3),
+                  width: 1,
                 ),
-                Container(
-                  color: theme.colorScheme.surface.withValues(alpha: 0.9),
-                ),
-                // Gradient for extra depth
-                Container(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        theme.colorScheme.surface.withValues(alpha: 0.1),
-                        theme.colorScheme.surface.withValues(alpha: 0.4),
+              ),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  // 1. Background Image (Blurred)
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(24),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        CachedNetworkImage(
+                          imageUrl: video.thumbnailUrl,
+                          fit: BoxFit.cover,
+                          memCacheWidth: 160,
+                          fadeInDuration: Duration.zero,
+                          fadeOutDuration: Duration.zero,
+                          filterQuality: FilterQuality.low,
+                          placeholder: (_, __) => Container(
+                            color: theme.colorScheme.surfaceContainerHighest,
+                            child: const Center(
+                              child: SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              ),
+                            ),
+                          ),
+                          errorWidget: (_, __, ___) => Container(
+                            color: theme.colorScheme.surfaceContainerHighest,
+                            child: Icon(
+                              Icons.broken_image_outlined,
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ),
+                        Container(
+                          color: theme.colorScheme.surface.withValues(alpha: isDark ? 0.85 : 0.75),
+                        ),
+                        // Gradient for extra depth
+                        Container(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [
+                                theme.colorScheme.surface.withValues(alpha: 0.1),
+                                theme.colorScheme.surface.withValues(alpha: 0.4),
+                              ],
+                            ),
+                          ),
+                        ),
                       ],
                     ),
                   ),
-                ),
-              ],
+
+                  // 2. Content Split View
+                  Row(
+                    children: [
+                      // Left Column (35%) - Visual Anchor
+                      Expanded(flex: 35, child: _buildLeftColumn(context, video)),
+
+                      // Vertical Divider
+                      Container(
+                        width: 1,
+                        margin: const EdgeInsets.symmetric(vertical: 40),
+                        color: theme.colorScheme.onSurface.withValues(alpha: 0.1),
+                      ),
+
+                      // Right Column (65%) - Control Center
+                      Expanded(
+                        flex: 65,
+                        child: _buildRightColumn(context, videoProvider),
+                      ),
+                    ],
+                  ),
+
+                  // 3. Close Button
+                  _buildCloseButton(context),
+                ],
+              ),
             ),
           ),
-
-          // 2. Content Split View
-          Row(
-            children: [
-              // Left Column (35%) - Visual Anchor
-              Expanded(flex: 35, child: _buildLeftColumn(context, video)),
-
-              // Vertical Divider
-              Container(
-                width: 1,
-                margin: const EdgeInsets.symmetric(vertical: 40),
-                color: theme.colorScheme.onSurface.withValues(alpha: 0.1),
-              ),
-
-              // Right Column (65%) - Control Center
-              Expanded(
-                flex: 65,
-                child: _buildRightColumn(context, videoProvider),
-              ),
-            ],
-          ),
-
-          // 3. Close Button
-          _buildCloseButton(context),
-        ],
-      ),
-    ).animate().fadeIn(duration: mediumAnim).slideY(begin: 0.02, end: 0, duration: mediumAnim);
+        )
+        .animate()
+        .fadeIn(duration: mediumAnim)
+        .slideY(begin: 0.02, end: 0, duration: mediumAnim);
   }
 
   Widget _buildSkeleton(BuildContext context) {
@@ -133,18 +170,21 @@ class _VideoConfigurationWidgetState extends State<VideoConfigurationWidget> {
     return Positioned(
       top: 10,
       right: 16,
-      child: IconButton(
-        onPressed: widget.onClear,
-        style: IconButton.styleFrom(
-          backgroundColor: theme.colorScheme.surfaceContainerHighest.withValues(
-            alpha: 0.5,
+      child:
+          IconButton(
+            onPressed: widget.onClear,
+            style: IconButton.styleFrom(
+              backgroundColor: theme.colorScheme.surfaceContainerHighest
+                  .withValues(alpha: 0.5),
+              foregroundColor: theme.colorScheme.onSurface,
+              hoverColor: Colors.red.withValues(alpha: 0.8),
+            ),
+            icon: const Icon(Icons.close_rounded),
+            tooltip: 'Close',
+          ).animate().fadeIn(
+            delay: enableAnimations ? 180.ms : Duration.zero,
+            duration: enableAnimations ? 180.ms : Duration.zero,
           ),
-          foregroundColor: theme.colorScheme.onSurface,
-          hoverColor: Colors.red.withValues(alpha: 0.8),
-        ),
-        icon: const Icon(Icons.close_rounded),
-        tooltip: 'Close',
-      ).animate().fadeIn(delay: enableAnimations ? 180.ms : Duration.zero, duration: enableAnimations ? 180.ms : Duration.zero),
     );
   }
 
@@ -176,7 +216,26 @@ class _VideoConfigurationWidgetState extends State<VideoConfigurationWidget> {
                   CachedNetworkImage(
                     imageUrl: video.thumbnailUrl,
                     fit: BoxFit.cover,
-                    memCacheWidth: 600, // Optimize memory
+                    memCacheWidth: 600,
+                    fadeInDuration: const Duration(milliseconds: 200),
+                    fadeOutDuration: const Duration(milliseconds: 200),
+                    placeholder: (context, url) => Container(
+                      color: theme.colorScheme.surfaceContainerHighest,
+                      child: const Center(
+                        child: SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      ),
+                    ),
+                    errorWidget: (context, url, error) => Container(
+                      color: theme.colorScheme.surfaceContainerHighest,
+                      child: Icon(
+                        Icons.broken_image_outlined,
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
                   ),
                   // Duration Overlay (Improved)
                   Positioned(
@@ -635,14 +694,7 @@ class _VideoConfigurationWidgetState extends State<VideoConfigurationWidget> {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        format.formattedFilesize == 'Unknown size'
-                            ? 'Unknown size'
-                            : (format.hasAudio ||
-                                  format.hasVideo &&
-                                      provider.audioOnly ==
-                                          false) // Simple logic, refine if needed
-                            ? '${format.formattedFilesize} (approx)' // Most valid streams are separated, so size is approx sum
-                            : format.formattedFilesize,
+                        provider.formattedTotalSizeForFormat(format),
                         style: TextStyle(
                           color: Theme.of(
                             context,
@@ -774,7 +826,7 @@ class _VideoConfigurationWidgetState extends State<VideoConfigurationWidget> {
                       ),
                       const SizedBox(width: 8),
                       Text(
-                        '${format.audioBitrate}kbps (${format.formattedFilesize})${format.language != null ? ' [${format.language!.toUpperCase()}]' : ''}',
+                        '${format.audioBitrate}kbps (${format.formattedEstimatedFilesize(provider.videoInfo?.duration)})${format.language != null ? ' [${format.language!.toUpperCase()}]' : ''}',
                         style: TextStyle(
                           color: Theme.of(context).colorScheme.onSurface,
                         ),
@@ -879,34 +931,38 @@ class _VideoConfigurationWidgetState extends State<VideoConfigurationWidget> {
           // Dropdown/Expansion for the rest
           Theme(
             data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-            child: ExpansionTile(
-              title: Text(
-                'Add Subtitles (${rest.length} more)',
-                style: TextStyle(
-                  color: Theme.of(context).colorScheme.primary,
-                  fontSize: 14,
-                ),
-              ),
-              tilePadding: EdgeInsets.zero,
-              childrenPadding: EdgeInsets.zero,
-              collapsedIconColor: Theme.of(context).colorScheme.primary,
-              iconColor: Theme.of(context).colorScheme.primary,
-              children: [
-                Container(
-                  constraints: const BoxConstraints(maxHeight: 200),
-                  child: SingleChildScrollView(
-                    child: Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: rest
-                          .map(
-                            (sub) => _buildSubtitleChip(context, provider, sub),
-                          )
-                          .toList(),
-                    ),
+            child: Material(
+              type: MaterialType.transparency,
+              child: ExpansionTile(
+                title: Text(
+                  'Add Subtitles (${rest.length} more)',
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.primary,
+                    fontSize: 14,
                   ),
                 ),
-              ],
+                tilePadding: EdgeInsets.zero,
+                childrenPadding: EdgeInsets.zero,
+                collapsedIconColor: Theme.of(context).colorScheme.primary,
+                iconColor: Theme.of(context).colorScheme.primary,
+                children: [
+                  Container(
+                    constraints: const BoxConstraints(maxHeight: 200),
+                    child: SingleChildScrollView(
+                      child: Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: rest
+                            .map(
+                              (sub) =>
+                                  _buildSubtitleChip(context, provider, sub),
+                            )
+                            .toList(),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ],
@@ -977,6 +1033,29 @@ class _VideoConfigurationWidgetState extends State<VideoConfigurationWidget> {
     BuildContext context,
     VideoProvider provider,
   ) {
+    final video = provider.videoInfo!;
+    final downloadProvider = context.watch<DownloadProvider>();
+    final activeDownloads = downloadProvider.activeDownloads;
+    final activeDownloadList = activeDownloads.where(
+      (item) =>
+          item.id == video.id ||
+          item.id.startsWith('${video.id}_') ||
+          item.url == video.url,
+    );
+    final activeDownload =
+        activeDownloadList.isNotEmpty ? activeDownloadList.first : null;
+
+    final bool isPreparing = activeDownload != null &&
+        (activeDownload.status == DownloadStatus.queued ||
+         activeDownload.status == DownloadStatus.pending);
+
+    final bool isDownloading = activeDownload != null &&
+        (activeDownload.status == DownloadStatus.downloadingVideo ||
+         activeDownload.status == DownloadStatus.downloadingAudio ||
+         activeDownload.status == DownloadStatus.merging);
+
+    final double downloadProgress = activeDownload != null ? activeDownload.progress : 0.0;
+
     return RepaintBoundary(
       child: Container(
         padding: const EdgeInsets.all(32),
@@ -990,140 +1069,127 @@ class _VideoConfigurationWidgetState extends State<VideoConfigurationWidget> {
           ),
         ),
         child: AnimatedButton(
-        onPressed: (_isDownloading || _isPreparing)
-            ? null
-            : _handleDownloadPress,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 300),
-          width: double.infinity,
-          height: 56,
-          decoration: BoxDecoration(
-            color: _isDownloading
-                ? Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.1)
-                : Theme.of(context).colorScheme.primary,
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: Stack(
-            children: [
-              // Progress Bar (if downloading)
-              if (_isDownloading)
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 300),
-                  width:
-                      MediaQuery.of(context).size.width *
-                      0.65 *
-                      _downloadProgress, // 0.65 is flex factor approx
-                  height: double.infinity,
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.primary,
-                    borderRadius: BorderRadius.circular(16),
+          onPressed: (isDownloading || isPreparing)
+              ? null
+              : _handleDownloadPress,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 300),
+            width: double.infinity,
+            height: 56,
+            decoration: BoxDecoration(
+              color: isDownloading
+                  ? Theme.of(
+                      context,
+                    ).colorScheme.onSurface.withValues(alpha: 0.1)
+                  : Theme.of(context).colorScheme.primary,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Stack(
+              children: [
+                // Progress Bar (if downloading)
+                if (isDownloading)
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 300),
+                    width:
+                        MediaQuery.of(context).size.width *
+                        0.65 *
+                        downloadProgress, // 0.65 is flex factor approx
+                    height: double.infinity,
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.primary,
+                      borderRadius: BorderRadius.circular(16),
+                    ),
                   ),
-                ),
 
-              // Button Content
-              Center(
-                child: _isPreparing
-                    ? Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
+                // Button Content
+                Center(
+                  child: isPreparing
+                      ? Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Theme.of(context).colorScheme.onPrimary,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Text(
+                              activeDownload.status == DownloadStatus.queued
+                                  ? 'Queued...'
+                                  : 'Preparing...',
+                              style: TextStyle(
+                                color: Theme.of(context).colorScheme.onPrimary,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                              ),
+                            ),
+                          ],
+                        )
+                      : isDownloading
+                      ? Text(
+                          activeDownload.status == DownloadStatus.merging
+                              ? 'Merging... ${(downloadProgress * 100).toInt()}%'
+                              : activeDownload.status == DownloadStatus.downloadingAudio
+                                  ? 'Downloading Audio... ${(downloadProgress * 100).toInt()}%'
+                                  : 'Downloading... ${(downloadProgress * 100).toInt()}%',
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.onSurface,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        )
+                      : Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.download_rounded,
                               color: Theme.of(context).colorScheme.onPrimary,
                             ),
-                          ),
-                          const SizedBox(width: 12),
-                          Text(
-                            'Preparing...',
-                            style: TextStyle(
-                              color: Theme.of(context).colorScheme.onPrimary,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16,
+                            const SizedBox(width: 8),
+                            Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Download Now',
+                                  style: TextStyle(
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.onPrimary,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                Text(
+                                  provider.totalEstimatedDownloadSize > 0
+                                      ? '~${(provider.totalEstimatedDownloadSize / 1024 / 1024).toStringAsFixed(1)} MB'
+                                      : 'Calculating...',
+                                  style: TextStyle(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onPrimary
+                                        .withValues(alpha: 0.7),
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
                             ),
-                          ),
-                        ],
-                      )
-                    : _isDownloading
-                    ? Text(
-                        'Downloading... ${(_downloadProgress * 100).toInt()}%',
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.onSurface,
-                          fontWeight: FontWeight.bold,
+                          ],
                         ),
-                      )
-                    : Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.download_rounded,
-                            color: Theme.of(context).colorScheme.onPrimary,
-                          ),
-                          const SizedBox(width: 8),
-                          Column(
-                            mainAxisSize: MainAxisSize.min,
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Download Now',
-                                style: TextStyle(
-                                  color: Theme.of(
-                                    context,
-                                  ).colorScheme.onPrimary,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              Text(
-                                provider.totalEstimatedDownloadSize > 0
-                                    ? '~${(provider.totalEstimatedDownloadSize / 1024 / 1024).toStringAsFixed(1)} MB'
-                                    : 'Calculating...',
-                                style: TextStyle(
-                                  color: Theme.of(context).colorScheme.onPrimary
-                                      .withValues(alpha: 0.7),
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-              ),
-            ],
+                ),
+              ],
+            ),
           ),
         ),
-      ),
       ),
     );
   }
 
   Future<void> _handleDownloadPress() async {
-    setState(() => _isPreparing = true);
-
-    // Simulate preparation time or allow logic to run
-    // In real app, we verify everything needed is ready
-    await Future.delayed(const Duration(milliseconds: 600));
-
-    setState(() {
-      _isPreparing = false;
-      _isDownloading = true;
-      _downloadProgress = 0.05; // Start a little bit
-    });
-
-    // Invoke actual download
     await widget.onDownload();
-
-    // Note: if widget.onDownload clears the provider, this widget will be disposed.
-    // If it doesn't, we can simulate progress or reset.
-    if (mounted) {
-      // Just in case it stays mounted
-      setState(() {
-        _isDownloading = false;
-        _downloadProgress = 0.0;
-      });
-    }
   }
 
   Widget _buildAudioOptions(BuildContext context, VideoProvider provider) {
@@ -1133,7 +1199,7 @@ class _VideoConfigurationWidgetState extends State<VideoConfigurationWidget> {
         Text(
           'QUALITY TIER',
           style: TextStyle(
-            color: Colors.white.withValues(alpha: 0.4),
+            color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5),
             fontSize: 12,
             fontWeight: FontWeight.bold,
             letterSpacing: 1.5,
@@ -1216,10 +1282,6 @@ class _VideoConfigurationWidgetState extends State<VideoConfigurationWidget> {
 
     return Column(
       children: audioFormats.map((format) {
-        // Since audio selection logic in provider is a bit implicit (it selects based on quality),
-        // we might not have a precise 'selectedAudioFormatId' matching one of these if it was auto-selected.
-        // However, we can highlight based on ID matching if we updated the provider to track explicit audio selection better.
-        // For now, let's assume the provider's selectedAudioFormatId is correct.
         final isSelected = format.formatId == provider.selectedAudioFormatId;
 
         return Padding(
@@ -1228,10 +1290,7 @@ class _VideoConfigurationWidgetState extends State<VideoConfigurationWidget> {
             color: Colors.transparent,
             child: InkWell(
               onTap: () {
-                // We need a way to select a specific audio format explicitly.
-                // key: The current provider might overwrite this if 'setAudioQuality' is called.
-                // For now, we unfortunately rely on Quality Tier mainly.
-                // But visually we can show what is being picked.
+                provider.setSelectedAudioMergeStream(format);
               },
               borderRadius: BorderRadius.circular(12),
               hoverColor: Colors.transparent,
@@ -1295,7 +1354,7 @@ class _VideoConfigurationWidgetState extends State<VideoConfigurationWidget> {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            '${(format.audioBitrate ?? 0)} kbps • ${format.formattedFilesize}${format.language != null ? ' • ${format.language!.toUpperCase()} DUB' : ''}',
+                            '${(format.audioBitrate ?? 0)} kbps • ${format.formattedEstimatedFilesize(provider.videoInfo?.duration)}${format.language != null ? ' • ${format.language!.toUpperCase()} DUB' : ''}',
                             style: TextStyle(
                               color: isSelected
                                   ? Theme.of(context).colorScheme.tertiary

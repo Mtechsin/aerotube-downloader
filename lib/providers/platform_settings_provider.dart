@@ -1,6 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:permission_handler/permission_handler.dart';
+import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import '../models/app_settings.dart';
 import '../services/ytdlp/ytdlp_tool_service.dart';
@@ -10,9 +10,13 @@ import '../services/core/logging_service.dart';
 import '../core/utils/platform_utils.dart';
 import '../services/core/android_storage_service.dart';
 import '../services/core/settings_service.dart';
+import '../services/notification/notification_service.dart';
 
 /// Platform-aware settings provider with Android-specific defaults
 class PlatformSettingsProvider extends ChangeNotifier {
+  static const MethodChannel _permissionsChannel =
+      MethodChannel('com.aerotube.youtube_downloader/permissions');
+
   final SettingsService _settingsService;
   final YtdlpToolService _ytdlpService;
   final FfmpegToolService _ffmpegService;
@@ -31,6 +35,7 @@ class PlatformSettingsProvider extends ChangeNotifier {
   DateTime? _youTubeLoginTime;
   bool _isBatteryOptimizationIgnored = false;
   bool _isCheckingBatteryOptimization = false;
+  String? _deviceManufacturer;
 
   PlatformSettingsProvider({
     required SettingsService settingsService,
@@ -69,6 +74,22 @@ class PlatformSettingsProvider extends ChangeNotifier {
       PlatformUtils.isAndroid ? _isBatteryOptimizationIgnored : true;
   bool get isCheckingBatteryOptimization =>
       PlatformUtils.isAndroid ? _isCheckingBatteryOptimization : false;
+  String? get deviceManufacturer => _deviceManufacturer;
+
+  bool get isAggressiveOem {
+    if (!PlatformUtils.isAndroid) return false;
+    final m = (_deviceManufacturer ?? '').toLowerCase();
+    return m.contains('xiaomi') ||
+        m.contains('redmi') ||
+        m.contains('poco') ||
+        m.contains('oppo') ||
+        m.contains('realme') ||
+        m.contains('oneplus') ||
+        m.contains('vivo') ||
+        m.contains('iqoo') ||
+        m.contains('huawei') ||
+        m.contains('honor');
+  }
 
   String get cookieStatus {
     if (_isYouTubeLoggedIn) {
@@ -94,8 +115,9 @@ class PlatformSettingsProvider extends ChangeNotifier {
   Future<String> getDefaultOutputPath() async {
     late final String defaultPath;
     if (PlatformUtils.isAndroid) {
-      defaultPath = await _androidStorageService
-          .getPreferredDownloadDirectory();
+      // Prefer public Downloads/AeroTube when writable; otherwise app-specific
+      // storage (never force an unwritable public path).
+      defaultPath = await _androidStorageService.getSafeDownloadDirectory();
     } else {
       // Desktop platforms use a dedicated aerotube folder inside Downloads.
       final homeDir =
@@ -107,7 +129,9 @@ class PlatformSettingsProvider extends ChangeNotifier {
 
     final dir = Directory(defaultPath);
     if (!await dir.exists()) {
-      await dir.create(recursive: true);
+      try {
+        await dir.create(recursive: true);
+      } catch (_) {}
     }
     return defaultPath;
   }
@@ -119,9 +143,60 @@ class PlatformSettingsProvider extends ChangeNotifier {
     final currentOutputPath = settings.outputPath;
     if (currentOutputPath == null ||
         currentOutputPath.isEmpty ||
-        _shouldMigrateAndroidOutputPath(currentOutputPath)) {
-      final defaultPath = await getDefaultOutputPath();
+        _shouldMigrateAndroidOutputPath(currentOutputPath)) {      final defaultPath = await getDefaultOutputPath();
+      if (currentOutputPath != null &&
+          currentOutputPath.isNotEmpty &&
+          _shouldMigrateAndroidOutputPath(currentOutputPath) &&
+          currentOutputPath != defaultPath) {
+        // Migrate any downloaded files from old /Android/data/ path to public directory
+        try {
+          final oldDir = Directory(currentOutputPath);
+          if (await oldDir.exists()) {
+            final targetDir = Directory(defaultPath);
+            if (!await targetDir.exists()) {
+              await targetDir.create(recursive: true);
+            }
+            await for (final entity in oldDir.list(recursive: false)) {
+              if (entity is File) {
+                final newFilePath = p.join(defaultPath, p.basename(entity.path));
+                final newFile = File(newFilePath);
+                if (!await newFile.exists()) {
+                  try {
+                    await entity.rename(newFilePath);
+                  } catch (_) {
+                    await entity.copy(newFilePath);
+                    await entity.delete();
+                  }
+                  try {
+                    await _androidStorageService.scanMediaFile(newFilePath);
+                  } catch (_) {}
+                }
+              }
+            }
+          }
+        } catch (e) {
+          LoggingService().warning(
+            'Failed to migrate files from $currentOutputPath to $defaultPath: $e',
+            component: 'PlatformSettingsProvider',
+          );
+        }
+      }
       await setOutputPath(defaultPath);
+    } else if (PlatformUtils.isAndroid) {
+      // A previously saved custom folder may be an SD-card pick (no SAF
+      // grant) or otherwise unwritable. Validate on boot and fall back to
+      // the public default instead of failing downloads later.
+      try {
+        final validation = await _androidStorageService
+            .validateCustomDirectory(currentOutputPath);
+        if (!validation.ok) {
+          LoggingService().warning(
+            'Saved download folder unusable (${validation.reason}); resetting to default.',
+            component: 'PlatformSettingsProvider',
+          );
+          await setOutputPath(await getDefaultOutputPath());
+        }
+      } catch (_) {}
     }
 
     // Update services with saved paths
@@ -140,6 +215,11 @@ class PlatformSettingsProvider extends ChangeNotifier {
       _ytdlpService.cookieBrowser = settings.cookieBrowser;
     }
     _ytdlpService.enableCookies = settings.enableCookies;
+    // Sync notification toggle with the service on boot.
+    try {
+      NotificationService().systemNotificationsEnabled =
+          settings.enableNotifications;
+    } catch (_) {}
 
     _isInitialized = true;
     notifyListeners();
@@ -149,6 +229,7 @@ class PlatformSettingsProvider extends ChangeNotifier {
       await _initializeToolsAsync();
       await checkToolsAvailability();
       await refreshBatteryOptimizationStatus();
+      await getDeviceManufacturer();
 
       if (_isFfmpegAvailable && settings.ffmpegPath == null) {
         _ytdlpService.ffmpegPath = _ffmpegService.ffmpegPath;
@@ -163,10 +244,12 @@ class PlatformSettingsProvider extends ChangeNotifier {
     if (!PlatformUtils.isAndroid) return false;
 
     final normalized = path.replaceAll('\\', '/').toLowerCase();
-    return normalized.contains('/android/data/') &&
-        (normalized.contains('/downloads') ||
-            normalized.endsWith('/downloads'));
+    return normalized.contains('/android/data/');
   }
+
+  @visibleForTesting
+  bool shouldMigrateAndroidOutputPath(String path) =>
+      _shouldMigrateAndroidOutputPath(path);
 
   /// Check if user is logged into YouTube via WebView cookies
   Future<void> checkYouTubeLoginStatus() async {
@@ -256,8 +339,13 @@ class PlatformSettingsProvider extends ChangeNotifier {
     try {
       await _ytdlpService.initialize();
       await _ffmpegService.initialize();
-    } catch (e) {
-      // Log but don't block - tools can be initialized on-demand later
+    } catch (e, stackTrace) {
+      LoggingService().warning(
+        'Background tool initialization encountered an issue: $e',
+        component: 'PlatformSettingsProvider',
+        error: e,
+        stackTrace: stackTrace,
+      );
     }
   }
 
@@ -361,9 +449,16 @@ class PlatformSettingsProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final status = await Permission.ignoreBatteryOptimizations.status;
-      _isBatteryOptimizationIgnored = status.isGranted;
-    } catch (e) {
+      final ignored = await _permissionsChannel
+          .invokeMethod<bool>('isIgnoringBatteryOptimizations');
+      _isBatteryOptimizationIgnored = ignored ?? false;
+    } catch (e, stackTrace) {
+      LoggingService().warning(
+        'Failed to check battery optimization status: $e',
+        component: 'PlatformSettingsProvider',
+        error: e,
+        stackTrace: stackTrace,
+      );
       _isBatteryOptimizationIgnored = false;
     } finally {
       _isCheckingBatteryOptimization = false;
@@ -371,6 +466,8 @@ class PlatformSettingsProvider extends ChangeNotifier {
     }
   }
 
+  /// Opens the system "Allow unrestricted battery?" dialog and waits for
+  /// the user's response. Returns true when the exemption is granted.
   Future<bool> requestBatteryOptimizationExemption() async {
     if (!PlatformUtils.isAndroid) return false;
 
@@ -378,14 +475,89 @@ class PlatformSettingsProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final result = await Permission.ignoreBatteryOptimizations.request();
-      _isBatteryOptimizationIgnored = result.isGranted;
-      return result.isGranted;
-    } catch (e) {
-      return false;
+      // The native side uses registerForActivityResult — this Future
+      // completes only after the user taps Allow or Deny.
+      final granted = await _permissionsChannel
+          .invokeMethod<bool>('requestIgnoreBatteryOptimizations');
+      _isBatteryOptimizationIgnored = granted ?? false;
+      return _isBatteryOptimizationIgnored;
+    } catch (e, stackTrace) {
+      LoggingService().warning(
+        'Failed to request battery optimization exemption: $e',
+        component: 'PlatformSettingsProvider',
+        error: e,
+        stackTrace: stackTrace,
+      );
+      // Re-check in case the state changed despite the error.
+      try {
+        final ignored = await _permissionsChannel
+            .invokeMethod<bool>('isIgnoringBatteryOptimizations');
+        _isBatteryOptimizationIgnored = ignored ?? false;
+      } catch (_) {}
+      return _isBatteryOptimizationIgnored;
     } finally {
       _isCheckingBatteryOptimization = false;
       notifyListeners();
+    }
+  }
+
+  /// Opens Android's battery-optimization list page so the user can set the
+  /// app to "Unrestricted" manually (needed on OEMs that suppress the direct
+  /// dialog). Returns true when the page was opened.
+  Future<bool> openBatteryOptimizationSettings() async {
+    if (!PlatformUtils.isAndroid) return false;
+
+    try {
+      final opened = await _permissionsChannel
+          .invokeMethod<bool>('openBatteryOptimizationSettings');
+      return opened ?? false;
+    } catch (e, stackTrace) {
+      LoggingService().warning(
+        'Failed to open battery optimization settings: $e',
+        component: 'PlatformSettingsProvider',
+        error: e,
+        stackTrace: stackTrace,
+      );
+      return false;
+    }
+  }
+
+  /// Query device manufacturer from native layer.
+  Future<String?> getDeviceManufacturer() async {
+    if (!PlatformUtils.isAndroid) return null;
+    if (_deviceManufacturer != null) return _deviceManufacturer;
+    try {
+      final m = await _permissionsChannel
+          .invokeMethod<String>('getDeviceManufacturer');
+      _deviceManufacturer = m;
+      notifyListeners();
+      return m;
+    } catch (e, stackTrace) {
+      LoggingService().warning(
+        'Failed to get device manufacturer: $e',
+        component: 'PlatformSettingsProvider',
+        error: e,
+        stackTrace: stackTrace,
+      );
+      return null;
+    }
+  }
+
+  /// Launch OEM autostart / battery management activity.
+  Future<bool> openOemAutostartSettings() async {
+    if (!PlatformUtils.isAndroid) return false;
+    try {
+      final opened = await _permissionsChannel
+          .invokeMethod<bool>('openOemAutostartSettings');
+      return opened ?? false;
+    } catch (e, stackTrace) {
+      LoggingService().warning(
+        'Failed to open OEM autostart settings: $e',
+        component: 'PlatformSettingsProvider',
+        error: e,
+        stackTrace: stackTrace,
+      );
+      return false;
     }
   }
 
@@ -418,6 +590,7 @@ class PlatformSettingsProvider extends ChangeNotifier {
   }
 
   Future<void> setMaxConcurrentDownloads(int value) async {
+    if (settings.maxConcurrentDownloads == value) return;
     await _settingsService.setMaxConcurrentDownloads(value);
     notifyListeners();
   }
@@ -444,6 +617,10 @@ class PlatformSettingsProvider extends ChangeNotifier {
 
   Future<void> setEnableNotifications(bool value) async {
     await _settingsService.setEnableNotifications(value);
+    // Propagate to the notification service so system toasts respect the toggle.
+    try {
+      NotificationService().systemNotificationsEnabled = value;
+    } catch (_) {}
     notifyListeners();
   }
 
@@ -478,32 +655,6 @@ class PlatformSettingsProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<bool> updateYtdlp() async {
-    await _ytdlpService.initialize();
-    final success = await _ytdlpService.update();
-    await checkToolsAvailability();
-    return success;
-  }
-
-  Future<bool> updateFfmpeg() async {
-    await _ffmpegService.initialize();
-    final success = await _ffmpegService.update();
-    await checkToolsAvailability();
-    return success;
-  }
-
-  /// Helper to install tools if missing
-  Future<bool> installYtdlp() async {
-    await _ytdlpService.initialize(force: true);
-    await checkToolsAvailability();
-    return _isYtdlpAvailable;
-  }
-
-  Future<bool> installFfmpeg() async {
-    await _ffmpegService.initialize();
-    await checkToolsAvailability();
-    return _isFfmpegAvailable;
-  }
 
   /// Get Android storage info
   Future<Map<String, dynamic>> getAndroidStorageInfo() async {

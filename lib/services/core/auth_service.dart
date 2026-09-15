@@ -1,5 +1,6 @@
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../core/constants/app_constants.dart';
 import 'logging_service.dart';
 
 import 'package:flutter_web_auth_2/flutter_web_auth_2.dart';
@@ -12,8 +13,8 @@ import 'dart:math';
 class AuthService {
   static const String _authTokenKey = 'youtube_auth_token';
   static const String _refreshTokenKey = 'youtube_refresh_token';
-  static const String _tokenExpiryKey = 'youtube_token_expiry';
-  static const String _isLoggedInKey = 'youtube_is_logged_in';
+  static const String _tokenExpiryKey = AppConstants.prefAuthTokenExpiry;
+  static const String _isLoggedInKey = AppConstants.prefAuthIsLoggedIn;
   static const String _userIdKey = 'youtube_user_id';
   static const String _userNameKey = 'youtube_user_name';
 
@@ -278,7 +279,7 @@ class AuthService {
         callbackUrlScheme: _redirectUri.split('://')[0],
       );
 
-      final uri = Uri.parse(result ?? '');
+      final uri = Uri.parse(result);
       if (uri.queryParameters['state'] != state) {
         throw const FormatException('State parameter mismatch');
       }
@@ -299,7 +300,7 @@ class AuthService {
           'grant_type': 'authorization_code',
           'redirect_uri': _redirectUri,
         },
-      );
+      ).timeout(const Duration(seconds: 15));
 
       if (response.statusCode != 200) {
         throw http.ClientException(
@@ -318,7 +319,7 @@ class AuthService {
       final userResponse = await http.get(
         Uri.parse('https://www.googleapis.com/oauth2/v2/userinfo'),
         headers: {'Authorization': 'Bearer $accessToken'},
-      );
+      ).timeout(const Duration(seconds: 15));
 
       if (userResponse.statusCode != 200) {
         throw http.ClientException(
@@ -374,7 +375,7 @@ class AuthService {
           'refresh_token': currentRefreshToken,
           'grant_type': 'refresh_token',
         },
-      );
+      ).timeout(const Duration(seconds: 15));
 
       if (response.statusCode != 200) {
         throw http.ClientException(

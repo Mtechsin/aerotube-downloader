@@ -1,9 +1,13 @@
 import 'dart:io';
 import 'dart:convert';
+import 'dart:math';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import 'package:archive/archive_io.dart';
+import '../../core/constants/app_constants.dart';
+import '../../core/utils/platform_utils.dart';
+import '../../core/utils/version_utils.dart';
 import '../core/logging_service.dart';
 import '../core/download_helper.dart';
 import 'ffmpeg_tool_service.dart';
@@ -36,7 +40,7 @@ class FfmpegService implements FfmpegToolService {
     if (_ffmpegPath == null) {
       try {
         final appDir = await getApplicationSupportDirectory();
-        final executableName = Platform.isWindows ? 'ffmpeg.exe' : 'ffmpeg';
+        final executableName = PlatformUtils.isWindows ? 'ffmpeg.exe' : 'ffmpeg';
         final localPath = p.join(appDir.path, 'ffmpeg', executableName);
         if (await File(localPath).exists()) {
           _ffmpegPath = localPath;
@@ -69,9 +73,9 @@ class FfmpegService implements FfmpegToolService {
         return false;
       }
 
-      // If we have a latest version and it's different from current, download it
-      if (updateInfo.latestVersion != null && 
-          (currentVersion == null || updateInfo.latestVersion != currentVersion)) {
+      // If we have a latest version and it's newer than current, download it
+      if (updateInfo.latestVersion != null &&
+          VersionUtils.isNewerVersion(currentVersion, updateInfo.latestVersion)) {
         
         logger.info('Downloading FFmpeg update from ${updateInfo.latestVersion}', component: 'FfmpegService');
         
@@ -106,7 +110,7 @@ class FfmpegService implements FfmpegToolService {
       final path = _ffmpegPath ?? 'ffmpeg';
       var result = await Process.run(path, ['-version']);
       
-      if (result.exitCode != 0 && Platform.isWindows && !path.toLowerCase().endsWith('.exe')) {
+      if (result.exitCode != 0 && PlatformUtils.isWindows && !path.toLowerCase().endsWith('.exe')) {
         result = await Process.run('$path.exe', ['-version']);
         if (result.exitCode == 0) {
           _isAvailable = true;
@@ -130,7 +134,7 @@ class FfmpegService implements FfmpegToolService {
       }
     } catch (e) {
       // If error is "file not found" and we are on Windows, try with .exe
-      if (Platform.isWindows) {
+      if (PlatformUtils.isWindows) {
         final path = _ffmpegPath ?? 'ffmpeg';
         if (!path.toLowerCase().endsWith('.exe')) {
           try {
@@ -173,11 +177,9 @@ class FfmpegService implements FfmpegToolService {
     try {
       // Check the GitHub releases API for FFmpeg builds
       final response = await http.get(
-        Uri.parse(
-          'https://api.github.com/repos/GyanD/codexffmpeg/releases/latest',
-        ),
+        Uri.parse(AppConstants.ffmpegGyanDReleaseApiUrl),
         headers: {'Accept': 'application/vnd.github.v3+json'},
-      );
+      ).timeout(const Duration(seconds: 15));
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
@@ -187,7 +189,7 @@ class FfmpegService implements FfmpegToolService {
             : null;
         
         // Get download URL for Windows essentials build
-        final downloadUrl = 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip';
+        final downloadUrl = AppConstants.ffmpegGyanDDownloadUrl;
 
         logger.info(
           'FFmpeg update check completed: current=$currentVersion, latest=$latestVersion',
@@ -226,17 +228,19 @@ class FfmpegService implements FfmpegToolService {
   }) async {
     final logger = LoggingService();
     File? tempZipFile;
+    Directory? tempDirRef;
 
     try {
       onStatus('Downloading FFmpeg...');
 
       // BtbN GitHub CDN — fast global CDN, much faster than gyan.dev
-      const downloadUrl =
-          'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip';
+      const downloadUrl = AppConstants.ffmpegBtbnDownloadUrl;
 
-      final tempDir = await getTemporaryDirectory();
+      // Use system temp with random suffix to avoid concurrent-install collisions (B11)
+      tempDirRef = await Directory.systemTemp.createTemp('ffmpeg-update-');
+      final randSuffix = Random().nextInt(0xFFFFFFFF).toRadixString(16);
       tempZipFile = File(
-        p.join(tempDir.path, 'ffmpeg-update-${DateTime.now().millisecondsSinceEpoch}.zip'),
+        p.join(tempDirRef.path, 'ffmpeg-update-${DateTime.now().millisecondsSinceEpoch}-$pid-$randSuffix.zip'),
       );
 
       await downloadInBackground(
@@ -323,6 +327,13 @@ class FfmpegService implements FfmpegToolService {
           await tempZipFile.delete();
         } catch (e) {
           LoggingService().debug('Failed to delete temp FFmpeg zip: $e', component: 'FfmpegService');
+        }
+      }
+      if (tempDirRef != null && await tempDirRef.exists()) {
+        try {
+          await tempDirRef.delete(recursive: true);
+        } catch (e) {
+          LoggingService().debug('Failed to delete temp FFmpeg dir: $e', component: 'FfmpegService');
         }
       }
     }

@@ -36,7 +36,8 @@ class NativeYtdlpAndroid {
   /// Get yt-dlp version from native library
   static Future<String?> getVersion() async {
     try {
-      final result = await _channel.invokeMethod<String>('getVersion');
+      // B24 fix: timeout so Dart future never hangs forever if Activity destroyed before Kotlin replies
+      final result = await _channel.invokeMethod<String>('getVersion').timeout(const Duration(seconds: 15));
       return result;
     } catch (e) {
       return null;
@@ -64,11 +65,12 @@ class NativeYtdlpAndroid {
         component: 'NativeYtdlpAndroid',
       );
 
+      // B24 fix: add 90s timeout matching provider budget
       final result = await _channel.invokeMethod<String>('getVideoInfo', {
         'url': validatedUrl,
         'cookies_path': cookiesPath,
         'user_agent': userAgent,
-      });
+      }).timeout(const Duration(seconds: 90));
 
       if (result == null) {
         throw Exception('Failed to get video info: null response');
@@ -104,11 +106,12 @@ class NativeYtdlpAndroid {
   }) async {
     try {
       final validatedUrl = _validateUrl(url);
+      // B24 fix: 90s timeout matching provider budget
       final result = await _channel.invokeMethod<String>('getPlaylistInfo', {
         'url': validatedUrl,
         'cookies_path': cookiesPath,
         'user_agent': userAgent,
-      });
+      }).timeout(const Duration(seconds: 90));
 
       if (result == null) {
         throw Exception('Failed to get playlist info: null response');
@@ -136,9 +139,16 @@ class NativeYtdlpAndroid {
     String? cookiesPath,
     String? userAgent,
     String? processId,
+    String? archivePath,
+    List<String>? subtitleLanguages,
+    bool embedSubtitles = false,
+    bool sponsorBlock = false,
+    bool embedThumbnail = true,
+    bool embedMetadata = true,
   }) async {
     try {
       final validatedUrl = _validateUrl(url);
+      // Rely on native completion/error events; invokeMethod initiates the background download task
       final result = await _channel.invokeMethod<String>('downloadVideo', {
         'url': validatedUrl,
         'output_path': outputPath,
@@ -146,6 +156,12 @@ class NativeYtdlpAndroid {
         'cookies_path': cookiesPath,
         'user_agent': userAgent,
         'process_id': processId,
+        'archive_path': archivePath,
+        'subtitle_languages': subtitleLanguages,
+        'embed_subtitles': embedSubtitles,
+        'sponsor_block': sponsorBlock,
+        'embed_thumbnail': embedThumbnail,
+        'embed_metadata': embedMetadata,
       });
 
       if (result == null) {
@@ -166,7 +182,7 @@ class NativeYtdlpAndroid {
     try {
       final result = await _channel.invokeMethod<bool>('cancelDownload', {
         'process_id': processId,
-      });
+      }).timeout(const Duration(seconds: 10));
       return result ?? false;
     } catch (e) {
       return false;
@@ -180,7 +196,7 @@ class NativeYtdlpAndroid {
     try {
       final result = await _channel.invokeMethod<String>('updateYoutubeDL', {
         'update_channel': updateChannel,
-      });
+      }).timeout(const Duration(minutes: 5));
 
       if (result == null) {
         throw Exception('Failed to update yt-dlp: null response');

@@ -35,13 +35,18 @@ class DownloadItemAdapter extends TypeAdapter<DownloadItem> {
       videoQuality: fields[15] as String?,
       thumbnailPath: fields[16] as String?,
       savePath: fields[17] as String?,
+      audioQuality: fields[18] as String?,
+      subtitleLanguages: (fields[19] as List?)?.cast<String>(),
+      embedSubtitles: fields[20] as bool? ?? false,
+      sponsorBlock: fields[21] as bool? ?? false,
+      useDownloadArchive: fields[22] as bool? ?? false,
     );
   }
 
   @override
   void write(BinaryWriter writer, DownloadItem obj) {
     writer
-      ..writeByte(18)
+      ..writeByte(23)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -77,7 +82,17 @@ class DownloadItemAdapter extends TypeAdapter<DownloadItem> {
       ..writeByte(16)
       ..write(obj.thumbnailPath)
       ..writeByte(17)
-      ..write(obj.savePath);
+      ..write(obj.savePath)
+      ..writeByte(18)
+      ..write(obj.audioQuality)
+      ..writeByte(19)
+      ..write(obj.subtitleLanguages)
+      ..writeByte(20)
+      ..write(obj.embedSubtitles)
+      ..writeByte(21)
+      ..write(obj.sponsorBlock)
+      ..writeByte(22)
+      ..write(obj.useDownloadArchive);
   }
 
   @override

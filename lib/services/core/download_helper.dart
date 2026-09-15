@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
+import '../../core/utils/platform_utils.dart';
 import 'logging_service.dart';
 
 /// Path to Windows built-in curl.exe
@@ -66,7 +68,7 @@ Future<String> downloadInBackground({
 }) async {
   await File(destPath).parent.create(recursive: true);
 
-  if (!Platform.isWindows || !_curlExists()) {
+  if (!PlatformUtils.isWindows || !_curlExists()) {
     return _singleDownload(url: url, destPath: destPath,
       onProgress: onProgress, isCancelled: isCancelled);
   }
@@ -95,7 +97,9 @@ Future<String> _multiDownload({
   bool Function()? isCancelled,
 }) async {
   final chunkSize = fileSize ~/ _numConnections;
-  final partsDir = Directory('${destPath}_parts');
+  // Unique parts dir per download to avoid collisions when same dest is queued concurrently (B15)
+  final rand = Random().nextInt(0xFFFFFF).toString().padLeft(6, '0');
+  final partsDir = Directory('${destPath}_parts_${DateTime.now().microsecondsSinceEpoch}_$rand');
   await partsDir.create(recursive: true);
 
   final chunkFiles = <File>[];
@@ -115,6 +119,7 @@ Future<String> _multiDownload({
         '--retry', '3',
         '--retry-delay', '1',
         '--connect-timeout', '30',
+        '--max-time', '600',
         '-r', '$start-$end',
         '-o', chunkFile.path,
         url,
@@ -158,8 +163,8 @@ Future<String> _multiDownload({
       }
     }
 
-    // Merge chunks
-    onProgress?.call(0.95);
+    // Merge chunks - B6 fix: keep progress monotonic (>=0.99)
+    onProgress?.call(0.99);
     final mergedFile = File(destPath);
     final sink = mergedFile.openWrite();
     for (final chunk in chunkFiles) {
@@ -178,11 +183,25 @@ Future<String> _multiDownload({
 
   } catch (e) {
     for (final p in procs) { try { p.kill(); } catch (e) { LoggingService().debug('Failed to kill process during cleanup: $e', component: 'DownloadHelper'); } }
+    // B3: await curl exit before deleting parts dir (Windows file lock)
+    try { await Future.wait(procs.map((p) => p.exitCode)).timeout(const Duration(seconds: 5)); } catch (_) {}
     try { await File(destPath).delete(); } catch (e) { LoggingService().debug('Failed to delete incomplete file: $e', component: 'DownloadHelper'); }
     rethrow;
   } finally {
     poller?.cancel();
-    try { await partsDir.delete(recursive: true); } catch (e) { LoggingService().debug('Failed to delete temp parts directory: $e', component: 'DownloadHelper'); }
+    // Ensure all curl processes are terminated before attempting dir delete
+    for (final p in procs) { try { p.kill(); } catch (_) {} }
+    try { await Future.wait(procs.map((p) => p.exitCode)).timeout(const Duration(seconds: 5)); } catch (_) {}
+    // Retry with delay for Windows file-lock race (B3)
+    for (int i = 0; i < 3; i++) {
+      try {
+        if (await partsDir.exists()) await partsDir.delete(recursive: true);
+        break;
+      } catch (e) {
+        LoggingService().debug('Failed to delete temp parts directory (attempt ${i+1}): $e', component: 'DownloadHelper');
+        if (i < 2) await Future.delayed(const Duration(milliseconds: 400));
+      }
+    }
   }
 }
 
@@ -196,13 +215,14 @@ Future<String> _singleDownload({
 }) async {
   await File(destPath).parent.create(recursive: true);
 
-  final useCurl = Platform.isWindows && _curlExists();
+  final useCurl = PlatformUtils.isWindows && _curlExists();
 
   if (useCurl) {
     final proc = await Process.start(_curlExe, [
       '-L', '--fail',
       '--retry', '3',
       '--connect-timeout', '30',
+      '--max-time', '600',
       '-o', destPath,
       url,
     ]);
@@ -244,30 +264,46 @@ Future<String> _singleDownload({
     return destPath;
   }
 
-  // Pure Dart fallback (non-Windows or no curl)
-  final req = await _sharedHttpClient.getUrl(Uri.parse(url));
-    final resp = await req.close();
+  // Pure Dart fallback (non-Windows or no curl) - with timeout/watchdog (B4) and safe sink handling (B12)
+  IOSink? sink;
+  bool success = false;
+  try {
+    final req = await _sharedHttpClient.getUrl(Uri.parse(url)).timeout(const Duration(seconds: 30));
+    final resp = await req.close().timeout(const Duration(seconds: 30));
     if (resp.statusCode != 200) {
       throw Exception('HTTP ${resp.statusCode}');
     }
 
     final total = resp.contentLength;
     int downloaded = 0;
-    final sink = File(destPath).openWrite();
+    sink = File(destPath).openWrite();
 
-    await for (final chunk in resp) {
+    // Apply per-chunk timeout to avoid hanging forever on stalled transfer (B4)
+    await for (final chunk in resp.timeout(const Duration(seconds: 60))) {
       sink.add(chunk);
       downloaded += chunk.length;
       if (total > 0) onProgress?.call((downloaded / total).clamp(0.0, 1.0));
       if (isCancelled?.call() == true) {
-        await sink.close();
-        try { await File(destPath).delete(); } catch (e) { LoggingService().debug('Failed to delete file on cancel: $e', component: 'DownloadHelper'); }
         throw Exception('Cancelled');
       }
     }
 
     await sink.flush();
     await sink.close();
+    sink = null;
+    success = true;
     onProgress?.call(1.0);
     return destPath;
+  } catch (e) {
+    // Ensure truncated file is not left behind (B12)
+    if (e.toString().contains('Cancelled')) rethrow;
+    rethrow;
+  } finally {
+    if (sink != null) {
+      try { await sink.close(); } catch (_) {}
+    }
+    if (!success) {
+      try { await File(destPath).delete(); } catch (e) { LoggingService().debug('Failed to delete truncated file: $e', component: 'DownloadHelper'); }
+    }
   }
+}

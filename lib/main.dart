@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 import 'app.dart';
 import 'services/ytdlp/ytdlp_service_windows.dart';
@@ -28,6 +30,8 @@ import 'providers/navigation_provider.dart';
 import 'core/utils/platform_utils.dart';
 
 import 'package:hive_flutter/hive_flutter.dart';
+import 'models/download_item.dart';
+import 'models/video_info.dart';
 
 void main() {
   final loggingService = LoggingService();
@@ -45,10 +49,6 @@ void main() {
           error: details.exception,
           stackTrace: details.stack,
         );
-        loggingService.showUserLog(
-          'An unexpected error occurred',
-          isError: true,
-        );
         FlutterError.presentError(details);
       };
 
@@ -62,7 +62,23 @@ void main() {
         settingsService.init(),
       ]);
 
+      // Register Hive adapters BEFORE any box is opened (fix typeId 33 crash).
+      // Guarded so hot-restart / re-init does not throw duplicate registration.
+      if (!Hive.isAdapterRegistered(0)) {
+        Hive.registerAdapter(DownloadStatusAdapter());
+      }
+      if (!Hive.isAdapterRegistered(1)) {
+        Hive.registerAdapter(DownloadItemAdapter());
+      }
+      if (!Hive.isAdapterRegistered(3)) {
+        Hive.registerAdapter(AudioQualityAdapter());
+      }
+
       loggingService.info('Application starting...', component: 'Main');
+      loggingService.info(
+        'Session ${loggingService.sessionId}',
+        component: 'Main',
+      );
 
       // Limit image cache to reduce memory usage
       PaintingBinding.instance.imageCache.maximumSize = 200;
@@ -181,7 +197,9 @@ void main() {
             ChangeNotifierProvider(
               create: (_) => PlaylistProvider(ytdlpService: ytdlpService),
             ),
-            ChangeNotifierProvider(create: (_) => UpdateProvider()),
+            ChangeNotifierProvider(
+              create: (_) => UpdateProvider(settingsService: settingsService),
+            ),
             ChangeNotifierProvider(
               create: (context) => ToolUpdateProvider(
                 ytdlpService: ytdlpService,
@@ -199,6 +217,30 @@ void main() {
           child: const App(),
         ),
       );
+
+      // Environment dump for bug reports (after services exist; tool versions
+      // may still be "not ready" — that is expected and useful).
+      String appVersion = 'unknown';
+      String buildNumber = '0';
+      try {
+        final info = await PackageInfo.fromPlatform();
+        appVersion = info.version;
+        buildNumber = info.buildNumber;
+      } catch (_) {}
+      unawaited(
+        loggingService.logEnvironment(
+          appVersion: appVersion,
+          buildNumber: buildNumber,
+          platform: PlatformUtils.platformName,
+          ytdlpVersion: null,
+          ffmpegVersion: null,
+          locale: Platform.localeName,
+          extra: {
+            'ytdlp path': ytdlpService.ytdlpPath,
+            'cookies on': '${settingsService.settings.enableCookies}',
+          },
+        ),
+      );
     },
     (error, stackTrace) {
       // Global error handler for all uncaught async errors
@@ -207,7 +249,6 @@ void main() {
         error: error,
         stackTrace: stackTrace,
       );
-      loggingService.showUserLog('An unexpected error occurred', isError: true);
     },
   );
 }

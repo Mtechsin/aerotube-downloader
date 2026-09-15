@@ -1,37 +1,71 @@
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/material.dart';
+import '../../core/constants/app_constants.dart';
 import '../../models/app_settings.dart';
 
 class SettingsService {
-  static const String keyYtdlpPath = 'ytdlp_path';
-  static const String keyFfmpegPath = 'ffmpeg_path';
-  static const String keyIsYtdlpManaged = 'is_ytdlp_managed';
-  static const String keyOutputPath = 'output_path';
-  static const String keyMaxConcurrentDownloads = 'max_concurrent_downloads';
-  static const String keyDefaultQuality = 'default_quality';
-  static const String keyEmbedThumbnail = 'embed_thumbnail';
-  static const String keyEmbedMetadata = 'embed_metadata';
-  static const String keyAutoMergeStreams = 'auto_merge_streams';
-  static const String keyDefaultSubtitleLanguage = 'default_subtitle_language';
-  static const String keyThemeMode = 'theme_mode';
-  static const String keyAccentColor = 'accent_color';
-  static const String keyEnableAnimations = 'enable_animations';
-  static const String keyEnableCookies = 'enable_cookies';
-  static const String keyCookiePath = 'cookie_path';
-  static const String keyCookieBrowser = 'cookie_browser';
-  static const String keyYoutubeProfileImageUrl = 'youtube_profile_image_url';
-  static const String keyEnableNotifications = 'enable_notifications';
-  static const String keyAutoCheckUpdates = 'auto_check_updates';
-  static const String keySponsorBlockEnabled = 'sponsor_block_enabled';
-  static const String keyUseDownloadArchive = 'use_download_archive';
-  static const String keyEnableLogging = 'enable_logging';
-  static const String keyOnboardingComplete = 'onboarding_complete';
-  static const String keyYtdlpAutoUpdated = 'ytdlp_auto_updated';
+  static const String keyYtdlpPath = AppConstants.prefYtdlpPath;
+  static const String keyFfmpegPath = AppConstants.prefFfmpegPath;
+  static const String keyIsYtdlpManaged = AppConstants.prefIsYtdlpManaged;
+  static const String keyOutputPath = AppConstants.prefOutputPath;
+  static const String keyMaxConcurrentDownloads =
+      AppConstants.prefMaxConcurrentDownloads;
+  static const String keyDefaultQuality = AppConstants.prefDefaultQuality;
+  static const String keyEmbedThumbnail = AppConstants.prefEmbedThumbnail;
+  static const String keyEmbedMetadata = AppConstants.prefEmbedMetadata;
+  static const String keyAutoMergeStreams = AppConstants.prefAutoMergeStreams;
+  static const String keyDefaultSubtitleLanguage =
+      AppConstants.prefDefaultSubtitleLanguage;
+  static const String keyThemeMode = AppConstants.prefThemeMode;
+  static const String keyAccentColor = AppConstants.prefAccentColor;
+  static const String keyEnableAnimations = AppConstants.prefEnableAnimations;
+  static const String keyEnableCookies = AppConstants.prefEnableCookies;
+  static const String keyCookiePath = AppConstants.prefCookiePath;
+  static const String keyCookieBrowser = AppConstants.prefCookieBrowser;
+  static const String keyYoutubeProfileImageUrl =
+      AppConstants.prefYoutubeProfileImageUrl;
+  static const String keyEnableNotifications =
+      AppConstants.prefEnableNotifications;
+  static const String keyAutoCheckUpdates = AppConstants.prefAutoCheckUpdates;
+  static const String keySponsorBlockEnabled =
+      AppConstants.prefSponsorBlockEnabled;
+  static const String keyUseDownloadArchive =
+      AppConstants.prefUseDownloadArchive;
+  static const String keyEnableLogging = AppConstants.prefEnableLogging;
+  static const String keyOnboardingComplete =
+      AppConstants.prefOnboardingComplete;
+  static const String keyYtdlpAutoUpdated = AppConstants.prefYtdlpAutoUpdated;
 
   late SharedPreferences _prefs;
   AppSettings _settings = AppSettings();
 
   AppSettings get settings => _settings;
+
+  // Individual getters for direct property access
+  String? get ytdlpPath => _settings.ytdlpPath;
+  String? get ffmpegPath => _settings.ffmpegPath;
+  bool get isYtdlpManaged => _settings.isYtdlpManaged;
+  String? get outputPath => _settings.outputPath;
+  int get maxConcurrentDownloads => _settings.maxConcurrentDownloads;
+  String get defaultQuality => _settings.defaultQuality;
+  bool get embedThumbnail => _settings.embedThumbnail;
+  bool get embedMetadata => _settings.embedMetadata;
+  bool get autoMergeStreams => _settings.autoMergeStreams;
+  String get defaultSubtitleLanguage => _settings.defaultSubtitleLanguage;
+  ThemeMode get themeMode => _settings.themeMode;
+  int? get accentColorValue => _settings.accentColorValue;
+  bool get enableAnimations => _settings.enableAnimations;
+  bool get enableCookies => _settings.enableCookies;
+  String? get cookiePath => _settings.cookiePath;
+  String? get cookieBrowser => _settings.cookieBrowser;
+  String? get youtubeProfileImageUrl => _settings.youtubeProfileImageUrl;
+  bool get enableNotifications => _settings.enableNotifications;
+  bool get autoCheckUpdates => _settings.autoCheckUpdates;
+  bool get sponsorBlockEnabled => _settings.sponsorBlockEnabled;
+  bool get useDownloadArchive => _settings.useDownloadArchive;
+  bool get enableLogging => _settings.enableLogging;
+  bool get onboardingComplete => _settings.onboardingComplete;
+  bool get ytdlpAutoUpdated => _settings.ytdlpAutoUpdated;
 
   Future<void> init() async {
     _prefs = await SharedPreferences.getInstance();
@@ -92,7 +126,12 @@ class SettingsService {
     return null;
   }
 
-  Future<void> _saveSettings() async {
+  /// Bulk save settings to SharedPreferences and update in-memory state.
+  Future<void> saveSettings([AppSettings? settingsToSave]) async {
+    if (settingsToSave != null) {
+      _settings = settingsToSave;
+    }
+
     if (_settings.ytdlpPath != null && _settings.ytdlpPath!.isNotEmpty) {
       await _prefs.setString(keyYtdlpPath, _settings.ytdlpPath!);
     } else {
@@ -106,7 +145,12 @@ class SettingsService {
     }
     await _prefs.setBool(keyIsYtdlpManaged, _settings.isYtdlpManaged);
 
-    await _prefs.setString(keyOutputPath, _settings.outputPath ?? '');
+    if (_settings.outputPath != null && _settings.outputPath!.isNotEmpty) {
+      await _prefs.setString(keyOutputPath, _settings.outputPath!);
+    } else {
+      await _prefs.remove(keyOutputPath);
+    }
+
     await _prefs.setInt(
       keyMaxConcurrentDownloads,
       _settings.maxConcurrentDownloads,
@@ -115,6 +159,10 @@ class SettingsService {
     await _prefs.setBool(keyEmbedThumbnail, _settings.embedThumbnail);
     await _prefs.setBool(keyEmbedMetadata, _settings.embedMetadata);
     await _prefs.setBool(keyAutoMergeStreams, _settings.autoMergeStreams);
+    await _prefs.setString(
+      keyDefaultSubtitleLanguage,
+      _settings.defaultSubtitleLanguage,
+    );
 
     await _prefs.setInt(keyThemeMode, _settings.themeMode.index);
     if (_settings.accentColorValue != null) {
@@ -125,8 +173,16 @@ class SettingsService {
     await _prefs.setBool(keyEnableAnimations, _settings.enableAnimations);
 
     await _prefs.setBool(keyEnableCookies, _settings.enableCookies);
-    await _prefs.setString(keyCookiePath, _settings.cookiePath ?? '');
-    await _prefs.setString(keyCookieBrowser, _settings.cookieBrowser ?? '');
+    if (_settings.cookiePath != null && _settings.cookiePath!.isNotEmpty) {
+      await _prefs.setString(keyCookiePath, _settings.cookiePath!);
+    } else {
+      await _prefs.remove(keyCookiePath);
+    }
+    if (_settings.cookieBrowser != null && _settings.cookieBrowser!.isNotEmpty) {
+      await _prefs.setString(keyCookieBrowser, _settings.cookieBrowser!);
+    } else {
+      await _prefs.remove(keyCookieBrowser);
+    }
     if (_settings.youtubeProfileImageUrl != null &&
         _settings.youtubeProfileImageUrl!.isNotEmpty) {
       await _prefs.setString(
@@ -142,12 +198,14 @@ class SettingsService {
     await _prefs.setBool(keySponsorBlockEnabled, _settings.sponsorBlockEnabled);
     await _prefs.setBool(keyUseDownloadArchive, _settings.useDownloadArchive);
     await _prefs.setBool(keyEnableLogging, _settings.enableLogging);
+    await _prefs.setBool(keyOnboardingComplete, _settings.onboardingComplete);
+    await _prefs.setBool(keyYtdlpAutoUpdated, _settings.ytdlpAutoUpdated);
   }
 
   // Setters that update state and persist
   Future<void> setYtdlpPath(String? path) async {
     _settings = _settings.copyWith(ytdlpPath: path);
-    if (path == null) {
+    if (path == null || path.isEmpty) {
       await _prefs.remove(keyYtdlpPath);
     } else {
       await _prefs.setString(keyYtdlpPath, path);
@@ -156,7 +214,7 @@ class SettingsService {
 
   Future<void> setFfmpegPath(String? path) async {
     _settings = _settings.copyWith(ffmpegPath: path);
-    if (path == null) {
+    if (path == null || path.isEmpty) {
       await _prefs.remove(keyFfmpegPath);
     } else {
       await _prefs.setString(keyFfmpegPath, path);
@@ -170,7 +228,7 @@ class SettingsService {
 
   Future<void> setOutputPath(String? path) async {
     _settings = _settings.copyWith(outputPath: path);
-    if (path == null) {
+    if (path == null || path.isEmpty) {
       await _prefs.remove(keyOutputPath);
     } else {
       await _prefs.setString(keyOutputPath, path);
@@ -233,7 +291,7 @@ class SettingsService {
 
   Future<void> setCookiePath(String? path) async {
     _settings = _settings.copyWith(cookiePath: path);
-    if (path == null) {
+    if (path == null || path.isEmpty) {
       await _prefs.remove(keyCookiePath);
     } else {
       await _prefs.setString(keyCookiePath, path);
@@ -242,7 +300,7 @@ class SettingsService {
 
   Future<void> setCookieBrowser(String? browser) async {
     _settings = _settings.copyWith(cookieBrowser: browser);
-    if (browser == null) {
+    if (browser == null || browser.isEmpty) {
       await _prefs.remove(keyCookieBrowser);
     } else {
       await _prefs.setString(keyCookieBrowser, browser);

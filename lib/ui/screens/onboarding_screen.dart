@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../../services/android_storage_service.dart';
+import 'package:permission_handler/permission_handler.dart';
+import '../../core/theme/app_theme.dart';
+import '../../core/utils/platform_utils.dart';
+import '../../services/core/android_storage_service.dart';
 
 class OnboardingScreen extends StatefulWidget {
   final VoidCallback onComplete;
@@ -16,7 +19,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   int _currentPage = 0;
   bool _requestingPermission = false;
 
-  static const _violet = Color(0xFF8B5CF6);
+  static const _violet = AppTheme.primaryPurple;
 
   final _pages = const [
     _OnboardingPage(
@@ -51,6 +54,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   void _nextPage() {
     if (_currentPage < _pages.length - 1) {
+      // Request storage when leaving the storage page so the user sees the
+      // system dialog / All-files-access settings while still onboarding.
+      if (_pages[_currentPage].isPermissionPage) {
+        _requestPermissionsThenAdvance();
+        return;
+      }
       _pageController.nextPage(
         duration: const Duration(milliseconds: 300),
         curve: Curves.easeOutCubic,
@@ -60,13 +69,39 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     }
   }
 
+  Future<void> _requestPermissionsThenAdvance() async {
+    if (_requestingPermission) return;
+    setState(() => _requestingPermission = true);
+    try {
+      final storageService = AndroidStorageService();
+      await storageService.requestStoragePermission();
+    } catch (_) {
+      // Denied is fine — app falls back to app-specific storage + MediaStore.
+    }
+    if (!mounted) return;
+    setState(() => _requestingPermission = false);
+    _pageController.nextPage(
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
   Future<void> _finish() async {
     if (_requestingPermission) return;
     setState(() => _requestingPermission = true);
 
     try {
       final storageService = AndroidStorageService();
-      await storageService.requestStoragePermission();
+      final hasStorage = await storageService.hasStoragePermission();
+      if (!hasStorage) {
+        await storageService.requestStoragePermission();
+      }
+      // Notification permission (Android 13+) shows a real system dialog.
+      if (PlatformUtils.isAndroid) {
+        try {
+          await Permission.notification.request();
+        } catch (_) {}
+      }
     } catch (_) {
       // Permission denied is okay - app still works with limited storage
     }

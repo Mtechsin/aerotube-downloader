@@ -4,11 +4,13 @@ import 'package:flutter_animate/flutter_animate.dart';
 import '../../providers/playlist_provider.dart';
 import '../../providers/download_provider.dart';
 import '../../providers/platform_settings_provider.dart';
+import '../../providers/navigation_provider.dart';
 import '../widgets/url_input_card.dart';
 import '../widgets/playlist_video_card.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/gradient_background.dart';
 import '../../models/video_info.dart';
+import '../../core/utils/error_helper.dart';
 
 class PlaylistScreen extends StatefulWidget {
   const PlaylistScreen({super.key});
@@ -50,19 +52,29 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
     final downloadProvider = context.read<DownloadProvider>();
     final settingsProvider = context.read<PlatformSettingsProvider>();
 
+    final selectedCount = provider.selectedCount;
     final outputPath =
         settingsProvider.settings.outputPath ??
         await settingsProvider.getDefaultOutputPath();
 
-    provider.downloadSelected(downloadProvider, outputPath);
+    await provider.downloadSelected(downloadProvider, outputPath);
 
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          'Added ${provider.selectedCount} videos to download queue',
+          'Queued $selectedCount playlist video${selectedCount == 1 ? '' : 's'}.',
         ),
         behavior: SnackBarBehavior.floating,
+        action: SnackBarAction(
+          label: 'View',
+          onPressed: () {
+            // Pop any pushed modal/route so the tab switch is visible immediately (W5)
+            final nav = Navigator.of(context, rootNavigator: true);
+            if (nav.canPop()) nav.popUntil((route) => route.isFirst);
+            context.read<NavigationProvider>().switchToLibrary();
+          },
+        ),
       ),
     );
   }
@@ -72,10 +84,6 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
     final theme = Theme.of(context);
     final provider = context.watch<PlaylistProvider>();
     final playlist = provider.playlist;
-
-    // Auto-fill URL if fetching (e.g. from Home triggers)
-    // Actually, fetching doesn't update the controller.
-    // If we want to sync, we'd need to know the fetching URL.
 
     return Scaffold(
       extendBodyBehindAppBar: true,
@@ -98,6 +106,7 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                   child: UrlInputCard(
                     controller: _urlController,
                     onFetch: _handleFetch,
+                    onCancel: provider.isLoading ? () => provider.cancelFetch() : null,
                     isLoading: provider.isLoading,
                     statusMessage: provider.loadingStatus,
                     errorMessage: provider.error,
@@ -105,9 +114,13 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
                 ),
 
                 Expanded(
-                  child: playlist == null
-                      ? _buildEmptyState(theme)
-                      : _buildPlaylistContent(context, provider),
+                  child: provider.isLoading
+                      ? _buildLoadingState(theme, provider)
+                      : provider.error != null
+                          ? _buildErrorState(theme, provider)
+                          : playlist == null
+                              ? _buildEmptyState(theme)
+                              : _buildPlaylistContent(context, provider),
                 ),
               ],
             ),
@@ -135,28 +148,111 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
-            Icons.playlist_play_rounded,
-            size: 64,
-            color: theme.colorScheme.secondary.withValues(alpha: 0.5),
+          Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              Icons.playlist_play_rounded,
+              size: 56,
+              color: theme.colorScheme.primary.withValues(alpha: 0.5),
+            ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 20),
           Text(
             'No Playlist Loaded',
             style: theme.textTheme.titleMedium?.copyWith(
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+              fontWeight: FontWeight.bold,
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.8),
             ),
           ),
           const SizedBox(height: 8),
           Text(
-            'Paste a YouTube playlist URL above to get started',
+            'Paste a playlist URL above to get started',
             style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+              color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
             ),
           ),
         ],
-      ).animate().fadeIn(duration: 500.ms),
+      ).animate().fadeIn(duration: 400.ms),
     );
+  }
+
+  Widget _buildLoadingState(ThemeData theme, PlaylistProvider provider) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const CircularProgressIndicator(),
+          const SizedBox(height: 16),
+          Text(
+            provider.loadingStatus != null
+                ? provider.loadingStatus!
+                : 'Loading playlist info...',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+            ),
+          ),
+          const SizedBox(height: 20),
+          OutlinedButton.icon(
+            onPressed: () => provider.cancelFetch(),
+            icon: const Icon(Icons.close_rounded, size: 18),
+            label: const Text('Cancel'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: theme.colorScheme.error,
+              side: BorderSide(color: theme.colorScheme.error.withValues(alpha: 0.5)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            ),
+          ),
+        ],
+      ).animate().fadeIn(duration: 300.ms),
+    );
+  }
+
+  Widget _buildErrorState(ThemeData theme, PlaylistProvider provider) {
+    final errorHelper = provider.error != null
+        ? ErrorHelper.parse(provider.error!)
+        : null;
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.error_outline_rounded,
+              size: 48,
+              color: theme.colorScheme.error,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              errorHelper?.friendlyMessage ?? 'Error Loading Playlist',
+              style: theme.textTheme.titleMedium?.copyWith(
+                color: theme.colorScheme.error,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              errorHelper?.suggestion ?? provider.error ?? 'Unknown error',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 20),
+            FilledButton.icon(
+              onPressed: _handleFetch,
+              icon: const Icon(Icons.refresh_rounded, size: 18),
+              label: const Text('Retry'),
+            ),
+          ],
+        ),
+      ),
+    ).animate().fadeIn(duration: 300.ms);
   }
 
   Widget _buildPlaylistContent(
@@ -215,16 +311,16 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
               final video = playlist.videos[index];
               final isSelected = provider.selectedIds.contains(video.id);
 
-              return PlaylistVideoCard(
-                    video: video,
-                    isSelected: isSelected,
-                    onToggleSelection: () => context
-                        .read<PlaylistProvider>()
-                        .toggleSelection(video.id),
-                  )
-                  .animate()
-                  .fadeIn(delay: (index * 10).ms)
-                  .slideX(begin: 0.1, end: 0);
+              return RepaintBoundary(
+                child: PlaylistVideoCard(
+                  key: ValueKey(video.id),
+                  video: video,
+                  isSelected: isSelected,
+                  onToggleSelection: () => context
+                      .read<PlaylistProvider>()
+                      .toggleSelection(video.id),
+                ),
+              );
             }, childCount: playlist.videos.length),
           ),
         ),
@@ -258,7 +354,9 @@ class _PlaylistScreenState extends State<PlaylistScreen> {
             onPressed: provider.selectedCount > 0 ? _downloadSelected : null,
             icon: const Icon(Icons.download_rounded),
             label: Text(
-              'Download ${provider.selectedCount > 0 ? "(${provider.selectedCount})" : ""}',
+              provider.selectedCount > 0
+                  ? 'Queue ${provider.selectedCount}'
+                  : 'Select videos to download',
             ),
             style: FilledButton.styleFrom(
               padding: const EdgeInsets.symmetric(vertical: 16),

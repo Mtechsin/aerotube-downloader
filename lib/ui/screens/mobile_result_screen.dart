@@ -28,6 +28,7 @@ class _MobileResultScreenState extends State<MobileResultScreen> {
         .map((s) => s.languageCode)
         .toList();
 
+    final estimatedSize = videoProvider.totalEstimatedDownloadSize;
     await downloadProvider.addDownload(
       url: videoProvider.currentUrl,
       title: videoProvider.videoInfo!.title,
@@ -36,12 +37,14 @@ class _MobileResultScreenState extends State<MobileResultScreen> {
           ? DownloadMode.audioOnly
           : DownloadMode.videoWithAudio,
       formatId: videoProvider.selectedVideoFormatId,
+      estimatedFileSize: estimatedSize > 0 ? estimatedSize : null,
       options: {
         'audioFormatId': videoProvider.selectedAudioFormatId,
         'targetHeight': videoProvider.selectedHeight,
         'audioQuality': videoProvider.selectedAudioQuality.ytdlpValue,
         'embedSubtitles': videoProvider.embedSubtitles,
         'subtitleLanguages': selectedSubtitleLanguages,
+        'estimatedFileSize': estimatedSize > 0 ? estimatedSize : null,
       },
     );
 
@@ -172,6 +175,7 @@ class _MobileResultScreenState extends State<MobileResultScreen> {
         Expanded(
           child: ListView.separated(
             itemCount: playlist.videos.length,
+            // ignore: deprecated_member_use
             cacheExtent: 200.0,
             addRepaintBoundaries: true,
             separatorBuilder: (_, __) => Divider(
@@ -201,10 +205,10 @@ class _MobileResultScreenState extends State<MobileResultScreen> {
             style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
           ),
           style: FilledButton.styleFrom(
-            backgroundColor: const Color(0xFF8B5CF6),
+            backgroundColor: theme.colorScheme.primary,
             foregroundColor: Colors.white,
             disabledBackgroundColor:
-                const Color(0xFF8B5CF6).withValues(alpha: 0.3),
+                theme.colorScheme.primary.withValues(alpha: 0.3),
             disabledForegroundColor: Colors.white.withValues(alpha: 0.5),
             padding: const EdgeInsets.symmetric(vertical: 14),
             shape: RoundedRectangleBorder(
@@ -235,12 +239,12 @@ class _MobileResultScreenState extends State<MobileResultScreen> {
               height: 22,
               decoration: BoxDecoration(
                 color: video.isSelected
-                    ? const Color(0xFF8B5CF6)
+                    ? theme.colorScheme.primary
                     : Colors.transparent,
                 borderRadius: BorderRadius.circular(6),
                 border: Border.all(
                   color: video.isSelected
-                      ? const Color(0xFF8B5CF6)
+                      ? theme.colorScheme.primary
                       : theme.colorScheme.onSurface.withValues(alpha: 0.25),
                   width: 2,
                 ),
@@ -327,32 +331,29 @@ class _MobileResultScreenState extends State<MobileResultScreen> {
       ),
     );
 
-    for (final video in selectedVideos) {
-      try {
-        await downloadProvider.addDownload(
-          url: video.url,
-          title: video.title,
-          thumbnailUrl: video.thumbnailUrl,
-          mode: DownloadMode.videoWithAudio,
-          formatId: null,
-          options: {
-            'audioFormatId': null,
-            'targetHeight': null,
-            'audioQuality': '0',
-            'embedSubtitles': false,
-            'subtitleLanguages': <String>[],
-          },
-        );
-      } catch (e) {
-        debugPrint('Failed to queue playlist video: $e');
-      }
-    }
+    // PF10 fix (mobile parity): single batched enqueue instead of one
+    // addDownload call per video (N Hive writes + N UI rebuilds).
+    final added = await downloadProvider.startDownloadsBatch(
+      items: selectedVideos
+          .map(
+            (v) => (url: v.url, title: v.title, thumbnailUrl: v.thumbnailUrl),
+          )
+          .toList(),
+      mode: DownloadMode.videoWithAudio,
+      options: {
+        'audioFormatId': null,
+        'targetHeight': null,
+        'audioQuality': '0',
+        'embedSubtitles': false,
+        'subtitleLanguages': <String>[],
+      },
+    );
 
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          '${selectedVideos.length} download${selectedVideos.length == 1 ? '' : 's'} started',
+          '$added of ${selectedVideos.length} download${selectedVideos.length == 1 ? '' : 's'} queued',
         ),
         behavior: SnackBarBehavior.floating,
         duration: const Duration(seconds: 2),

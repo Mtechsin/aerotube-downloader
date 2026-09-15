@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../models/video_info.dart';
+import '../../models/download_item.dart';
+import '../../core/theme/app_motion.dart';
 import '../../providers/video_provider.dart';
+import '../../providers/mobile_download_provider.dart';
 import '../../providers/platform_settings_provider.dart';
-
 
 class MobileVideoConfigurationWidget extends StatelessWidget {
   final Future<void> Function() onDownload;
@@ -23,7 +25,7 @@ class MobileVideoConfigurationWidget extends StatelessWidget {
     final isDark = theme.brightness == Brightness.dark;
 
     if (videoProvider.isLoading) {
-      return _buildLoadingState(theme, isDark);
+      return _buildLoadingState(context, theme, isDark);
     }
 
     if (videoProvider.hasError) {
@@ -37,7 +39,11 @@ class MobileVideoConfigurationWidget extends StatelessWidget {
     return _buildVideoConfiguration(context, theme, isDark, videoProvider);
   }
 
-  Widget _buildLoadingState(ThemeData theme, bool isDark) {
+  Widget _buildLoadingState(
+    BuildContext context,
+    ThemeData theme,
+    bool isDark,
+  ) {
     return Container(
       decoration: BoxDecoration(
         color: isDark ? const Color(0xFF141417) : Colors.white,
@@ -70,25 +76,53 @@ class MobileVideoConfigurationWidget extends StatelessWidget {
                       width: 34,
                       height: 34,
                       decoration: BoxDecoration(
-                        color: const Color(0xFF8B5CF6).withValues(alpha: 0.12),
+                        color: theme.colorScheme.primary.withValues(
+                          alpha: 0.12,
+                        ),
                         shape: BoxShape.circle,
                       ),
-                      child: const Padding(
-                        padding: EdgeInsets.all(8),
+                      child: Padding(
+                        padding: const EdgeInsets.all(8),
                         child: CircularProgressIndicator(
                           strokeWidth: 2.4,
-                          color: Color(0xFF8B5CF6),
+                          color: theme.colorScheme.primary,
                         ),
                       ),
                     ),
                     const SizedBox(width: 10),
-                    Text(
-                      'Preparing format options',
-                      style: TextStyle(
-                        color: theme.colorScheme.onSurface,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
+                    Expanded(
+                      child: Text(
+                        'Preparing format options',
+                        style: TextStyle(
+                          color: theme.colorScheme.onSurface,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
+                    ),
+                    OutlinedButton(
+                      onPressed: () =>
+                          context.read<VideoProvider>().cancelFetch(),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 6,
+                        ),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        side: BorderSide(
+                          color: theme.colorScheme.error.withValues(alpha: 0.5),
+                        ),
+                        foregroundColor: theme.colorScheme.error,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        textStyle: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      child: const Text('Cancel'),
                     ),
                   ],
                 ),
@@ -103,10 +137,12 @@ class MobileVideoConfigurationWidget extends StatelessWidget {
                 const SizedBox(height: 14),
                 ClipRRect(
                   borderRadius: BorderRadius.circular(999),
-                  child: const LinearProgressIndicator(
+                  child: LinearProgressIndicator(
                     minHeight: 5,
-                    color: Color(0xFF8B5CF6),
-                    backgroundColor: Color(0x33222222),
+                    color: theme.colorScheme.primary,
+                    backgroundColor: theme.colorScheme.onSurface.withValues(
+                      alpha: 0.1,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -116,7 +152,7 @@ class MobileVideoConfigurationWidget extends StatelessWidget {
               ],
             ),
           ),
-          _buildDisabledDownloadSection(),
+          _buildDisabledDownloadSection(theme, context),
         ],
       ),
     );
@@ -141,7 +177,7 @@ class MobileVideoConfigurationWidget extends StatelessWidget {
     );
   }
 
-  Widget _buildDisabledDownloadSection() {
+  Widget _buildDisabledDownloadSection(ThemeData theme, [BuildContext? ctx]) {
     return Padding(
       padding: const EdgeInsets.all(16),
       child: Row(
@@ -163,26 +199,35 @@ class MobileVideoConfigurationWidget extends StatelessWidget {
           Expanded(
             flex: 2,
             child: FilledButton.icon(
-              onPressed: null, // Disabled during loading
-              icon: const Icon(Icons.download_rounded, size: 18),
+              onPressed: ctx != null
+                  ? () => ctx.read<VideoProvider>().cancelFetch()
+                  : null,
+              icon: Icon(
+                ctx != null ? Icons.close_rounded : Icons.download_rounded,
+                size: 18,
+              ),
               label: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('Download'),
+                  Text(ctx != null ? 'Cancel' : 'Download'),
                   Text(
-                    'Calculating...',
+                    ctx != null ? 'Stop fetching' : 'Calculating...',
                     style: TextStyle(
                       fontSize: 10,
-                      color: Colors.white.withValues(alpha: 0.5),
+                      color: Colors.white.withValues(alpha: 0.7),
                     ),
                   ),
                 ],
               ),
               style: FilledButton.styleFrom(
-                disabledBackgroundColor: const Color(
-                  0xFF8B5CF6,
-                ).withValues(alpha: 0.5),
+                backgroundColor: ctx != null
+                    ? theme.colorScheme.error
+                    : theme.colorScheme.primary.withValues(alpha: 0.5),
+                foregroundColor: Colors.white,
+                disabledBackgroundColor: theme.colorScheme.primary.withValues(
+                  alpha: 0.5,
+                ),
                 disabledForegroundColor: Colors.white.withValues(alpha: 0.7),
                 padding: const EdgeInsets.symmetric(vertical: 12),
                 shape: RoundedRectangleBorder(
@@ -260,33 +305,17 @@ class MobileVideoConfigurationWidget extends StatelessWidget {
                   _buildVideoInfoHeader(context, theme, video),
                   const SizedBox(height: 24),
                   if (!videoProvider.audioOnly) ...[
-                    _buildResolutionSection(
-                      context,
-                      theme,
-                      videoProvider,
-                    ),
+                    _buildResolutionSection(context, theme, videoProvider),
                     const SizedBox(height: 24),
                   ],
                   if (videoProvider.audioOnly) ...[
-                    _buildAudioQualitySection(
-                      context,
-                      theme,
-                      videoProvider,
-                    ),
+                    _buildAudioQualitySection(context, theme, videoProvider),
                     const SizedBox(height: 24),
                   ],
                   if (!videoProvider.audioOnly &&
-                      videoProvider.selectedVideoFormat?.hasAudio ==
-                          false &&
-                      videoProvider
-                          .videoInfo!
-                          .audioOnlyFormats
-                          .isNotEmpty) ...[
-                    _buildAudioMergeSection(
-                      context,
-                      theme,
-                      videoProvider,
-                    ),
+                      videoProvider.selectedVideoFormat?.hasAudio == false &&
+                      videoProvider.videoInfo!.audioOnlyFormats.isNotEmpty) ...[
+                    _buildAudioMergeSection(context, theme, videoProvider),
                     const SizedBox(height: 24),
                   ],
                   if (videoProvider.videoInfo!.subtitles.isNotEmpty) ...[
@@ -308,6 +337,8 @@ class MobileVideoConfigurationWidget extends StatelessWidget {
     ThemeData theme,
     VideoProvider videoProvider,
   ) {
+    final textColor = theme.colorScheme.onSurface;
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
       child: Row(
@@ -320,8 +351,8 @@ class MobileVideoConfigurationWidget extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(vertical: 10),
                 decoration: BoxDecoration(
                   color: !videoProvider.audioOnly
-                      ? const Color(0xFF8B5CF6)
-                      : Colors.white.withValues(alpha: 0.1),
+                      ? theme.colorScheme.primary
+                      : textColor.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Row(
@@ -332,7 +363,7 @@ class MobileVideoConfigurationWidget extends StatelessWidget {
                       size: 18,
                       color: !videoProvider.audioOnly
                           ? Colors.white
-                          : Colors.white.withValues(alpha: 0.5),
+                          : textColor.withValues(alpha: 0.5),
                     ),
                     const SizedBox(width: 6),
                     Text(
@@ -340,7 +371,7 @@ class MobileVideoConfigurationWidget extends StatelessWidget {
                       style: TextStyle(
                         color: !videoProvider.audioOnly
                             ? Colors.white
-                            : Colors.white.withValues(alpha: 0.5),
+                            : textColor.withValues(alpha: 0.5),
                         fontWeight: FontWeight.w600,
                         fontSize: 13,
                       ),
@@ -359,8 +390,8 @@ class MobileVideoConfigurationWidget extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(vertical: 10),
                 decoration: BoxDecoration(
                   color: videoProvider.audioOnly
-                      ? const Color(0xFF8B5CF6)
-                      : Colors.white.withValues(alpha: 0.1),
+                      ? theme.colorScheme.primary
+                      : textColor.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Row(
@@ -371,7 +402,7 @@ class MobileVideoConfigurationWidget extends StatelessWidget {
                       size: 18,
                       color: videoProvider.audioOnly
                           ? Colors.white
-                          : Colors.white.withValues(alpha: 0.5),
+                          : textColor.withValues(alpha: 0.5),
                     ),
                     const SizedBox(width: 6),
                     Text(
@@ -379,7 +410,7 @@ class MobileVideoConfigurationWidget extends StatelessWidget {
                       style: TextStyle(
                         color: videoProvider.audioOnly
                             ? Colors.white
-                            : Colors.white.withValues(alpha: 0.5),
+                            : textColor.withValues(alpha: 0.5),
                         fontWeight: FontWeight.w600,
                         fontSize: 13,
                       ),
@@ -399,6 +430,9 @@ class MobileVideoConfigurationWidget extends StatelessWidget {
     ThemeData theme,
     VideoInfo video,
   ) {
+    final textColor = theme.colorScheme.onSurface;
+    final textSecondaryColor = textColor.withValues(alpha: 0.6);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -423,6 +457,25 @@ class MobileVideoConfigurationWidget extends StatelessWidget {
                   imageUrl: video.thumbnailUrl,
                   fit: BoxFit.cover,
                   memCacheWidth: 600,
+                  fadeInDuration: const Duration(milliseconds: 200),
+                  fadeOutDuration: const Duration(milliseconds: 200),
+                  placeholder: (context, url) => Container(
+                    color: theme.colorScheme.surfaceContainerHighest,
+                    child: const Center(
+                      child: SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    ),
+                  ),
+                  errorWidget: (context, url, error) => Container(
+                    color: theme.colorScheme.surfaceContainerHighest,
+                    child: Icon(
+                      Icons.broken_image_outlined,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
                 ),
                 Positioned(
                   bottom: 8,
@@ -453,8 +506,8 @@ class MobileVideoConfigurationWidget extends StatelessWidget {
         const SizedBox(height: 14),
         Text(
           video.title,
-          style: const TextStyle(
-            color: Colors.white,
+          style: TextStyle(
+            color: textColor,
             fontWeight: FontWeight.bold,
             fontSize: 16,
             height: 1.3,
@@ -465,19 +518,12 @@ class MobileVideoConfigurationWidget extends StatelessWidget {
         const SizedBox(height: 6),
         Row(
           children: [
-            Icon(
-              Icons.person_outline,
-              size: 14,
-              color: Colors.white.withValues(alpha: 0.6),
-            ),
+            Icon(Icons.person_outline, size: 14, color: textSecondaryColor),
             const SizedBox(width: 6),
             Expanded(
               child: Text(
                 video.channel,
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.6),
-                  fontSize: 13,
-                ),
+                style: TextStyle(color: textSecondaryColor, fontSize: 13),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
@@ -497,13 +543,17 @@ class MobileVideoConfigurationWidget extends StatelessWidget {
       return const SizedBox.shrink();
     }
 
+    final isDark = theme.brightness == Brightness.dark;
+    final textColor = theme.colorScheme.onSurface;
+    final labelColor = textColor.withValues(alpha: 0.5);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           'RESOLUTION',
           style: TextStyle(
-            color: Colors.white.withValues(alpha: 0.5),
+            color: labelColor,
             fontSize: 11,
             fontWeight: FontWeight.bold,
             letterSpacing: 1.2,
@@ -528,13 +578,19 @@ class MobileVideoConfigurationWidget extends StatelessWidget {
                     ),
                     decoration: BoxDecoration(
                       color: isSelected
-                          ? const Color(0xFF8B5CF6)
-                          : Colors.white.withValues(alpha: 0.1),
+                          ? theme.colorScheme.primary
+                          : (isDark
+                                ? Colors.white.withValues(alpha: 0.1)
+                                : theme.colorScheme.onSurface.withValues(
+                                    alpha: 0.08,
+                                  )),
                       borderRadius: BorderRadius.circular(20),
                       border: Border.all(
                         color: isSelected
-                            ? const Color(0xFF8B5CF6)
-                            : Colors.white.withValues(alpha: 0.2),
+                            ? theme.colorScheme.primary
+                            : (isDark
+                                  ? Colors.white.withValues(alpha: 0.2)
+                                  : theme.colorScheme.outline),
                       ),
                     ),
                     child: Text(
@@ -542,7 +598,7 @@ class MobileVideoConfigurationWidget extends StatelessWidget {
                       style: TextStyle(
                         color: isSelected
                             ? Colors.white
-                            : Colors.white.withValues(alpha: 0.8),
+                            : textColor.withValues(alpha: 0.8),
                         fontWeight: FontWeight.w600,
                         fontSize: 12,
                       ),
@@ -567,13 +623,17 @@ class MobileVideoConfigurationWidget extends StatelessWidget {
     final resolution = videoProvider.selectedResolution;
     if (resolution == null) return const SizedBox.shrink();
 
+    final isDark = theme.brightness == Brightness.dark;
+    final textColor = theme.colorScheme.onSurface;
+    final labelColor = textColor.withValues(alpha: 0.5);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           'CODEC VARIANTS',
           style: TextStyle(
-            color: Colors.white.withValues(alpha: 0.5),
+            color: labelColor,
             fontSize: 11,
             fontWeight: FontWeight.bold,
             letterSpacing: 1.2,
@@ -584,6 +644,7 @@ class MobileVideoConfigurationWidget extends StatelessWidget {
           final isSelected =
               videoProvider.selectedVideoFormat?.formatId == format.formatId;
           final container = (format.extension ?? 'mp4').toUpperCase();
+          final itemTextColor = theme.colorScheme.onSurface;
 
           return GestureDetector(
             onTap: () => videoProvider.setSelectedVideoFormat(format),
@@ -593,13 +654,19 @@ class MobileVideoConfigurationWidget extends StatelessWidget {
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 color: isSelected
-                    ? const Color(0xFF8B5CF6).withValues(alpha: 0.2)
-                    : Colors.white.withValues(alpha: 0.05),
+                    ? theme.colorScheme.primary.withValues(alpha: 0.2)
+                    : (isDark
+                          ? Colors.white.withValues(alpha: 0.05)
+                          : theme.colorScheme.onSurface.withValues(
+                              alpha: 0.04,
+                            )),
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(
                   color: isSelected
-                      ? const Color(0xFF8B5CF6)
-                      : Colors.white.withValues(alpha: 0.1),
+                      ? theme.colorScheme.primary
+                      : (isDark
+                            ? Colors.white.withValues(alpha: 0.1)
+                            : theme.colorScheme.outline),
                 ),
               ),
               child: Row(
@@ -611,12 +678,12 @@ class MobileVideoConfigurationWidget extends StatelessWidget {
                       shape: BoxShape.circle,
                       border: Border.all(
                         color: isSelected
-                            ? const Color(0xFF8B5CF6)
-                            : Colors.white.withValues(alpha: 0.3),
+                            ? theme.colorScheme.primary
+                            : itemTextColor.withValues(alpha: 0.3),
                         width: 2,
                       ),
                       color: isSelected
-                          ? const Color(0xFF8B5CF6)
+                          ? theme.colorScheme.primary
                           : Colors.transparent,
                     ),
                     child: isSelected
@@ -632,8 +699,8 @@ class MobileVideoConfigurationWidget extends StatelessWidget {
                           children: [
                             Text(
                               format.codecName,
-                              style: const TextStyle(
-                                color: Colors.white,
+                              style: TextStyle(
+                                color: itemTextColor,
                                 fontWeight: FontWeight.bold,
                                 fontSize: 13,
                               ),
@@ -642,7 +709,7 @@ class MobileVideoConfigurationWidget extends StatelessWidget {
                             Text(
                               container,
                               style: TextStyle(
-                                color: Colors.white.withValues(alpha: 0.5),
+                                color: itemTextColor.withValues(alpha: 0.5),
                                 fontSize: 11,
                               ),
                             ),
@@ -652,9 +719,9 @@ class MobileVideoConfigurationWidget extends StatelessWidget {
                         Row(
                           children: [
                             Text(
-                              format.formattedFilesize,
+                              videoProvider.formattedTotalSizeForFormat(format),
                               style: TextStyle(
-                                color: Colors.white.withValues(alpha: 0.5),
+                                color: itemTextColor.withValues(alpha: 0.5),
                                 fontSize: 11,
                               ),
                             ),
@@ -703,13 +770,17 @@ class MobileVideoConfigurationWidget extends StatelessWidget {
     ThemeData theme,
     VideoProvider videoProvider,
   ) {
+    final isDark = theme.brightness == Brightness.dark;
+    final textColor = theme.colorScheme.onSurface;
+    final labelColor = textColor.withValues(alpha: 0.5);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           'AUDIO TRACK',
           style: TextStyle(
-            color: Colors.white.withValues(alpha: 0.5),
+            color: labelColor,
             fontSize: 11,
             fontWeight: FontWeight.bold,
             letterSpacing: 1.2,
@@ -719,20 +790,31 @@ class MobileVideoConfigurationWidget extends StatelessWidget {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 12),
           decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.05),
+            color: isDark
+                ? Colors.white.withValues(alpha: 0.05)
+                : theme.colorScheme.onSurface.withValues(alpha: 0.04),
             borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+            border: Border.all(
+              color: isDark
+                  ? Colors.white.withValues(alpha: 0.1)
+                  : theme.colorScheme.outline,
+            ),
           ),
           child: DropdownButtonHideUnderline(
             child: DropdownButton<FormatInfo>(
               value: videoProvider.selectedAudioMergeStream,
               isExpanded: true,
-              dropdownColor: const Color(0xFF2C2C2E),
+              dropdownColor: isDark
+                  ? const Color(0xFF2C2C2E)
+                  : theme.colorScheme.surface,
               icon: Icon(
                 Icons.arrow_drop_down,
-                color: Colors.white.withValues(alpha: 0.5),
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
               ),
-              style: const TextStyle(color: Colors.white, fontSize: 13),
+              style: TextStyle(
+                color: theme.colorScheme.onSurface,
+                fontSize: 13,
+              ),
               onChanged: (FormatInfo? newValue) {
                 if (newValue != null) {
                   videoProvider.setSelectedAudioMergeStream(newValue);
@@ -746,19 +828,23 @@ class MobileVideoConfigurationWidget extends StatelessWidget {
                       Icon(
                         Icons.audiotrack,
                         size: 16,
-                        color: Colors.white.withValues(alpha: 0.5),
+                        color: theme.colorScheme.onSurface.withValues(
+                          alpha: 0.5,
+                        ),
                       ),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          '${format.audioBitrate}kbps • ${format.formattedFilesize}',
-                          style: const TextStyle(color: Colors.white),
+                          '${format.audioBitrate}kbps • ${format.formattedEstimatedFilesize(videoProvider.videoInfo?.duration)}',
+                          style: TextStyle(color: theme.colorScheme.onSurface),
                         ),
                       ),
                       Text(
                         format.codecName,
                         style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.4),
+                          color: theme.colorScheme.onSurface.withValues(
+                            alpha: 0.4,
+                          ),
                           fontSize: 11,
                         ),
                       ),
@@ -778,13 +864,17 @@ class MobileVideoConfigurationWidget extends StatelessWidget {
     ThemeData theme,
     VideoProvider videoProvider,
   ) {
+    final isDark = theme.brightness == Brightness.dark;
+    final textColor = theme.colorScheme.onSurface;
+    final labelColor = textColor.withValues(alpha: 0.5);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           'AUDIO QUALITY',
           style: TextStyle(
-            color: Colors.white.withValues(alpha: 0.5),
+            color: labelColor,
             fontSize: 11,
             fontWeight: FontWeight.bold,
             letterSpacing: 1.2,
@@ -808,13 +898,19 @@ class MobileVideoConfigurationWidget extends StatelessWidget {
                     ),
                     decoration: BoxDecoration(
                       color: isSelected
-                          ? const Color(0xFF8B5CF6)
-                          : Colors.white.withValues(alpha: 0.1),
+                          ? theme.colorScheme.primary
+                          : (isDark
+                                ? Colors.white.withValues(alpha: 0.1)
+                                : theme.colorScheme.onSurface.withValues(
+                                    alpha: 0.08,
+                                  )),
                       borderRadius: BorderRadius.circular(20),
                       border: Border.all(
                         color: isSelected
-                            ? const Color(0xFF8B5CF6)
-                            : Colors.white.withValues(alpha: 0.2),
+                            ? theme.colorScheme.primary
+                            : (isDark
+                                  ? Colors.white.withValues(alpha: 0.2)
+                                  : theme.colorScheme.outline),
                       ),
                     ),
                     child: Text(
@@ -822,7 +918,7 @@ class MobileVideoConfigurationWidget extends StatelessWidget {
                       style: TextStyle(
                         color: isSelected
                             ? Colors.white
-                            : Colors.white.withValues(alpha: 0.8),
+                            : textColor.withValues(alpha: 0.8),
                         fontWeight: FontWeight.w600,
                         fontSize: 12,
                       ),
@@ -837,56 +933,111 @@ class MobileVideoConfigurationWidget extends StatelessWidget {
         Text(
           'AVAILABLE STREAMS',
           style: TextStyle(
-            color: Colors.white.withValues(alpha: 0.5),
+            color: labelColor,
             fontSize: 11,
             fontWeight: FontWeight.bold,
             letterSpacing: 1.2,
           ),
         ),
         const SizedBox(height: 8),
-        ...videoProvider.videoInfo!.audioOnlyFormats.take(3).map((format) {
-          return Container(
-            margin: const EdgeInsets.only(bottom: 8),
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.05),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
-            ),
-            child: Row(
-              children: [
-                Icon(
-                  Icons.audiotrack,
-                  size: 18,
-                  color: Colors.white.withValues(alpha: 0.5),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+        ...videoProvider.videoInfo!
+            .getAudioFormatsForQuality(videoProvider.selectedAudioQuality)
+            .map((format) {
+              final isSelected =
+                  format.formatId ==
+                  videoProvider.selectedAudioMergeStream?.formatId;
+              final itemTextColor = theme.colorScheme.onSurface;
+              return GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => videoProvider.setSelectedAudioMergeStream(format),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: isSelected
+                        ? theme.colorScheme.primary.withValues(alpha: 0.2)
+                        : (isDark
+                              ? Colors.white.withValues(alpha: 0.05)
+                              : theme.colorScheme.onSurface.withValues(
+                                  alpha: 0.04,
+                                )),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: isSelected
+                          ? theme.colorScheme.primary
+                          : (isDark
+                                ? Colors.white.withValues(alpha: 0.1)
+                                : theme.colorScheme.outline),
+                    ),
+                  ),
+                  child: Row(
                     children: [
-                      Text(
-                        '${format.codecName} • ${format.extension?.toUpperCase()}',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 12,
+                      Container(
+                        width: 18,
+                        height: 18,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: isSelected
+                                ? theme.colorScheme.primary
+                                : (isDark
+                                      ? Colors.white.withValues(alpha: 0.3)
+                                      : itemTextColor.withValues(alpha: 0.3)),
+                            width: 2,
+                          ),
+                          color: isSelected
+                              ? theme.colorScheme.primary
+                              : Colors.transparent,
                         ),
+                        child: isSelected
+                            ? const Icon(
+                                Icons.check,
+                                size: 12,
+                                color: Colors.white,
+                              )
+                            : null,
                       ),
-                      Text(
-                        '${format.audioBitrate}kbps • ${format.formattedFilesize}',
-                        style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.5),
-                          fontSize: 11,
+                      const SizedBox(width: 12),
+                      Icon(
+                        Icons.audiotrack,
+                        size: 18,
+                        color: isSelected
+                            ? theme.colorScheme.primary
+                            : itemTextColor.withValues(alpha: 0.5),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '${format.codecName} • ${format.extension?.toUpperCase()}',
+                              style: TextStyle(
+                                color: isSelected
+                                    ? itemTextColor
+                                    : itemTextColor.withValues(alpha: 0.7),
+                                fontWeight: FontWeight.w600,
+                                fontSize: 12,
+                              ),
+                            ),
+                            Text(
+                              '${format.audioBitrate}kbps • ${format.formattedEstimatedFilesize(videoProvider.videoInfo?.duration)}',
+                              style: TextStyle(
+                                color: isSelected
+                                    ? itemTextColor.withValues(alpha: 0.7)
+                                    : itemTextColor.withValues(alpha: 0.5),
+                                fontSize: 11,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ],
                   ),
                 ),
-              ],
-            ),
-          );
-        }),
+              );
+            }),
       ],
     );
   }
@@ -908,6 +1059,9 @@ class MobileVideoConfigurationWidget extends StatelessWidget {
     final top3 = subtitles.take(3).toList();
     final rest = subtitles.skip(3).toList();
 
+    final textColor = theme.colorScheme.onSurface;
+    final labelColor = textColor.withValues(alpha: 0.5);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -917,7 +1071,7 @@ class MobileVideoConfigurationWidget extends StatelessWidget {
             Text(
               'SUBTITLES',
               style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.5),
+                color: labelColor,
                 fontSize: 11,
                 fontWeight: FontWeight.bold,
                 letterSpacing: 1.2,
@@ -928,7 +1082,7 @@ class MobileVideoConfigurationWidget extends StatelessWidget {
                 Text(
                   'Enable',
                   style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.4),
+                    color: textColor.withValues(alpha: 0.4),
                     fontSize: 11,
                   ),
                 ),
@@ -940,12 +1094,12 @@ class MobileVideoConfigurationWidget extends StatelessWidget {
                     preferredLanguageCode:
                         settingsProvider.defaultSubtitleLanguage,
                   ),
-                  activeTrackColor: const Color(
-                    0xFF8B5CF6,
-                  ).withValues(alpha: 0.5),
+                  activeTrackColor: theme.colorScheme.primary.withValues(
+                    alpha: 0.5,
+                  ),
                   thumbColor: WidgetStateProperty.resolveWith<Color>((states) {
                     if (states.contains(WidgetState.selected)) {
-                      return const Color(0xFF8B5CF6);
+                      return theme.colorScheme.primary;
                     }
                     return Colors.grey;
                   }),
@@ -970,8 +1124,8 @@ class MobileVideoConfigurationWidget extends StatelessWidget {
               child: ExpansionTile(
                 title: Text(
                   'More (${rest.length})',
-                  style: const TextStyle(
-                    color: Color(0xFF8B5CF6),
+                  style: TextStyle(
+                    color: theme.colorScheme.primary,
                     fontSize: 12,
                   ),
                 ),
@@ -979,15 +1133,15 @@ class MobileVideoConfigurationWidget extends StatelessWidget {
                     ? Text(
                         'Default appears first when available',
                         style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.45),
+                          color: textColor.withValues(alpha: 0.45),
                           fontSize: 10.5,
                         ),
                       )
                     : null,
                 tilePadding: EdgeInsets.zero,
                 childrenPadding: EdgeInsets.zero,
-                collapsedIconColor: const Color(0xFF8B5CF6),
-                iconColor: const Color(0xFF8B5CF6),
+                collapsedIconColor: theme.colorScheme.primary,
+                iconColor: theme.colorScheme.primary,
                 children: [
                   Wrap(
                     spacing: 8,
@@ -1009,7 +1163,7 @@ class MobileVideoConfigurationWidget extends StatelessWidget {
               Text(
                 'Embed in file',
                 style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.55),
+                  color: textColor.withValues(alpha: 0.55),
                   fontSize: 11,
                 ),
               ),
@@ -1019,12 +1173,12 @@ class MobileVideoConfigurationWidget extends StatelessWidget {
                 onChanged: videoProvider.selectedSubtitles.isNotEmpty
                     ? (v) => videoProvider.setEmbedSubtitles(v)
                     : null,
-                activeTrackColor: const Color(
-                  0xFF8B5CF6,
-                ).withValues(alpha: 0.5),
+                activeTrackColor: theme.colorScheme.primary.withValues(
+                  alpha: 0.5,
+                ),
                 thumbColor: WidgetStateProperty.resolveWith<Color>((states) {
                   if (states.contains(WidgetState.selected)) {
-                    return const Color(0xFF8B5CF6);
+                    return theme.colorScheme.primary;
                   }
                   return Colors.grey;
                 }),
@@ -1036,7 +1190,7 @@ class MobileVideoConfigurationWidget extends StatelessWidget {
                       ? 'Select at least one language'
                       : '${videoProvider.selectedSubtitles.length} selected',
                   style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.45),
+                    color: textColor.withValues(alpha: 0.45),
                     fontSize: 10.5,
                   ),
                   textAlign: TextAlign.right,
@@ -1082,6 +1236,9 @@ class MobileVideoConfigurationWidget extends StatelessWidget {
     SubtitleTrack sub,
   ) {
     final isSelected = videoProvider.selectedSubtitles.contains(sub);
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final textColor = theme.colorScheme.onSurface;
     return GestureDetector(
       onTap: () => videoProvider.toggleSubtitle(sub),
       child: AnimatedContainer(
@@ -1089,28 +1246,32 @@ class MobileVideoConfigurationWidget extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
           color: isSelected
-              ? const Color(0xFF8B5CF6).withValues(alpha: 0.2)
-              : Colors.white.withValues(alpha: 0.05),
+              ? theme.colorScheme.primary.withValues(alpha: 0.2)
+              : (isDark
+                    ? Colors.white.withValues(alpha: 0.05)
+                    : theme.colorScheme.onSurface.withValues(alpha: 0.04)),
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
             color: isSelected
-                ? const Color(0xFF8B5CF6)
-                : Colors.white.withValues(alpha: 0.1),
+                ? theme.colorScheme.primary
+                : (isDark
+                      ? Colors.white.withValues(alpha: 0.1)
+                      : theme.colorScheme.outline),
           ),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             if (isSelected) ...[
-              const Icon(Icons.check, size: 14, color: Color(0xFF8B5CF6)),
+              Icon(Icons.check, size: 14, color: theme.colorScheme.primary),
               const SizedBox(width: 4),
             ],
             Text(
               sub.name,
               style: TextStyle(
                 color: isSelected
-                    ? const Color(0xFF8B5CF6)
-                    : Colors.white.withValues(alpha: 0.7),
+                    ? theme.colorScheme.primary
+                    : textColor.withValues(alpha: 0.7),
                 fontSize: 12,
                 fontWeight: FontWeight.w500,
               ),
@@ -1126,61 +1287,180 @@ class MobileVideoConfigurationWidget extends StatelessWidget {
     ThemeData theme,
     VideoProvider videoProvider,
   ) {
-    return RepaintBoundary(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
-        children: [
-          Expanded(
-            child: OutlinedButton.icon(
-              onPressed: onClear,
-              icon: const Icon(Icons.clear_all, size: 18),
-              label: const Text('Clear'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                side: BorderSide(color: Colors.white.withValues(alpha: 0.3)),
-              ),
-            ),
+    final textColor = theme.colorScheme.onSurface;
+    final video = videoProvider.videoInfo;
+    final videoId = video?.id;
+    final videoUrl = video?.url;
+
+    // Scoped to this video's (id, status, progress) record instead of
+    // watching the whole provider: progress ticks rebuild only this button,
+    // not the entire configuration panel.
+    return Selector<MobileDownloadProvider, (String, DownloadStatus, double)?>(
+      selector: (_, provider) {
+        if (videoId == null && videoUrl == null) return null;
+        for (final item in provider.activeDownloads) {
+          final matches =
+              item.id == videoId ||
+              (videoId != null && item.id.startsWith('${videoId}_')) ||
+              item.url == videoUrl;
+          if (matches) return (item.id, item.status, item.progress);
+        }
+        return null;
+      },
+      builder: (context, snapshot, _) {
+        final DownloadStatus? status = snapshot?.$2;
+
+        final bool isPreparing =
+            status == DownloadStatus.queued || status == DownloadStatus.pending;
+
+        final bool isDownloading =
+            status == DownloadStatus.downloadingVideo ||
+            status == DownloadStatus.downloadingAudio ||
+            status == DownloadStatus.merging;
+
+        final bool isDownloadActive = isPreparing || isDownloading;
+        final double downloadProgress = snapshot?.$3 ?? 0.0;
+
+        final String stateKey = !isDownloadActive
+            ? 'idle'
+            : isPreparing
+            ? 'preparing'
+            : 'downloading';
+
+        final Widget icon = AnimatedSwitcher(
+          duration: appMotionDuration(context, AppMotion.short),
+          child: SizedBox(
+            key: ValueKey(stateKey),
+            width: 18,
+            height: 18,
+            child: isPreparing
+                ? CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: theme.colorScheme.onPrimary,
+                  )
+                : Icon(
+                    isDownloading
+                        ? Icons.downloading_rounded
+                        : Icons.download_rounded,
+                    size: 18,
+                  ),
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            flex: 2,
-            child: FilledButton.icon(
-              onPressed: onDownload,
-              icon: const Icon(Icons.download_rounded, size: 18),
-              label: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Download'),
-                  Text(
-                    videoProvider.totalEstimatedDownloadSize > 0
-                        ? '~${(videoProvider.totalEstimatedDownloadSize / 1024 / 1024).toStringAsFixed(1)} MB'
-                        : 'Calculating...',
-                    style: TextStyle(
-                      fontSize: 10,
-                      color: Colors.white.withValues(alpha: 0.7),
+        );
+
+        final Widget label = AnimatedSwitcher(
+          duration: appMotionDuration(context, AppMotion.short),
+          child: KeyedSubtree(
+            key: ValueKey(stateKey),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  isPreparing
+                      ? (status == DownloadStatus.queued
+                            ? 'Queued...'
+                            : 'Preparing...')
+                      : isDownloading
+                      ? (status == DownloadStatus.merging
+                            ? 'Merging... ${(downloadProgress * 100).toInt()}%'
+                            : 'Downloading... ${(downloadProgress * 100).toInt()}%')
+                      : 'Download',
+                ),
+                Text(
+                  videoProvider.totalEstimatedDownloadSize > 0
+                      ? '~${(videoProvider.totalEstimatedDownloadSize / 1024 / 1024).toStringAsFixed(1)} MB'
+                      : 'Calculating...',
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: Colors.white.withValues(alpha: 0.7),
+                  ),
+                ),
+                // Thin live progress line inside the button while downloading.
+                if (isDownloading)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(2),
+                      child: TweenAnimationBuilder<double>(
+                        tween: Tween(end: downloadProgress),
+                        duration: appMotionDuration(
+                          context,
+                          const Duration(milliseconds: 320),
+                        ),
+                        curve: AppMotion.decelerate,
+                        builder: (context, value, _) => LinearProgressIndicator(
+                          value: value,
+                          minHeight: 3,
+                          backgroundColor: Colors.white.withValues(alpha: 0.2),
+                          valueColor: const AlwaysStoppedAnimation(
+                            Colors.white,
+                          ),
+                        ),
+                      ),
                     ),
                   ),
-                ],
-              ),
-              style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFF8B5CF6),
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
+              ],
             ),
           ),
-        ],
-      ),
-      ),
+        );
+
+        return RepaintBoundary(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: isDownloadActive ? null : onClear,
+                    icon: const Icon(Icons.clear_all, size: 18),
+                    label: const Text('Clear'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: textColor,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      side: BorderSide(color: textColor.withValues(alpha: 0.3)),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  flex: 2,
+                  child: TweenAnimationBuilder<BorderRadius>(
+                    // Morph from rounded rect to pill while a download runs.
+                    tween: Tween<BorderRadius>(
+                      begin: BorderRadius.circular(10),
+                      end: BorderRadius.circular(isDownloadActive ? 20 : 10),
+                    ),
+                    duration: appMotionDuration(context, AppMotion.medium),
+                    curve: AppMotion.spatialSpringCurve,
+                    builder: (context, radius, _) => FilledButton.icon(
+                      onPressed: isDownloadActive ? null : onDownload,
+                      icon: icon,
+                      label: label,
+                      style: FilledButton.styleFrom(
+                        backgroundColor: isDownloadActive
+                            ? theme.colorScheme.onSurface.withValues(
+                                alpha: 0.12,
+                              )
+                            : theme.colorScheme.primary,
+                        foregroundColor: isDownloadActive
+                            ? theme.colorScheme.onSurface.withValues(
+                                alpha: 0.38,
+                              )
+                            : Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: radius),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }

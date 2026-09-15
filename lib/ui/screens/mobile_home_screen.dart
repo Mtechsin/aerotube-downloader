@@ -11,6 +11,7 @@ import '../widgets/mobile_url_input_card.dart';
 import '../widgets/app_logo.dart';
 import 'package:flutter/cupertino.dart';
 import 'mobile_result_screen.dart';
+import '../../core/utils/error_helper.dart';
 
 /// Minimalist mobile home screen
 class MobileHomeScreen extends StatefulWidget {
@@ -33,29 +34,35 @@ class _MobileHomeScreenState extends State<MobileHomeScreen> {
     });
   }
 
+  bool _isShowingAuthDialog = false;
+
   @override
   void dispose() {
+    _isShowingAuthDialog = false;
     _videoProvider?.removeListener(_onVideoProviderChange);
     _urlController.dispose();
     super.dispose();
   }
 
   void _onVideoProviderChange() {
-    if (_videoProvider == null) return;
+    if (!mounted || _videoProvider == null) return;
 
     if (_urlController.text != _videoProvider!.currentUrl &&
         _videoProvider!.currentUrl.isNotEmpty) {
       _urlController.text = _videoProvider!.currentUrl;
     }
 
-    if (_videoProvider!.hasError &&
-        (_videoProvider!.errorMessage!.contains('Authentication') ||
-            _videoProvider!.errorMessage!.contains('cookies.txt'))) {
-      _showAuthErrorDialog(_videoProvider!.errorMessage!);
+    if (_videoProvider!.hasError) {
+      final parsed = ErrorHelper.parse(_videoProvider!.errorMessage!);
+      if (parsed.category == ErrorCategory.authentication) {
+        _showAuthErrorDialog(parsed.suggestion ?? _videoProvider!.errorMessage!);
+      }
     }
   }
 
   void _showAuthErrorDialog(String message) {
+    if (!mounted || _isShowingAuthDialog) return;
+    _isShowingAuthDialog = true;
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -74,19 +81,15 @@ class _MobileHomeScreenState extends State<MobileHomeScreen> {
           ),
         ],
       ),
-    );
+    ).then((_) {
+      if (mounted) _isShowingAuthDialog = false;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final videoProvider = context.watch<VideoProvider>();
-    final settingsProvider = context.watch<PlatformSettingsProvider>();
     final navProvider = context.read<NavigationProvider>();
-
-    final activeDownloads = PlatformUtils.isAndroid
-        ? context.watch<MobileDownloadProvider>().activeDownloadsCount
-        : context.watch<DownloadProvider>().activeCount;
 
     return SafeArea(
       child: Column(
@@ -126,37 +129,11 @@ class _MobileHomeScreenState extends State<MobileHomeScreen> {
                   ),
                 ),
                 const SizedBox(width: 10),
-                // Status pill — only highest priority
-                if (!settingsProvider.isInitialized)
-                  _buildStatusPill(
-                    context,
-                    label: 'Initializing...',
-                    color: theme.colorScheme.primary,
-                    isLoading: true,
-                  )
-                else if (!settingsProvider.isYtdlpAvailable)
-                  _buildStatusPill(
-                    context,
-                    label: 'yt-dlp missing',
-                    color: Colors.red,
-                  )
-                else if (!settingsProvider.isFfmpegAvailable)
-                  _buildStatusPill(
-                    context,
-                    label: 'FFmpeg missing',
-                    color: Colors.orange,
-                  ),
-
+                // Status pill — isolated so settings notifications don't rebuild whole screen
+                const _StatusPill(),
                 const Spacer(),
-
-                // Files button with active-download badge
-                _TopBarButton(
-                  icon: Icons.download_outlined,
-                  activeIcon: Icons.download_rounded,
-                  tooltip: 'Downloads',
-                  badge: activeDownloads > 0 ? activeDownloads : null,
-                  onTap: () => navProvider.setIndex(2),
-                ),
+                // Files button with active-download badge — isolated via select
+                _DownloadBadgeButton(navProvider: navProvider),
                 const SizedBox(width: 2),
                 // Settings button
                 _TopBarButton(
@@ -188,15 +165,9 @@ class _MobileHomeScreenState extends State<MobileHomeScreen> {
                           mainAxisSize: MainAxisSize.min,
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            MobileUrlInputCard(
-                              controller: _urlController,
-                              onFetch: () => _handleFetch(videoProvider),
-                              isLoading: false,
-                              statusMessage: null,
-                              errorMessage: null,
-                            ),
+                            _UrlInputSection(controller: _urlController),
                             const SizedBox(height: 20),
-                            _buildCookieToggle(context, settingsProvider),
+                            const _CookieToggle(),
                           ],
                         ),
                       ),
@@ -211,100 +182,42 @@ class _MobileHomeScreenState extends State<MobileHomeScreen> {
     );
   }
 
-  /// Cookie enable/disable toggle row
-  Widget _buildCookieToggle(
-    BuildContext context,
-    PlatformSettingsProvider settingsProvider,
-  ) {
+}
+
+/// Status pill isolated via selects — rebuilds only this small widget on settings changes
+class _StatusPill extends StatelessWidget {
+  const _StatusPill();
+
+  @override
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final enabled = settingsProvider.enableCookies;
-    final isCookieActive = settingsProvider.isCookieActive;
-    final isLoggedIn = settingsProvider.isYouTubeLoggedIn;
-
-    // Build the status label
-    String statusLabel;
-    Color statusColor;
-    IconData statusIcon;
-
-    if (!enabled) {
-      statusLabel = 'Cookies disabled';
-      statusColor = theme.colorScheme.onSurface.withValues(alpha: 0.35);
-      statusIcon = Icons.cookie_outlined;
-    } else if (isLoggedIn) {
-      statusLabel = 'Signed in to YouTube · cookies active';
-      statusColor = Colors.green;
-      statusIcon = Icons.verified_user_rounded;
-    } else if (isCookieActive) {
-      statusLabel = settingsProvider.cookieStatus;
-      statusColor = Colors.orange;
-      statusIcon = Icons.cookie_rounded;
-    } else {
-      statusLabel = 'Cookies enabled · not signed in';
-      statusColor = Colors.orange.withValues(alpha: 0.8);
-      statusIcon = Icons.cookie_rounded;
+    final isInitialized =
+        context.select<PlatformSettingsProvider, bool>((p) => p.isInitialized);
+    if (!isInitialized) {
+      return _buildPill(
+        context,
+        label: 'Initializing...',
+        color: theme.colorScheme.primary,
+        isLoading: true,
+      );
     }
-
-    return GestureDetector(
-      onTap: () async {
-        await settingsProvider.setEnableCookies(!enabled);
-      },
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 250),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-        decoration: BoxDecoration(
-          color: enabled
-              ? (isLoggedIn
-                  ? Colors.green.withValues(alpha: 0.07)
-                  : theme.colorScheme.primary.withValues(alpha: 0.05))
-              : theme.colorScheme.onSurface.withValues(alpha: 0.03),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: enabled
-                ? (isLoggedIn
-                    ? Colors.green.withValues(alpha: 0.2)
-                    : theme.colorScheme.primary.withValues(alpha: 0.12))
-                : theme.colorScheme.onSurface.withValues(alpha: 0.08),
-            width: 0.8,
-          ),
-        ),
-        child: Row(
-          children: [
-            Icon(statusIcon, size: 16, color: statusColor),
-            const SizedBox(width: 9),
-            Expanded(
-              child: Text(
-                statusLabel,
-                style: TextStyle(
-                  color: statusColor,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ),
-            // Toggle switch — compact
-            SizedBox(
-              height: 24,
-              child: FittedBox(
-                fit: BoxFit.contain,
-                child: Switch(
-                  value: enabled,
-                  onChanged: (val) async {
-                    await settingsProvider.setEnableCookies(val);
-                  },
-                  activeThumbColor: isLoggedIn
-                      ? Colors.green
-                      : theme.colorScheme.primary,
-                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
+    final hasChecked =
+        context.select<PlatformSettingsProvider, bool>((p) => p.hasCheckedTools);
+    if (!hasChecked) return const SizedBox.shrink();
+    final isYtdlpAvailable = context
+        .select<PlatformSettingsProvider, bool>((p) => p.isYtdlpAvailable);
+    if (!isYtdlpAvailable) {
+      return _buildPill(context, label: 'yt-dlp missing', color: Colors.red);
+    }
+    final isFfmpegAvailable = context
+        .select<PlatformSettingsProvider, bool>((p) => p.isFfmpegAvailable);
+    if (!isFfmpegAvailable) {
+      return _buildPill(context, label: 'FFmpeg missing', color: Colors.orange);
+    }
+    return const SizedBox.shrink();
   }
 
-  Widget _buildStatusPill(
+  Widget _buildPill(
     BuildContext context, {
     required String label,
     required Color color,
@@ -343,22 +256,199 @@ class _MobileHomeScreenState extends State<MobileHomeScreen> {
       ],
     );
   }
+}
 
-  void _handleFetch(VideoProvider videoProvider) {
-    final url = _urlController.text.trim();
+/// Active-download badge isolated via select — only rebuilds the icon when count changes
+class _DownloadBadgeButton extends StatelessWidget {
+  final NavigationProvider navProvider;
+  const _DownloadBadgeButton({required this.navProvider});
+
+  @override
+  Widget build(BuildContext context) {
+    final int activeDownloads = PlatformUtils.isAndroid
+        ? context.select<MobileDownloadProvider, int>(
+            (p) => p.activeDownloadsCount)
+        : context.select<DownloadProvider, int>((p) => p.activeCount);
+    return _TopBarButton(
+      icon: Icons.download_outlined,
+      activeIcon: Icons.download_rounded,
+      tooltip: 'Downloads',
+      badge: activeDownloads > 0 ? activeDownloads : null,
+      onTap: () => navProvider.setIndex(2),
+    );
+  }
+}
+
+/// URL input isolated: watches only isLoading/errorMessage at this level,
+/// and delegates per-tick loadingStatus to a nested small widget.
+class _UrlInputSection extends StatelessWidget {
+  final TextEditingController controller;
+  const _UrlInputSection({required this.controller});
+
+  void _handleFetch(BuildContext context) {
+    final url = controller.text.trim();
     if (url.isEmpty) return;
-
+    final videoProvider = context.read<VideoProvider>();
+    // Apply default quality from settings before fetching formats.
+    final settings = context.read<PlatformSettingsProvider>();
+    videoProvider.setPreferredQuality(settings.defaultQuality);
     if (url.contains('list=') && !url.contains('v=')) {
       videoProvider.fetchPlaylistInfo(url);
     } else {
       videoProvider.fetchVideoInfo(url);
-      videoProvider.setAudioOnly(false);
+      videoProvider.setAudioOnly(settings.defaultQuality == 'Audio Only');
     }
-
     Navigator.push(
       context,
       CupertinoPageRoute(
         builder: (context) => const MobileResultScreen(),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isLoading =
+        context.select<VideoProvider, bool>((p) => p.isLoading);
+    final errorMessage =
+        context.select<VideoProvider, String?>((p) => p.errorMessage);
+    return _UrlInputStatusWrapper(
+      controller: controller,
+      isLoading: isLoading,
+      errorMessage: errorMessage,
+      onFetch: () => _handleFetch(context),
+      onCancel: () => context.read<VideoProvider>().cancelFetch(),
+    );
+  }
+}
+
+/// Inner wrapper that watches only loadingStatus — per-fetch-progress ticks
+/// rebuild only this small widget, not the whole screen or even the loading/error wrapper.
+class _UrlInputStatusWrapper extends StatelessWidget {
+  final TextEditingController controller;
+  final bool isLoading;
+  final String? errorMessage;
+  final VoidCallback onFetch;
+  final VoidCallback? onCancel;
+  const _UrlInputStatusWrapper({
+    required this.controller,
+    required this.isLoading,
+    required this.errorMessage,
+    required this.onFetch,
+    this.onCancel,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final loadingStatus =
+        context.select<VideoProvider, String>((p) => p.loadingStatus);
+    return MobileUrlInputCard(
+      controller: controller,
+      onFetch: onFetch,
+      onCancel: onCancel,
+      isLoading: isLoading,
+      statusMessage: loadingStatus,
+      errorMessage: errorMessage,
+    );
+  }
+}
+
+/// Cookie toggle isolated via selects — rebuilds only this row
+class _CookieToggle extends StatelessWidget {
+  const _CookieToggle();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final enabled =
+        context.select<PlatformSettingsProvider, bool>((p) => p.enableCookies);
+    final isCookieActive =
+        context.select<PlatformSettingsProvider, bool>((p) => p.isCookieActive);
+    final isLoggedIn = context
+        .select<PlatformSettingsProvider, bool>((p) => p.isYouTubeLoggedIn);
+    final cookieStatus =
+        context.select<PlatformSettingsProvider, String>((p) => p.cookieStatus);
+
+    String statusLabel;
+    Color statusColor;
+    IconData statusIcon;
+
+    if (!enabled) {
+      statusLabel = 'Cookies disabled';
+      statusColor = theme.colorScheme.onSurface.withValues(alpha: 0.35);
+      statusIcon = Icons.cookie_outlined;
+    } else if (isLoggedIn) {
+      statusLabel = 'Signed in to YouTube · cookies active';
+      statusColor = Colors.green;
+      statusIcon = Icons.verified_user_rounded;
+    } else if (isCookieActive) {
+      statusLabel = cookieStatus;
+      statusColor = Colors.orange;
+      statusIcon = Icons.cookie_rounded;
+    } else {
+      statusLabel = 'Cookies enabled · not signed in';
+      statusColor = Colors.orange.withValues(alpha: 0.8);
+      statusIcon = Icons.cookie_rounded;
+    }
+
+    return GestureDetector(
+      onTap: () async {
+        await context
+            .read<PlatformSettingsProvider>()
+            .setEnableCookies(!enabled);
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 250),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+        decoration: BoxDecoration(
+          color: enabled
+              ? (isLoggedIn
+                  ? Colors.green.withValues(alpha: 0.07)
+                  : theme.colorScheme.primary.withValues(alpha: 0.05))
+              : theme.colorScheme.onSurface.withValues(alpha: 0.03),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: enabled
+                ? (isLoggedIn
+                    ? Colors.green.withValues(alpha: 0.2)
+                    : theme.colorScheme.primary.withValues(alpha: 0.12))
+                : theme.colorScheme.onSurface.withValues(alpha: 0.08),
+            width: 0.8,
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(statusIcon, size: 16, color: statusColor),
+            const SizedBox(width: 9),
+            Expanded(
+              child: Text(
+                statusLabel,
+                style: TextStyle(
+                  color: statusColor,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+            SizedBox(
+              height: 24,
+              child: FittedBox(
+                fit: BoxFit.contain,
+                child: Switch(
+                  value: enabled,
+                  onChanged: (val) async {
+                    await context
+                        .read<PlatformSettingsProvider>()
+                        .setEnableCookies(val);
+                  },
+                  activeThumbColor:
+                      isLoggedIn ? Colors.green : theme.colorScheme.primary,
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

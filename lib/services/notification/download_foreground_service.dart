@@ -7,8 +7,14 @@ import '../core/logging_service.dart';
 /// Android Foreground Service for managing long-running downloads
 /// Handles Doze mode, battery optimization, and persistent notifications
 class DownloadForegroundService {
-  static const int _notificationId = 1000;
-  static const String _channelId = 'download_service';
+  // B26 fix: use distinct ID and unified channel to avoid fighting with
+  // native DownloadService (which owns ID 1000 via startForeground).
+  // Dart previously used 1000 + 'download_service' causing duplicate
+  // channels and system "running in background" placeholder on cancel.
+  // Now: 1001 (Dart) vs 1000 (native), shared channel 'download_service_channel'.
+  // On Android Dart delegates notification ownership entirely to native.
+  static const int _notificationId = 1001;
+  static const String _channelId = 'download_service_channel';
   static const String _channelName = 'Active Downloads';
   static const String _channelDescription = 'Shows active download progress';
   static const MethodChannel _serviceChannel = MethodChannel(
@@ -22,23 +28,38 @@ class DownloadForegroundService {
   bool _isInitialized = false;
   final Map<String, DownloadProgress> _activeDownloads = {};
 
+  // R4 throttle: yt-dlp can emit several progress events per second; each one
+  // becomes a native notification re-post. Skip sends unless the rounded
+  // percentage moved or the status text changed, with a minimum interval.
+  static const Duration _minSendInterval = Duration(milliseconds: 400);
+  final Map<String, int> _lastSentPercent = {};
+  final Map<String, DateTime> _lastSentAt = {};
+  final Map<String, String> _lastSentStatus = {};
+
   /// Initialize the foreground service
   Future<void> initialize() async {
     if (_isInitialized) return;
 
     try {
-      // Request notification permission on Android 13+
+      // Request notification permission on Android 13+. Denied is non-fatal —
+      // still initialize so battery-opt and channels can be set up.
       if (PlatformUtils.isAndroid) {
-        final status = await Permission.notification.status;
-        if (!status.isGranted) {
-          final result = await Permission.notification.request();
-          if (!result.isGranted) {
-            _logger.warning(
-              'Notification permission denied',
-              component: 'DownloadForegroundService',
-            );
-            return;
+        try {
+          final status = await Permission.notification.status;
+          if (!status.isGranted) {
+            final result = await Permission.notification.request();
+            if (!result.isGranted) {
+              _logger.warning(
+                'Notification permission denied; continuing init without popup notifications',
+                component: 'DownloadForegroundService',
+              );
+            }
           }
+        } catch (e) {
+          _logger.warning(
+            'Notification permission request failed: $e',
+            component: 'DownloadForegroundService',
+          );
         }
 
         // Request ignore battery optimization for background downloads
@@ -106,27 +127,22 @@ class DownloadForegroundService {
     );
   }
 
-  /// Request to ignore battery optimizations for this app
+  /// Checks battery-optimization status without prompting. The actual
+  /// exemption request lives in Settings → Unrestricted Battery so the user
+  /// never gets an unexpected system dialog in the middle of a download.
   Future<void> _requestIgnoreBatteryOptimizations() async {
     try {
       final status = await Permission.ignoreBatteryOptimizations.status;
       if (!status.isGranted) {
-        final result = await Permission.ignoreBatteryOptimizations.request();
-        if (result.isGranted) {
-          _logger.info(
-            'Battery optimization ignored',
-            component: 'DownloadForegroundService',
-          );
-        } else {
-          _logger.warning(
-            'Battery optimization ignore request denied',
-            component: 'DownloadForegroundService',
-          );
-        }
+        _logger.info(
+          'Battery optimization is active — background downloads may pause. '
+          'Enable "Unrestricted Battery" in Settings.',
+          component: 'DownloadForegroundService',
+        );
       }
     } catch (e) {
       _logger.warning(
-        'Failed to request battery optimization ignore: $e',
+        'Failed to check battery optimization status: $e',
         component: 'DownloadForegroundService',
       );
     }
@@ -191,20 +207,91 @@ class DownloadForegroundService {
   }) async {
     if (_activeDownloads.containsKey(downloadId)) {
       final existing = _activeDownloads[downloadId]!;
+      final effectiveStatus = statusText ?? existing.statusText;
       _activeDownloads[downloadId] = existing.copyWith(
         progress: progress,
         speed: speed,
-        statusText: statusText ?? existing.statusText,
+        statusText: effectiveStatus,
       );
+
+      // R4: On Android the foreground notification (ID 1000) is owned by the
+      // native DownloadService. Forward the real Dart-side progress to it via
+      // the service channel instead of posting a competing Dart notification.
+      if (PlatformUtils.isAndroid) {
+        await _forwardProgressToNative(
+          downloadId: downloadId,
+          progress: progress,
+          statusText: effectiveStatus,
+        );
+        return;
+      }
 
       // Update notification
       await _updateDownloadNotification();
     }
   }
 
+  /// Forward progress to the native DownloadService foreground notification.
+  /// Throttled so rapid yt-dlp events don't spam NotificationManager.
+  Future<void> _forwardProgressToNative({
+    required String downloadId,
+    required double progress,
+    required String? statusText,
+  }) async {
+    final percent = (progress.clamp(0.0, 1.0) * 100).round();
+    final now = DateTime.now();
+    final lastAt = _lastSentAt[downloadId];
+    final statusChanged = statusText != null && statusText != _lastSentStatus[downloadId];
+    final percentChanged = percent != _lastSentPercent[downloadId];
+
+    final withinCooldown = lastAt != null && now.difference(lastAt) < _minSendInterval;
+    if (withinCooldown && !statusChanged && !percentChanged) return;
+
+    _lastSentPercent[downloadId] = percent;
+    _lastSentAt[downloadId] = now;
+    if (statusText != null) _lastSentStatus[downloadId] = statusText;
+
+    try {
+      await _serviceChannel.invokeMethod<bool>('updateNotificationProgress', {
+        'downloadId': downloadId,
+        'progress': progress.clamp(0.0, 1.0),
+        'statusText': statusText,
+      });
+    } catch (e) {
+      // Progress display is auxiliary; never break the download over it.
+      _logger.warning(
+        'Failed to forward progress to native notification: $e',
+        component: 'DownloadForegroundService',
+      );
+    }
+  }
+
   /// Complete a download
   Future<void> completeDownload(String downloadId) async {
     _activeDownloads.remove(downloadId);
+    _lastSentPercent.remove(downloadId);
+    _lastSentAt.remove(downloadId);
+    _lastSentStatus.remove(downloadId);
+
+    if (PlatformUtils.isAndroid) {
+      if (_activeDownloads.isNotEmpty) {
+        // Other downloads still active: tell native to drop just this task so
+        // the foreground notification reflects the remaining ones.
+        try {
+          await _serviceChannel.invokeMethod<bool>('completeDownloadInService', {
+            'downloadId': downloadId,
+          });
+        } catch (e) {
+          _logger.warning(
+            'Failed to signal native download completion: $e',
+            component: 'DownloadForegroundService',
+          );
+        }
+        return;
+      }
+      // Last download: stopService() below tears down the native foreground
+      // notification (stopForeground + stopSelf + cancel in onDestroy).
+    }
 
     // Stop service if no more active downloads
     if (_activeDownloads.isEmpty) {
@@ -242,6 +329,9 @@ class DownloadForegroundService {
   /// Cancel a download
   Future<void> cancelDownload(String downloadId) async {
     _activeDownloads.remove(downloadId);
+    _lastSentPercent.remove(downloadId);
+    _lastSentAt.remove(downloadId);
+    _lastSentStatus.remove(downloadId);
     if (PlatformUtils.isAndroid) {
       try {
         await _serviceChannel.invokeMethod<bool>('cancelDownload', {
@@ -264,6 +354,14 @@ class DownloadForegroundService {
 
   /// Update the download notification
   Future<void> _updateDownloadNotification() async {
+    // B26: On Android the foreground notification (ID 1000) is owned by the
+    // native DownloadService via startForeground(). Dart must not post to or
+    // cancel that ID, otherwise the system shows "running in background".
+    // Dart uses distinct ID 1001 and unified channel, but to avoid duplicate
+    // notifications we delegate entirely to native on Android.
+    if (PlatformUtils.isAndroid) {
+      return;
+    }
     try {
       if (_activeDownloads.isEmpty) {
         // Cancel notification if no active downloads
@@ -292,6 +390,21 @@ class DownloadForegroundService {
 
   /// Cancel the service notification without allowing plugin errors to escape.
   Future<void> _cancelNotification() async {
+    // B26: Native service owns ID 1000. Dart owns 1001; on Android delegate
+    // dismissal to native stopForeground/stopSelf to avoid the system
+    // placeholder. Still clean up any stale Dart ID 1001 if present.
+    if (PlatformUtils.isAndroid) {
+      try {
+        await _notifications.cancel(_notificationId); // 1001, safe
+      } catch (e, stackTrace) {
+        _logger.warning(
+          'Notification cancellation failed (non-fatal): $e',
+          component: 'DownloadForegroundService',
+          stackTrace: stackTrace,
+        );
+      }
+      return;
+    }
     try {
       await _notifications.cancel(_notificationId);
     } catch (e, stackTrace) {
@@ -307,6 +420,8 @@ class DownloadForegroundService {
   Future<void> _showSingleDownloadNotification(
     DownloadProgress download,
   ) async {
+    // B26: delegated to native on Android
+    if (PlatformUtils.isAndroid) return;
     final progressPercent = (download.progress * 100).toInt();
     final statusText = download.statusText ?? 'Downloading...';
 
@@ -352,6 +467,8 @@ class DownloadForegroundService {
 
   /// Show notification for multiple downloads
   Future<void> _showMultiDownloadNotification() async {
+    // B26: delegated to native on Android
+    if (PlatformUtils.isAndroid) return;
     final totalDownloads = _activeDownloads.length;
     final activeDownloads = _activeDownloads.values
         .where((d) => d.progress < 1.0)
@@ -421,6 +538,24 @@ class DownloadForegroundService {
       } catch (_) {
         // Best effort; continue local cleanup.
       }
+      // B26: don't use cancelAll() on Android — it would clear the native
+      // foreground notification (ID 1000) outside its lifecycle. Only clear
+      // Dart's distinct ID 1001.
+      try {
+        await _notifications.cancel(_notificationId);
+      } catch (e, stackTrace) {
+        _logger.warning(
+          'Notification cancellation failed (non-fatal): $e',
+          component: 'DownloadForegroundService',
+          stackTrace: stackTrace,
+        );
+      }
+      _activeDownloads.clear();
+      _logger.info(
+        'All notifications cancelled',
+        component: 'DownloadForegroundService',
+      );
+      return;
     }
     try {
       await _notifications.cancelAll();

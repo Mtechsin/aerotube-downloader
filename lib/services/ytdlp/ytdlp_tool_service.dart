@@ -45,4 +45,5 @@ abstract class YtdlpToolService {
     bool Function()? isCancelled,
   });
   Future<bool> update();
+  Future<void> cancelFetch();
 }

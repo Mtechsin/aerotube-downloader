@@ -12,9 +12,15 @@ import android.os.IBinder
 import android.os.Looper
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import com.yausername.youtubedl_android.YoutubeDL
 import java.util.concurrent.ConcurrentHashMap
 
 class DownloadService : Service() {
+    // B26: Sole owner of foreground notification ID 1000 and channel
+    // "download_service_channel" via startForeground(). Dart
+    // DownloadForegroundService uses distinct ID 1001 and delegates to
+    // this service on Android to avoid ID collision and the system
+    // "running in background" placeholder caused by cancel(1000).
     private val CHANNEL_ID = "download_service_channel"
     private val NOTIFICATION_ID = 1000
 
@@ -25,11 +31,19 @@ class DownloadService : Service() {
 
     companion object {
         private const val TAG = "DownloadService"
+
+        // Live reference so MainActivity can forward high-frequency Dart progress
+        // events without spawning an Intent per tick (background-start of
+        // startForegroundService would also be restricted while app is backgrounded).
+        @Volatile
+        var instance: DownloadService? = null
+            private set
     }
 
     override fun onCreate() {
         super.onCreate()
         Log.d(TAG, "DownloadService created")
+        instance = this
 
         notificationManager = getSystemService(NotificationManager::class.java)
         createNotificationChannel()
@@ -41,10 +55,23 @@ class DownloadService : Service() {
         // Create and start foreground notification FIRST (required within 5 seconds)
         if (!isForegroundStarted) {
             val notification = createForegroundNotification("Download service active", 0)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
-            } else {
-                startForeground(NOTIFICATION_ID, notification)
+            when {
+                // API 35+: declare both types so FFmpeg post-processing
+                // (merge/thumbnail embed) is covered by mediaProcessing and a
+                // long playlist session is not bound solely by the dataSync
+                // 6-hour cap.
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM -> {
+                    startForeground(
+                        NOTIFICATION_ID,
+                        notification,
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC or
+                            ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROCESSING
+                    )
+                }
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q -> {
+                    startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+                }
+                else -> startForeground(NOTIFICATION_ID, notification)
             }
             isForegroundStarted = true
         }
@@ -75,6 +102,9 @@ class DownloadService : Service() {
             }
         }
 
+        // B17 fix: START_NOT_STICKY — do not redeliver last intent on process death.
+        // Previously START_REDELIVER_INTENT re-added a DownloadTask that never completes
+        // (progress path is Dart-side), leaving notification stuck at "Starting download…" forever.
         return START_NOT_STICKY
     }
 
@@ -85,7 +115,18 @@ class DownloadService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         Log.d(TAG, "DownloadService destroyed")
+        instance = null
 
+        // B28 fix: cancel native yt-dlp work that lived in MainActivity threads.
+        // Previously we only cleared the map -> downloads kept running with no notification/tracking.
+        for ((downloadId, _) in activeDownloads) {
+            try {
+                YoutubeDL.getInstance().destroyProcessById(downloadId)
+                Log.d(TAG, "Cancelled yt-dlp process $downloadId on service destroy")
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to cancel yt-dlp process $downloadId", e)
+            }
+        }
         activeDownloads.clear()
 
         // Cancel notification
@@ -136,26 +177,32 @@ class DownloadService : Service() {
         updateNotification()
     }
 
-    fun reportProgress(downloadId: String, progress: Float, statusText: String) {
-        mainHandler.post {
-            updateDownloadProgress(downloadId, progress, statusText)
-            if (statusText == "Completed" || statusText.startsWith("Failed:")) {
-                completeDownload(downloadId)
-            }
+    // R4: Real progress now flows from Dart (NativeYtdlpAndroid EventChannel ->
+    // MobileDownloadProvider -> DownloadForegroundService) via MainActivity's
+    // updateNotificationProgress method handler, which calls reportProgress()
+    // on the live instance. Updates the tracked task and re-posts the
+    // foreground notification with accurate percentage progress.
+    fun reportProgress(downloadId: String, progress: Float, statusText: String?) {
+        val task = activeDownloads[downloadId]
+        if (task == null) {
+            Log.d(TAG, "reportProgress: unknown downloadId $downloadId, ignoring")
+            return
         }
+        task.updateProgress(progress.coerceIn(0f, 1f), statusText)
+        updateNotification()
     }
 
     private fun cancelDownload(downloadId: String) {
+        // Also attempt to kill underlying yt-dlp native process (B28 defense)
+        try { YoutubeDL.getInstance().destroyProcessById(downloadId) } catch (_: Exception) {}
         activeDownloads.remove(downloadId)
         updateNotification()
     }
 
-    private fun updateDownloadProgress(downloadId: String, progress: Float, statusText: String?) {
-        activeDownloads[downloadId]?.updateProgress(progress, statusText)
-        updateNotification()
-    }
-
-    private fun completeDownload(downloadId: String) {
+    // R4: Dart signals a single download finished while others remain active —
+    // drop just this task so the notification reflects the remaining ones.
+    // When the map empties, updateNotification() stops foreground + self.
+    fun completeDownload(downloadId: String) {
         activeDownloads.remove(downloadId)
         updateNotification()
     }
@@ -177,7 +224,8 @@ class DownloadService : Service() {
         val totalProgress = activeDownloads.values.map { it.progress }.average().toFloat()
         val activeCount = activeDownloads.size
         val contentText = if (activeCount == 1) {
-            activeDownloads.values.first().statusText ?: "Downloading..."
+            val task = activeDownloads.values.first()
+            "${task.statusText} • ${(task.progress * 100).toInt()}%"
         } else {
             "$activeCount downloads active"
         }

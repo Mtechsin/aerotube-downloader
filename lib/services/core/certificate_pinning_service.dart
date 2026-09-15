@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
@@ -78,10 +77,31 @@ class CertificatePinningService {
   /// on Android). For desktop, a proxy-based approach or native TLS pinning
   /// is needed.
   HttpClient createPinnedHttpClient() {
+    // If no pins are configured at all, fall back to normal system TLS.
+    // This prevents every request from being REJECTED and triggering a
+    // wasteful double-fetch via plain HttpClient (which hammered GitHub API
+    // under shared VPN IPs). Only enforce pinning when pins exist.
+    if (_pinnedCertificates.isEmpty) {
+      debugPrint(
+        'Certificate pinning: no pins configured, using system TLS',
+      );
+      return HttpClient();
+    }
+
     final client = HttpClient();
 
     client.badCertificateCallback =
         (X509Certificate certificate, String host, int port) {
+      final pins = _pinnedCertificates[host];
+      if (pins == null || pins.isEmpty) {
+        // No pins for this host -> fall back to system TLS verification.
+        // Returning false means "reject bad cert" (standard OS behaviour).
+        debugPrint(
+          'Certificate pinning: no pins for $host, using system TLS',
+        );
+        return false;
+      }
+
       final isValid = isCertificateValid(host, certificate);
 
       if (isValid) {

@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Scoped paths only. App-private + the public Downloads/AeroTube folder
+     (needed when yt-dlp wrote there via All-files-access). Never add
+     root-path or a wide external-path — those expose all of shared storage. -->
 <paths>
-    <external-path name="external" path="." />
-    <external-files-path name="external_files" path="." />
     <cache-path name="cache" path="." />
+    <files-path name="files" path="." />
+    <external-files-path name="external_files" path="." />
+    <!-- Public Downloads/AeroTube only (not all of Download, not SD cards). -->
+    <external-path name="public_aerotube_downloads" path="Download/AeroTube/" />
 </paths>

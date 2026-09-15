@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: How to report a useful bug
+    url: https://github.com/Amadoson3001/aerotube-downloader/blob/main/docs/BUG_REPORTING.md
+    about: What to include, how to use in-app Report a Bug, and what stays private.

@@ -27,19 +27,26 @@ class NotificationServiceAndroid extends NotificationService {
     if (_isInitialized) return;
 
     try {
-      // Request notification permission on Android 13+
+      // Request notification permission on Android 13+. Denied is non-fatal —
+      // still initialize channels so the plugin works after a later grant.
       if (PlatformUtils.isAndroid) {
-        final status = await Permission.notification.status;
-        if (!status.isGranted) {
-          final result = await Permission.notification.request();
-          if (!result.isGranted) {
-            _logger.warning(
-              'Notification permission denied',
-              component: 'NotificationServiceAndroid',
-            );
-            _permissionDenied = true;
-            return;
+        try {
+          final status = await Permission.notification.status;
+          if (!status.isGranted) {
+            final result = await Permission.notification.request();
+            if (!result.isGranted) {
+              _logger.warning(
+                'Notification permission denied; continuing init without popup notifications',
+                component: 'NotificationServiceAndroid',
+              );
+              _permissionDenied = true;
+            }
           }
+        } catch (e) {
+          _logger.warning(
+            'Notification permission request failed: $e',
+            component: 'NotificationServiceAndroid',
+          );
         }
       }
 
@@ -159,6 +166,8 @@ class NotificationServiceAndroid extends NotificationService {
     String? payload,
     String? channelId,
   }) async {
+    if (!systemNotificationsEnabled) return;
+
     if (!_isInitialized && !_permissionDenied) {
       await init();
     }

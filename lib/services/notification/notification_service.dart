@@ -7,9 +7,12 @@ class NotificationService {
   final GlobalKey<ScaffoldMessengerState> scaffoldMessengerKey =
       GlobalKey<ScaffoldMessengerState>();
 
+  /// When false, system notifications are suppressed (in-app snackbars still show).
+  bool systemNotificationsEnabled = true;
+
   Future<void> init() async {
     await localNotifier.setup(
-      appName: 'YouTube Downloader',
+      appName: 'AeroTube',
       // shortcutPolicy: ShortcutPolicy.requireCreate,
     );
   }
@@ -20,31 +23,33 @@ class NotificationService {
     bool isError = false,
     VoidCallback? onTap,
   }) async {
-    // 1. Show System Notification
-    final notification = LocalNotification(
-      title: title,
-      body: body,
-    );
-
-    notification.onClick = () {
-      onTap?.call();
-    };
-    
-    notification.onShow = () {
-      LoggingService().debug(
-        'Notification shown: $title',
-        component: 'NotificationService',
+    // 1. Show System Notification (only when the user has it enabled)
+    if (systemNotificationsEnabled) {
+      final notification = LocalNotification(
+        title: title,
+        body: body,
       );
-    };
-    
-    notification.show();
+
+      notification.onClick = () {
+        onTap?.call();
+      };
+
+      notification.onShow = () {
+        LoggingService().debug(
+          'Notification shown: $title',
+          component: 'NotificationService',
+        );
+      };
+
+      notification.show();
+    }
 
     // 2. Show In-App SnackBar
     final currentState = scaffoldMessengerKey.currentState;
     if (currentState != null) {
       // Safely check for context to get theme if possible, but for now use custom styling
       // that matches the app's aesthetic (dark mode compatible)
-      
+
       currentState.hideCurrentSnackBar();
       currentState.showSnackBar(
         SnackBar(

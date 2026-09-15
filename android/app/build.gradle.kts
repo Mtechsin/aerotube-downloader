@@ -52,7 +52,7 @@ android {
 
     splits {
         abi {
-            isEnable = true
+            isEnable = gradle.startParameter.taskNames.none { it.contains("bundle", ignoreCase = true) }
             reset()
             include("arm64-v8a", "armeabi-v7a", "x86_64")
             isUniversalApk = true

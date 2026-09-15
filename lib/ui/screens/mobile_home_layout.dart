@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/navigation_provider.dart';
+import '../../core/theme/app_motion.dart';
 import '../../core/utils/platform_utils.dart';
-import '../../providers/platform_settings_provider.dart';
 import 'mobile_home_screen.dart';
 
 class MobileShell extends StatefulWidget {
@@ -21,13 +21,8 @@ class _MobileShellState extends State<MobileShell> {
     final theme = Theme.of(context);
     final currentIndex = navigationProvider.currentIndex;
 
-    final enableAnimations = context.select<PlatformSettingsProvider, bool>(
-      (provider) => provider.enableAnimations,
-    );
-
     // Search FAB — Android only, only on home screen
-    final showSearchFab =
-        PlatformUtils.isAndroid && currentIndex == 0;
+    final showSearchFab = PlatformUtils.isAndroid && currentIndex == 0;
 
     return PopScope(
       canPop: false,
@@ -39,38 +34,12 @@ class _MobileShellState extends State<MobileShell> {
       },
       child: Scaffold(
         backgroundColor: theme.scaffoldBackgroundColor,
-        body: AnimatedSwitcher(
-          duration: enableAnimations
-              ? const Duration(milliseconds: 300)
-              : Duration.zero,
-          switchInCurve: Curves.easeOutCubic,
-          switchOutCurve: Curves.easeInCubic,
-          transitionBuilder: (child, animation) {
-            return FadeTransition(
-              opacity: animation,
-              child: SlideTransition(
-                position: Tween<Offset>(
-                  begin: const Offset(0.02, 0),
-                  end: Offset.zero,
-                ).animate(animation),
-                child: child,
-              ),
-            );
-          },
-          child: IndexedStack(
-            key: ValueKey(currentIndex),
-            index: currentIndex,
-            children: widget.screens,
-          ),
-        ),
+        body: IndexedStack(index: currentIndex, children: widget.screens),
         // Search FAB — Android only
         floatingActionButton: showSearchFab
             ? Padding(
                 padding: const EdgeInsets.only(bottom: 80),
-                child: _SearchFab(
-                  onTap: () => navigationProvider.setIndex(1),
-                  enableAnimations: enableAnimations,
-                ),
+                child: _SearchFab(onTap: () => navigationProvider.setIndex(1)),
               )
             : null,
         floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
@@ -79,33 +48,59 @@ class _MobileShellState extends State<MobileShell> {
   }
 }
 
-class _SearchFab extends StatelessWidget {
+class _SearchFab extends StatefulWidget {
   final VoidCallback onTap;
-  final bool enableAnimations;
 
-  const _SearchFab({required this.onTap, required this.enableAnimations});
+  const _SearchFab({required this.onTap});
+
+  @override
+  State<_SearchFab> createState() => _SearchFabState();
+}
+
+class _SearchFabState extends State<_SearchFab> {
+  bool _pressed = false;
+
+  void _setPressed(bool value) {
+    if (_pressed != value) setState(() => _pressed = value);
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return FloatingActionButton(
-      onPressed: onTap,
-      elevation: 2,
-      highlightElevation: 4,
-      backgroundColor: theme.colorScheme.surface,
-      foregroundColor: theme.colorScheme.onSurface,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(18),
-        side: BorderSide(
-          color: theme.colorScheme.onSurface.withValues(alpha: 0.12),
-          width: 1,
+    return Listener(
+      onPointerDown: (_) => _setPressed(true),
+      onPointerUp: (_) => _setPressed(false),
+      onPointerCancel: (_) => _setPressed(false),
+      child: TweenAnimationBuilder<double>(
+        tween: Tween(end: _pressed ? 1.0 : 0.0),
+        // Squish fast on press, spring back with the corners rounding out.
+        duration: appMotionDuration(
+          context,
+          _pressed ? AppMotion.fast : AppMotion.medium,
         ),
-      ),
-      tooltip: 'Search',
-      child: Icon(
-        Icons.search_rounded,
-        size: 24,
-        color: theme.colorScheme.onSurface.withValues(alpha: 0.75),
+        curve: _pressed ? AppMotion.accelerate : AppMotion.snappySpringCurve,
+        builder: (context, t, child) {
+          return Transform.scale(
+            scale: 1.0 - 0.04 * t,
+            child: FloatingActionButton(
+              onPressed: widget.onTap,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(18.0 + 10.0 * t),
+                side: BorderSide(
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.12),
+                  width: 1,
+                ),
+              ),
+              tooltip: 'Search',
+              child: child,
+            ),
+          );
+        },
+        child: Icon(
+          Icons.search_rounded,
+          size: 24,
+          color: theme.colorScheme.onSurface.withValues(alpha: 0.75),
+        ),
       ),
     );
   }

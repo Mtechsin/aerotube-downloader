@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Legacy backup rules (Android 11 and below) for auto-backup.
+     Excludes sensitive download history and auth-related data. -->
+<full-backup-content>
+    <!-- Exclude Hive database files (download history with URLs). -->
+    <exclude domain="file" path="appdata/" />
+    <exclude domain="file" path="flutter_appdata/" />
+
+    <!-- Exclude secure storage and auth-related shared prefs. -->
+    <exclude domain="sharedpref" path="FlutterSecureStorage.xml" />
+    <exclude domain="sharedpref" path="flutter." />
+
+    <!-- Exclude the yt-dlp binary cache directory. -->
+    <exclude domain="file" path="yt-dlp/" />
+</full-backup-content>

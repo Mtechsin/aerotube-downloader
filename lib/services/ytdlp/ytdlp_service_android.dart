@@ -3,13 +3,14 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
-import 'package:path_provider/path_provider.dart';
 
 import '../../models/video_info.dart';
 import '../../models/playlist_info.dart';
 import '../notification/notification_service.dart';
 import '../core/logging_service.dart';
-import '../../core/utils/version_utils.dart' as version_utils show isNewerVersion;
+import '../../core/constants/app_constants.dart';
+import '../../core/utils/version_utils.dart';
+import '../../core/utils/error_helper.dart';
 import 'native_ytdlp_android.dart';
 import 'ytdlp_tool_service.dart';
 
@@ -24,9 +25,36 @@ class YtdlpServiceAndroid implements YtdlpToolService {
   bool _enableCookies = false;
   bool _isInitialized = false;
   String? _cachedLatestVersion;
+  DateTime? _cacheTime;
+  static DateTime? _lastFetchAttempt;
+  static const Duration _cacheExpiry = Duration(minutes: 60);
+  static const Duration _throttleWindow = Duration(seconds: 60);
 
-  final NotificationService? _notificationService;
   final LoggingService _logger = LoggingService();
+
+  String? _getGithubToken() {
+    try {
+      final env = Platform.environment['GITHUB_TOKEN'];
+      if (env != null && env.isNotEmpty) return env;
+    } catch (_) {}
+    const fromEnv = String.fromEnvironment('GITHUB_TOKEN');
+    if (fromEnv.isNotEmpty) return fromEnv;
+    return null;
+  }
+
+  bool _isRateLimit(Object e) {
+    final m = e.toString().toLowerCase();
+    return m.contains('rate limit') || m.contains('403') || m.contains('429');
+  }
+
+  // Cancellation support (mirrors Windows)
+  int _fetchGen = 0;
+
+  @override
+  Future<void> cancelFetch() async {
+    _fetchGen++;
+    _logger.info('Android fetch cancelled by user (gen $_fetchGen)', component: 'YtdlpServiceAndroid');
+  }
 
   YtdlpServiceAndroid({
     String? cookiePath,
@@ -35,8 +63,7 @@ class YtdlpServiceAndroid implements YtdlpToolService {
     NotificationService? notificationService,
   }) : _cookiePath = cookiePath,
        _webViewPath = webViewPath,
-       _ffmpegPath = ffmpegPath,
-       _notificationService = notificationService;
+       _ffmpegPath = ffmpegPath;
 
   @override
   String get ytdlpPath => 'yt-dlp';
@@ -136,36 +163,92 @@ class YtdlpServiceAndroid implements YtdlpToolService {
     }
   }
 
-  /// Get latest available version - uses GitHub API
+  /// Get latest available version - uses GitHub API (rate-limit friendly)
   @override
   Future<String?> getLatestVersion({bool forceRefresh = false}) async {
-    // Return cached version if available and not forcing refresh
-    if (!forceRefresh && _cachedLatestVersion != null) {
+    final now = DateTime.now();
+
+    // Throttle: at most once per 60s
+    if (!forceRefresh &&
+        _lastFetchAttempt != null &&
+        now.difference(_lastFetchAttempt!) < _throttleWindow) {
+      if (_cachedLatestVersion != null) {
+        _logger.debug(
+          'Android getLatestVersion throttled, returning cached $_cachedLatestVersion',
+          component: 'YtdlpServiceAndroid',
+        );
+        return _cachedLatestVersion;
+      }
+      _logger.debug(
+        'Android getLatestVersion throttled, no cache yet',
+        component: 'YtdlpServiceAndroid',
+      );
+      return null;
+    }
+
+    // Cache expiry: 60 minutes
+    if (!forceRefresh &&
+        _cachedLatestVersion != null &&
+        _cacheTime != null &&
+        now.difference(_cacheTime!) < _cacheExpiry) {
       return _cachedLatestVersion;
     }
 
+    _lastFetchAttempt = now;
+
+    final token = _getGithubToken();
+    final headers = <String, String>{
+      'Accept': 'application/vnd.github.v3+json',
+      'User-Agent': 'AeroTube-Updater',
+      if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
+    };
+
     try {
-      final response = await http.get(
-        Uri.parse('https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest'),
-        headers: {'Accept': 'application/vnd.github.v3+json'},
-      );
+      final response = await http
+          .get(
+            Uri.parse(AppConstants.ytdlpLatestReleaseApiUrl),
+            headers: headers,
+          )
+          .timeout(const Duration(seconds: 15));
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        String tagName = data['tag_name'] as String;
-        _cachedLatestVersion = tagName;
-        return tagName;
+        final tagName = data['tag_name'] as String?;
+        if (tagName != null && tagName.isNotEmpty) {
+          _cachedLatestVersion = tagName;
+          _cacheTime = DateTime.now();
+          return tagName;
+        }
+        return null;
+      } else if (response.statusCode == 403 || response.statusCode == 429) {
+        if (_cachedLatestVersion != null) {
+          _logger.warning(
+            'Rate limited but returning cached $_cachedLatestVersion',
+            component: 'YtdlpServiceAndroid',
+          );
+          return _cachedLatestVersion;
+        }
+        throw Exception(
+          'GitHub API rate limit (${response.statusCode}): ${response.body.substring(0, response.body.length > 300 ? 300 : response.body.length)} '
+          'Try again later or set GITHUB_TOKEN for higher limits.',
+        );
+      } else {
+        throw Exception(
+            'GitHub API error ${response.statusCode}: ${response.body}');
       }
     } catch (e) {
-      _logger.error(
-        'Failed to get latest version from GitHub',
-        component: 'YtdlpServiceAndroid',
-        error: e,
-      );
+      if (_isRateLimit(e) && _cachedLatestVersion != null) {
+        _logger.warning(
+          'Rate limit exception but returning cached $_cachedLatestVersion: $e',
+          component: 'YtdlpServiceAndroid',
+        );
+        return _cachedLatestVersion;
+      }
+      rethrow;
     }
-    return null;
   }
 
-  bool _isNewerVersion(String current, String latest) => version_utils.isNewerVersion(current, latest);
+  bool _isNewerVersion(String current, String latest) =>
+      VersionUtils.isNewerVersion(current, latest);
 
   /// Check if a newer version is available - uses GitHub API
   @override
@@ -182,8 +265,7 @@ class YtdlpServiceAndroid implements YtdlpToolService {
         return YtdlpUpdateInfo(
           currentVersion: currentVersion,
           latestVersion: currentVersion,
-          downloadUrl:
-              'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp',
+          downloadUrl: AppConstants.ytdlpAndroidDownloadUrl,
           publishedAt: DateTime.now(),
           releaseNotes: 'Update check failed',
         );
@@ -194,14 +276,22 @@ class YtdlpServiceAndroid implements YtdlpToolService {
       return YtdlpUpdateInfo(
         currentVersion: currentVersion,
         latestVersion: latestVersion,
-        downloadUrl:
-            'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp',
+        downloadUrl: AppConstants.ytdlpAndroidDownloadUrl,
         publishedAt: DateTime.now(),
         releaseNotes: hasUpdate
             ? 'New version available: $latestVersion'
             : 'Up to date',
       );
     } catch (e, stackTrace) {
+      if (e.toString().toLowerCase().contains('rate limit') ||
+          e.toString().contains('403') ||
+          e.toString().contains('429')) {
+        _logger.warning(
+          'Rate limited while checking yt-dlp updates: $e',
+          component: 'YtdlpServiceAndroid',
+        );
+        rethrow;
+      }
       _logger.error(
         'Failed to check for updates',
         component: 'YtdlpServiceAndroid',
@@ -250,7 +340,8 @@ class YtdlpServiceAndroid implements YtdlpToolService {
         if (status == 'up_to_date') {
           onStatus('Already up to date!');
         } else {
-          onStatus('Update complete!');
+          final ver = result['version'] as String?;
+          onStatus(ver != null ? 'Update complete (v$ver)!' : 'Update complete!');
         }
         return true;
       } else {
@@ -258,7 +349,11 @@ class YtdlpServiceAndroid implements YtdlpToolService {
             result['error'] ??
             result['message'] ??
             'Native update failed (status: ${status ?? 'unknown'})';
-        onStatus('Update failed: $error');
+        final suggestion = result['suggestion'] as String?;
+        final displayMsg = suggestion != null
+            ? '$error. $suggestion'
+            : '$error';
+        onStatus('Update failed: $displayMsg');
         return false;
       }
     } catch (e, stackTrace) {
@@ -268,21 +363,21 @@ class YtdlpServiceAndroid implements YtdlpToolService {
         error: e,
         stackTrace: stackTrace,
       );
-      onStatus('Update failed: $e');
+      final errorHelper = ErrorHelper.parse(e.toString());
+      final msg = errorHelper.suggestion != null
+          ? '${errorHelper.friendlyMessage}: ${errorHelper.suggestion}'
+          : errorHelper.friendlyMessage;
+      onStatus('Update failed: $msg');
       return false;
     } finally {
       await progressSubscription?.cancel();
     }
   }
 
-  Future<Directory> _getTempDirectory() async {
-    return await getTemporaryDirectory();
-  }
-
   @override
   Future<bool> update() async {
     return downloadAndInstallUpdate(
-      'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp',
+      AppConstants.ytdlpAndroidDownloadUrl,
       onProgress: (_) {},
       onStatus: (_) {},
     );
@@ -449,6 +544,12 @@ class YtdlpServiceAndroid implements YtdlpToolService {
         cookiesPath: _enableCookies ? _cookiePath : null,
         userAgent: _userAgent,
         processId: processIdToUse,
+        archivePath: archivePath,
+        subtitleLanguages: subtitleLanguages,
+        embedSubtitles: embedSubtitles,
+        sponsorBlock: sponsorBlock,
+        embedThumbnail: embedThumbnail,
+        embedMetadata: embedMetadata,
       );
 
       if (result['success'] != true) {

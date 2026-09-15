@@ -1,9 +1,15 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 
 /// Platform detection utility
 class PlatformUtils {
-  static bool get isAndroid => Platform.isAndroid;
-  static bool get isWindows => Platform.isWindows;
+  @visibleForTesting
+  static bool? isAndroidOverride;
+  @visibleForTesting
+  static bool? isWindowsOverride;
+
+  static bool get isAndroid => isAndroidOverride ?? Platform.isAndroid;
+  static bool get isWindows => isWindowsOverride ?? Platform.isWindows;
   static bool get isIOS => Platform.isIOS;
   static bool get isMacOS => Platform.isMacOS;
   static bool get isLinux => Platform.isLinux;
