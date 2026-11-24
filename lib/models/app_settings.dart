@@ -20,6 +20,9 @@ class AppSettings {
 
   // Appearance
   final ThemeMode themeMode;
+  /// When true, the dark theme uses a pure-black (AMOLED) palette.
+  /// Only applies while the effective brightness is dark.
+  final bool amoledDark;
   final int? accentColorValue; // Stored as int for easy persistence
   final bool enableAnimations;
 
@@ -39,6 +42,7 @@ class AppSettings {
   // First launch
   final bool onboardingComplete;
   final bool ytdlpAutoUpdated;
+  final bool isSidebarExpanded;
 
   // Constructor with defaults
   AppSettings({
@@ -55,6 +59,7 @@ class AppSettings {
     this.defaultSubtitleLanguage = 'auto',
 
     this.themeMode = ThemeMode.system,
+    this.amoledDark = false,
     this.accentColorValue,
     this.enableAnimations = true,
 
@@ -70,6 +75,7 @@ class AppSettings {
     this.enableLogging = true,
     this.onboardingComplete = false,
     this.ytdlpAutoUpdated = false,
+    this.isSidebarExpanded = true,
   });
 
   // CopyWith for easy updates
@@ -85,6 +91,7 @@ class AppSettings {
     bool? autoMergeStreams,
     String? defaultSubtitleLanguage,
     ThemeMode? themeMode,
+    bool? amoledDark,
     int? accentColorValue,
     bool? enableAnimations,
     bool? enableCookies,
@@ -98,6 +105,7 @@ class AppSettings {
     bool? enableLogging,
     bool? onboardingComplete,
     bool? ytdlpAutoUpdated,
+    bool? isSidebarExpanded,
   }) {
     return AppSettings(
       ytdlpPath: ytdlpPath ?? this.ytdlpPath,
@@ -113,6 +121,7 @@ class AppSettings {
       defaultSubtitleLanguage:
           defaultSubtitleLanguage ?? this.defaultSubtitleLanguage,
       themeMode: themeMode ?? this.themeMode,
+      amoledDark: amoledDark ?? this.amoledDark,
       accentColorValue: accentColorValue ?? this.accentColorValue,
       enableAnimations: enableAnimations ?? this.enableAnimations,
       enableCookies: enableCookies ?? this.enableCookies,
@@ -127,6 +136,7 @@ class AppSettings {
       enableLogging: enableLogging ?? this.enableLogging,
       onboardingComplete: onboardingComplete ?? this.onboardingComplete,
       ytdlpAutoUpdated: ytdlpAutoUpdated ?? this.ytdlpAutoUpdated,
+      isSidebarExpanded: isSidebarExpanded ?? this.isSidebarExpanded,
     );
   }
 }

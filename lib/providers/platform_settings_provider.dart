@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import '../models/app_settings.dart';
 import '../services/ytdlp/ytdlp_tool_service.dart';
 import '../services/ffmpeg/ffmpeg_tool_service.dart';
@@ -60,9 +61,13 @@ class PlatformSettingsProvider extends ChangeNotifier {
   String? get activeFfmpegPath => _ffmpegService.ffmpegPath;
 
   ThemeMode get themeMode => settings.themeMode;
+  /// Whether the pure-black AMOLED dark palette is enabled (only takes
+  /// effect while the effective brightness is dark).
+  bool get amoledDark => settings.amoledDark;
   DateTime? get cookieFileLastModified => _cookieFileLastModified;
   String? get cookieFileName => _cookieFileName;
   bool get isYouTubeLoggedIn => _isYouTubeLoggedIn;
+  bool get isSidebarExpanded => settings.isSidebarExpanded;
   String? get youtubeProfileImageUrl => settings.youtubeProfileImageUrl;
   DateTime? get youTubeLoginTime => _youTubeLoginTime;
   CookieService get cookieService => _cookieService;
@@ -120,11 +125,26 @@ class PlatformSettingsProvider extends ChangeNotifier {
       defaultPath = await _androidStorageService.getSafeDownloadDirectory();
     } else {
       // Desktop platforms use a dedicated aerotube folder inside Downloads.
-      final homeDir =
+      var homeDir =
           Platform.environment['USERPROFILE'] ??
           Platform.environment['HOME'] ??
           '';
-      defaultPath = p.join(homeDir, 'Downloads', 'aerotube');
+      if (homeDir.isEmpty) {
+        // USERPROFILE/HOME can be missing in stripped-down shells. Fall back
+        // to a writable app directory rather than a relative path.
+        try {
+          homeDir = (await getApplicationSupportDirectory()).path;
+        } catch (_) {
+          try {
+            homeDir = (await getApplicationDocumentsDirectory()).path;
+          } catch (_) {
+            homeDir = Directory.systemTemp.path;
+          }
+        }
+        defaultPath = p.join(homeDir, 'aerotube');
+      } else {
+        defaultPath = p.join(homeDir, 'Downloads', 'aerotube');
+      }
     }
 
     final dir = Directory(defaultPath);
@@ -251,6 +271,31 @@ class PlatformSettingsProvider extends ChangeNotifier {
   bool shouldMigrateAndroidOutputPath(String path) =>
       _shouldMigrateAndroidOutputPath(path);
 
+  /// True when the WebView user-data dir actually holds cookie material.
+  /// A residual empty/partial profile directory is not a real login signal.
+  Future<bool> _hasRealWebViewCookies(String webViewPath) async {
+    try {
+      final dir = Directory(webViewPath);
+      if (!await dir.exists()) return false;
+      final cookieDb = File(
+        p.join(webViewPath, 'Default', 'Network', 'Cookies'),
+      );
+      if (await cookieDb.exists() && await cookieDb.length() > 0) {
+        return true;
+      }
+      final legacy = File(p.join(webViewPath, 'Cookies'));
+      if (await legacy.exists() && await legacy.length() > 0) {
+        return true;
+      }
+      await for (final _ in dir.list(followLinks: false)) {
+        return true;
+      }
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Check if user is logged into YouTube via WebView cookies
   Future<void> checkYouTubeLoginStatus() async {
     _isYouTubeLoggedIn = await _cookieService.isLoggedIn;
@@ -261,22 +306,42 @@ class PlatformSettingsProvider extends ChangeNotifier {
       final userAgent = await _cookieService.userAgent;
       final webViewPath = await _cookieService.webViewPath;
       if (!PlatformUtils.isAndroid && webViewPath != null) {
-        _ytdlpService.webViewPath = webViewPath;
-        _ytdlpService.userAgent = userAgent;
-        _ytdlpService.cookiePath = null;
-        _ytdlpService.cookieBrowser = null;
-        LoggingService().info(
-          'YouTube WebView login detected',
-          component: 'PlatformSettingsProvider',
-        );
-        LoggingService().debug(
-          'WebView profile path: $webViewPath',
-          component: 'PlatformSettingsProvider',
-        );
-        LoggingService().debug(
-          'yt-dlp will use: --cookies-from-browser edge:$webViewPath',
-          component: 'PlatformSettingsProvider',
-        );
+        final hasWebViewCookies = await _hasRealWebViewCookies(webViewPath);
+        final hasUserCookieSource =
+            settings.cookiePath != null ||
+            (settings.cookieBrowser != null &&
+                settings.cookieBrowser != 'none');
+        if (hasUserCookieSource) {
+          // H6: never wipe the user's explicit cookie file/browser preference
+          // based on a residual WebView profile directory. yt-dlp prioritizes
+          // webViewPath, so also leave it unset.
+          LoggingService().info(
+            'WebView login signal present; keeping explicit cookie file/browser preference',
+            component: 'PlatformSettingsProvider',
+          );
+        } else if (hasWebViewCookies) {
+          _ytdlpService.webViewPath = webViewPath;
+          _ytdlpService.userAgent = userAgent;
+          _ytdlpService.cookiePath = null;
+          _ytdlpService.cookieBrowser = null;
+          LoggingService().info(
+            'YouTube WebView login detected',
+            component: 'PlatformSettingsProvider',
+          );
+          LoggingService().debug(
+            'WebView profile path: $webViewPath',
+            component: 'PlatformSettingsProvider',
+          );
+          LoggingService().debug(
+            'yt-dlp will use: --cookies-from-browser edge:$webViewPath',
+            component: 'PlatformSettingsProvider',
+          );
+        } else {
+          LoggingService().warning(
+            'WebView login uncertain (no cookies under $webViewPath); leaving cookie settings unchanged',
+            component: 'PlatformSettingsProvider',
+          );
+        }
       } else {
         _ytdlpService.userAgent = userAgent;
         LoggingService().info(
@@ -301,20 +366,51 @@ class PlatformSettingsProvider extends ChangeNotifier {
 
   /// Logout from YouTube (clear saved cookies)
   Future<void> logoutFromYouTube() async {
+    // Capture cookie paths BEFORE clearCookies(). On Android the
+    // CookieService.cookieFilePath getter may return null after the login
+    // state flips, which previously made cookies.txt cleanup unreachable.
+    final cookieServicePath = await _cookieService.cookieFilePath;
+    final settingsCookiePath = settings.cookiePath;
+    final ytdlpCookiePath = _ytdlpService.cookiePath;
+    final activeCookiePath =
+        ytdlpCookiePath ?? settingsCookiePath ?? cookieServicePath;
+
     await _cookieService.clearCookies();
     _isYouTubeLoggedIn = false;
     _youTubeLoginTime = null;
     await setYoutubeProfileImageUrl(null);
 
-    // Clear cookie path from ytdlp and settings if it was using the WebView cookies
-    final cookiePath = await _cookieService.cookieFilePath;
-    if (_ytdlpService.cookiePath == cookiePath) {
-      _ytdlpService.cookiePath = null;
-      _ytdlpService.userAgent = null;
-      await _settingsService.setCookiePath(null);
-    } else {
-      _ytdlpService.userAgent = null;
+    // Delete the WebView-exported Netscape cookies.txt (and any other
+    // captured cookie path) if it is still on disk. clearCookies() on the
+    // Android service also deletes known artifacts; this covers custom paths.
+    if (activeCookiePath != null) {
+      try {
+        final cookieFile = File(activeCookiePath);
+        if (await cookieFile.exists()) {
+          await cookieFile.delete();
+          LoggingService().info(
+            'Deleted cookie file at $activeCookiePath on logout',
+            component: 'PlatformSettingsProvider',
+          );
+        }
+      } catch (e) {
+        LoggingService().warning(
+          'Failed to delete cookie file $activeCookiePath: $e',
+          component: 'PlatformSettingsProvider',
+          error: e,
+        );
+      }
     }
+
+    // Always drop cookie configuration on logout — a stale path after
+    // logout would keep sending dead cookies to yt-dlp.
+    _ytdlpService.cookiePath = null;
+    _ytdlpService.userAgent = null;
+    _ytdlpService.enableCookies = false;
+    await _settingsService.setCookiePath(null);
+    await setEnableCookies(false);
+    _cookieFileLastModified = null;
+    _cookieFileName = null;
 
     notifyListeners();
   }
@@ -354,6 +450,11 @@ class PlatformSettingsProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> setAmoledDark(bool value) async {
+    await _settingsService.setAmoledDark(value);
+    notifyListeners();
+  }
+
   Future<void> setYtdlpPath(String? path) async {
     await _settingsService.setYtdlpPath(path);
     if (path != null) {
@@ -381,6 +482,9 @@ class PlatformSettingsProvider extends ChangeNotifier {
     await _settingsService.setCookiePath(path);
     _ytdlpService.cookiePath = path;
     if (path != null) {
+      // H5: an explicit cookies file wins over any browser preference.
+      await _settingsService.setCookieBrowser(null);
+      _ytdlpService.cookieBrowser = null;
       _updateCookieFileMetadata(path);
     } else {
       _cookieFileLastModified = null;
@@ -407,8 +511,13 @@ class PlatformSettingsProvider extends ChangeNotifier {
   Future<void> setCookieBrowser(String? browser) async {
     await _settingsService.setCookieBrowser(browser);
     _ytdlpService.cookieBrowser = browser;
-    if (browser != null) {
+    if (browser != null && browser != 'none') {
+      // H5: clear and persist cookiePath=null so a stale file path does not
+      // come back on restart and fight the browser preference.
+      await _settingsService.setCookiePath(null);
       _ytdlpService.cookiePath = null;
+      _cookieFileLastModified = null;
+      _cookieFileName = null;
     }
     notifyListeners();
   }
@@ -647,6 +756,11 @@ class PlatformSettingsProvider extends ChangeNotifier {
 
   Future<void> setOnboardingComplete(bool value) async {
     await _settingsService.setOnboardingComplete(value);
+    notifyListeners();
+  }
+
+  Future<void> setSidebarExpanded(bool value) async {
+    await _settingsService.setSidebarExpanded(value);
     notifyListeners();
   }
 

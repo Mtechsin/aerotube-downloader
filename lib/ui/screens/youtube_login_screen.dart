@@ -1,3 +1,4 @@
+import 'package:material_symbols_icons/symbols.dart';
 import 'package:flutter/material.dart';
 import 'dart:io';
 import 'dart:collection';
@@ -310,7 +311,7 @@ class _YoutubeLoginScreenState extends State<YoutubeLoginScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.error_outline, size: 64, color: Colors.orange),
+            const Icon(Symbols.error_rounded, size: 64, color: Colors.orange),
             const SizedBox(height: 24),
             Text(
               _errorMessage ?? 'An error occurred',
@@ -327,7 +328,7 @@ class _YoutubeLoginScreenState extends State<YoutubeLoginScreen> {
                   await launchUrl(url);
                 }
               },
-              icon: const Icon(Icons.download),
+              icon: const Icon(Symbols.download_rounded),
               label: const Text('Download WebView2 Runtime'),
             ),
             const SizedBox(height: 12),
@@ -350,7 +351,7 @@ class _YoutubeLoginScreenState extends State<YoutubeLoginScreen> {
         actions: [
           if (isMobile)
             IconButton(
-              icon: const Icon(Icons.home_outlined),
+              icon: const Icon(Symbols.home_rounded),
               tooltip: 'Home',
               onPressed: () {
                 Navigator.of(context).popUntil((route) => route.isFirst);
@@ -389,7 +390,7 @@ class _YoutubeLoginScreenState extends State<YoutubeLoginScreen> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       const Icon(
-                        Icons.error_outline,
+                        Symbols.error_rounded,
                         size: 64,
                         color: Colors.orange,
                       ),
@@ -402,7 +403,7 @@ class _YoutubeLoginScreenState extends State<YoutubeLoginScreen> {
                       const SizedBox(height: 24),
                       ElevatedButton.icon(
                         onPressed: _initMobileWebView,
-                        icon: const Icon(Icons.refresh),
+                        icon: const Icon(Symbols.refresh_rounded),
                         label: const Text('Retry'),
                       ),
                       const SizedBox(height: 12),

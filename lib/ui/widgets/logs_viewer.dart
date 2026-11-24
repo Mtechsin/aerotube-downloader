@@ -1,10 +1,19 @@
+import 'package:material_symbols_icons/symbols.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../core/theme/tokens/colors.dart';
+import '../../core/theme/tokens/radius.dart';
+import '../../core/theme/tokens/spacing.dart';
+import '../../core/theme/tokens/typography.dart';
+import '../components/aero_button.dart';
+import '../components/aero_dialog.dart';
 import '../../services/core/logging_service.dart';
 
 /// Developer logs viewer widget
 class LogsViewer extends StatelessWidget {
-  const LogsViewer({super.key});
+  final bool showTitle;
+
+  const LogsViewer({super.key, this.showTitle = true});
 
   @override
   Widget build(BuildContext context) {
@@ -23,32 +32,30 @@ class LogsViewer extends StatelessWidget {
               padding: const EdgeInsets.all(16),
               child: Row(
                 children: [
-                  Icon(
-                    Icons.bug_report_rounded,
-                    color: Theme.of(context).colorScheme.primary,
-                    size: 20,
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    'Developer Logs',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: Theme.of(context).colorScheme.onSurface,
+                  if (showTitle) ...[
+                    Icon(
+                      Symbols.bug_report_rounded,
+                      color: context.aero.primary,
+                      size: 20,
                     ),
-                  ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Developer Logs',
+                      style: AeroText.titleSm.copyWith(
+                        color: context.aero.onSurface,
+                      ),
+                    ),
+                  ],
                   const Spacer(),
                   Text(
                     '${logs.length} entries',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Theme.of(
-                        context,
-                      ).colorScheme.onSurface.withValues(alpha: 0.5),
+                    style: AeroText.caption.copyWith(
+                      color: context.aero.onSurfaceMuted,
                     ),
                   ),
                   const SizedBox(width: 8),
                   IconButton(
-                    icon: const Icon(Icons.copy_rounded, size: 18),
+                    icon: const Icon(Symbols.content_copy_rounded, size: 18),
                     onPressed: () {
                       final text = LoggingService().exportLogs();
                       Clipboard.setData(ClipboardData(text: text));
@@ -61,9 +68,44 @@ class LogsViewer extends StatelessWidget {
                     tooltip: 'Copy all logs',
                   ),
                   IconButton(
-                    icon: const Icon(Icons.clear_all_rounded, size: 18),
-                    onPressed: () {
+                    icon: const Icon(Symbols.clear_all_rounded, size: 18),
+                    onPressed: () async {
+                      // H20: confirm before wiping developer logs.
+                      final entryCount = service.devLogs.length;
+                      final aero = context.aero;
+                      final confirmed = await showAeroDialog<bool>(
+                        context: context,
+                        builder: (dialogContext) => AeroDialog(
+                          titleText: 'Clear logs?',
+                          content: Text(
+                            'Remove all $entryCount developer log entries? '
+                            'This cannot be undone.',
+                            style: AeroText.body.copyWith(
+                              color: aero.onSurfaceMuted,
+                            ),
+                          ),
+                          actions: [
+                            AeroButton(
+                              variant: AeroButtonVariant.ghost,
+                              text: 'Cancel',
+                              onPressed: () =>
+                                  Navigator.pop(dialogContext, false),
+                            ),
+                            AeroButton(
+                              variant: AeroButtonVariant.danger,
+                              text: 'Clear',
+                              onPressed: () =>
+                                  Navigator.pop(dialogContext, true),
+                            ),
+                          ],
+                        ),
+                      );
+                      if (confirmed != true) return;
                       LoggingService().clearDevLogs();
+                      if (!context.mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Developer logs cleared')),
+                      );
                     },
                     tooltip: 'Clear logs',
                   ),
@@ -79,7 +121,7 @@ class LogsViewer extends StatelessWidget {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Icon(
-                            Icons.check_circle_outline_rounded,
+                            Symbols.check_circle_rounded,
                             size: 48,
                             color: Theme.of(
                               context,
@@ -171,7 +213,7 @@ class RecentLogsPreview extends StatelessWidget {
               Row(
                 children: [
                   Icon(
-                    Icons.receipt_long_rounded,
+                    Symbols.receipt_long_rounded,
                     size: 16,
                     color: Theme.of(context).colorScheme.primary,
                   ),
@@ -206,7 +248,7 @@ class RecentLogsPreview extends StatelessWidget {
                   child: Row(
                     children: [
                       Icon(
-                        Icons.check_circle_outline_rounded,
+                        Symbols.check_circle_rounded,
                         size: 16,
                         color: Theme.of(
                           context,
@@ -280,99 +322,94 @@ class _LogEntryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    Color levelColor;
+    final colors = context.aero;
+    final Color levelColor;
     switch (log.level) {
       case LogLevel.debug:
-        levelColor = Colors.grey;
+        levelColor = colors.onSurfaceMuted;
         break;
       case LogLevel.info:
-        levelColor = Colors.blue;
+        levelColor = colors.info;
         break;
       case LogLevel.warning:
-        levelColor = Colors.orange;
+        levelColor = colors.warning;
         break;
       case LogLevel.error:
-        levelColor = Colors.red;
+        levelColor = colors.danger;
         break;
     }
 
-    return Card(
-      margin: const EdgeInsets.only(bottom: 4),
-      color: log.level == LogLevel.error
-          ? Colors.red.withValues(alpha: 0.1)
-          : log.level == LogLevel.warning
-          ? Colors.orange.withValues(alpha: 0.1)
-          : Theme.of(context).colorScheme.surface.withValues(alpha: 0.5),
-      child: Padding(
-        padding: const EdgeInsets.all(8),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 8,
-                  height: 8,
-                  decoration: BoxDecoration(
-                    color: levelColor,
-                    shape: BoxShape.circle,
-                  ),
+    final backgroundColor = switch (log.level) {
+      LogLevel.error => colors.danger.withValues(alpha: 0.07),
+      LogLevel.warning => colors.warning.withValues(alpha: 0.07),
+      _ => colors.surface2,
+    };
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: AeroSpace.sm),
+      padding: const EdgeInsets.all(AeroSpace.md),
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: AeroRadius.mdBorderRadius,
+        border: Border.all(color: levelColor.withValues(alpha: 0.22)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(
+                  color: levelColor,
+                  shape: BoxShape.circle,
                 ),
-                const SizedBox(width: 8),
-                Text(
-                  log.formattedTimestamp,
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: Theme.of(
-                      context,
-                    ).colorScheme.onSurface.withValues(alpha: 0.5),
-                    fontFamily: 'monospace',
-                  ),
-                ),
-                if (log.component != null) ...[
-                  const SizedBox(width: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 6,
-                      vertical: 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: levelColor.withValues(alpha: 0.2),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Text(
-                      log.component!,
-                      style: TextStyle(
-                        fontSize: 9,
-                        color: levelColor,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ],
-              ],
-            ),
-            const SizedBox(height: 4),
-            Text(
-              log.message,
-              style: TextStyle(
-                fontSize: 12,
-                color: Theme.of(context).colorScheme.onSurface,
               ),
-            ),
-            if (log.error != null) ...[
-              const SizedBox(height: 4),
+              const SizedBox(width: 8),
               Text(
-                'Error: ${log.error}',
-                style: TextStyle(
-                  fontSize: 10,
-                  color: Colors.red.withValues(alpha: 0.8),
-                  fontFamily: 'monospace',
+                log.formattedTimestamp,
+                style: AeroText.mono.copyWith(
+                  color: colors.onSurfaceMuted,
+                  fontSize: 11,
                 ),
               ),
+              if (log.component != null) ...[
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: levelColor.withValues(alpha: 0.2),
+                    borderRadius: AeroRadius.xsBorderRadius,
+                  ),
+                  child: Text(
+                    log.component!,
+                    style: AeroText.caption.copyWith(
+                      color: levelColor,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 10,
+                    ),
+                  ),
+                ),
+              ],
             ],
+          ),
+          const SizedBox(height: 4),
+          SelectableText(
+            log.message,
+            style: AeroText.bodySm.copyWith(color: colors.onSurface),
+          ),
+          if (log.error != null) ...[
+            const SizedBox(height: 4),
+            SelectableText(
+              'Error: ${log.error}',
+              style: AeroText.mono.copyWith(fontSize: 11, color: colors.danger),
+            ),
           ],
-        ),
+        ],
       ),
     );
   }

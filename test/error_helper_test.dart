@@ -71,8 +71,21 @@ void main() {
       expect(parsed.friendlyMessage, contains('Windows does not allow'));
     });
 
-    test('parses Android platform/update errors including 14.f', () {
-      final parsed = ErrorHelper.parse('Platform error: 14.f');
+    test('parses Android R8/obfuscation crashes as app binary errors', () {
+      // "I4.f" / "14.f" are obfuscated class names from broken ProGuard keep
+      // rules — NOT an yt-dlp update failure. Updating yt-dlp cannot fix them.
+      final parsed = ErrorHelper.parse('Platform error: I4.f');
+      expect(parsed.category, ErrorCategory.process);
+      expect(parsed.friendlyMessage, contains('missing native components'));
+
+      final parsedLegacy = ErrorHelper.parse('Platform error: 14.f');
+      expect(parsedLegacy.category, ErrorCategory.process);
+    });
+
+    test('parses real yt-dlp update failures as tool update errors', () {
+      final parsed = ErrorHelper.parse(
+        'Update failed: Native update failed (status: update_failed)',
+      );
       expect(parsed.category, ErrorCategory.toolUpdate);
       expect(parsed.friendlyMessage, contains('yt-dlp update'));
     });
@@ -92,6 +105,52 @@ void main() {
       const escapedMultiline = r'First line\nERROR: Escaped newline error\nTraceback';
       final parsedEscaped = ErrorHelper.parse(escapedMultiline);
       expect(parsedEscaped.suggestion, contains('Escaped newline error'));
+    });
+  });
+
+  group('ErrorHelper.isBrokenExtractorError', () {
+    test('detects shared broken-extractor phrases', () {
+      expect(
+        ErrorHelper.isBrokenExtractorError('ERROR: Signature extraction failed'),
+        isTrue,
+      );
+      expect(
+        ErrorHelper.isBrokenExtractorError('nsig extraction failed: please update'),
+        isTrue,
+      );
+      expect(
+        ErrorHelper.isBrokenExtractorError('Unable to extract initial player response'),
+        isTrue,
+      );
+      expect(
+        ErrorHelper.isBrokenExtractorError('please update yt-dlp'),
+        isTrue,
+      );
+      expect(
+        ErrorHelper.isBrokenExtractorError(
+          'YouTube said: Manual proxy of this kind is not allowed',
+        ),
+        isTrue,
+      );
+      expect(
+        ErrorHelper.isBrokenExtractorError('ERROR: Unsupported player_client: media'),
+        isTrue,
+      );
+    });
+
+    test('does not flag ordinary network or content errors', () {
+      expect(
+        ErrorHelper.isBrokenExtractorError('SocketException: Failed host lookup'),
+        isFalse,
+      );
+      expect(
+        ErrorHelper.isBrokenExtractorError('ERROR: Video unavailable'),
+        isFalse,
+      );
+      expect(
+        ErrorHelper.isBrokenExtractorError('HTTP Error 429: Too Many Requests'),
+        isFalse,
+      );
     });
   });
 

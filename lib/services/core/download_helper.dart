@@ -229,7 +229,10 @@ Future<String> _singleDownload({
 
     proc.stderr
         .transform(const SystemEncoding().decoder)
+        // Curl writes progress with \r; LineSplitter alone never emits a
+        // chunk, so onProgress never fired. Split on both CR and LF.
         .transform(const LineSplitter())
+        .expand((line) => line.split('\r'))
         .listen((line) {
       final t = line.trim();
       if (t.isEmpty || t.startsWith('%') || t.startsWith('D')) return;

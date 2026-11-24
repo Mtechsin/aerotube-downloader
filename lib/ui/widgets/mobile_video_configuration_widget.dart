@@ -1,14 +1,32 @@
+import 'package:material_symbols_icons/symbols.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:cached_network_image/cached_network_image.dart';
-import '../../models/video_info.dart';
-import '../../models/download_item.dart';
-import '../../core/theme/app_motion.dart';
-import '../../providers/video_provider.dart';
-import '../../providers/mobile_download_provider.dart';
-import '../../providers/platform_settings_provider.dart';
 
-class MobileVideoConfigurationWidget extends StatelessWidget {
+import '../../core/theme/app_motion.dart';
+import '../../core/theme/tokens/colors.dart';
+import '../../core/theme/tokens/radius.dart';
+import '../../core/theme/tokens/spacing.dart';
+import '../../core/theme/tokens/typography.dart';
+import '../../models/download_item.dart';
+import '../../models/video_info.dart';
+import '../../providers/mobile_download_provider.dart';
+import '../../providers/navigation_provider.dart';
+import '../../providers/platform_settings_provider.dart';
+import '../../providers/video_provider.dart';
+import '../components/components.dart';
+
+/// Full-screen Android video configuration panel conforming to AeroTube redesign spec.
+///
+/// Features:
+/// - Collapsing header with 16:9 [ThumbnailTile] and bottom gradient scrim overlay
+///   (title, channel, duration chip).
+/// - [AeroSegmentedControl] (Video | Audio) with a linear sliding indicator.
+/// - Wrapping [FormatChip] grid with estimated size under each label.
+/// - Codec variant selection with HDR and 60fps tags.
+/// - Collapsible "More options" accordion ([SettingsRow]s for container, subtitles, SponsorBlock, trim).
+/// - Sticky bottom action bar: "Download · 142 MB" (primary, full width) + destination folder ghost button.
+class MobileVideoConfigurationWidget extends StatefulWidget {
   final Future<void> Function() onDownload;
   final VoidCallback? onClear;
 
@@ -19,836 +37,399 @@ class MobileVideoConfigurationWidget extends StatelessWidget {
   });
 
   @override
+  State<MobileVideoConfigurationWidget> createState() =>
+      _MobileVideoConfigurationWidgetState();
+}
+
+class _MobileVideoConfigurationWidgetState
+    extends State<MobileVideoConfigurationWidget> {
+  bool _optionsExpanded = false;
+
+  @override
   Widget build(BuildContext context) {
     final videoProvider = context.watch<VideoProvider>();
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
+    final aero = context.aero;
 
     if (videoProvider.isLoading) {
-      return _buildLoadingState(context, theme, isDark);
+      return _buildLoadingState(context, aero, videoProvider);
     }
 
     if (videoProvider.hasError) {
-      return _buildErrorState(theme, isDark, videoProvider.errorMessage);
+      return _buildErrorState(context, aero, videoProvider);
     }
 
-    if (!videoProvider.hasVideo || videoProvider.videoInfo == null) {
+    final video = videoProvider.videoInfo;
+    if (video == null || !videoProvider.hasVideo) {
       return const SizedBox.shrink();
     }
 
-    return _buildVideoConfiguration(context, theme, isDark, videoProvider);
-  }
-
-  Widget _buildLoadingState(
-    BuildContext context,
-    ThemeData theme,
-    bool isDark,
-  ) {
-    return Container(
-      decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF141417) : Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: isDark
-              ? Colors.white.withValues(alpha: 0.08)
-              : Colors.black.withValues(alpha: 0.06),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.06),
-            blurRadius: 16,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+    return Scaffold(
+      backgroundColor: aero.bg,
+      body: Stack(
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 18, 16, 16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 34,
-                      height: 34,
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.primary.withValues(
-                          alpha: 0.12,
-                        ),
-                        shape: BoxShape.circle,
+          CustomScrollView(
+            slivers: [
+              // 1. Collapsing 16:9 Header with scrim overlay
+              _buildCollapsingHeader(context, aero, videoProvider, video),
+
+              // 2. Configuration Body
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    AeroSpace.xl,
+                    AeroSpace.lg,
+                    AeroSpace.xl,
+                    140, // Bottom padding so sticky bar never clips content
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Video | Audio Segmented Control
+                      AeroSegmentedControl(
+                        isAudio: videoProvider.audioOnly,
+                        onChanged: (isAudio) =>
+                            videoProvider.setAudioOnly(isAudio),
                       ),
-                      child: Padding(
-                        padding: const EdgeInsets.all(8),
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2.4,
-                          color: theme.colorScheme.primary,
-                        ),
+                      const SizedBox(height: AeroSpace.xl),
+
+                      // Quality Section (Video format chips or Audio tier chips)
+                      if (!videoProvider.audioOnly) ...[
+                        _buildVideoQualitySection(context, aero, videoProvider),
+                      ] else ...[
+                        _buildAudioQualitySection(context, aero, videoProvider),
+                      ],
+                      const SizedBox(height: AeroSpace.xl),
+
+                      // Collapsible "More options" accordion
+                      _buildOptionsAccordion(
+                        context,
+                        aero,
+                        videoProvider,
+                        video,
                       ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        'Preparing format options',
-                        style: TextStyle(
-                          color: theme.colorScheme.onSurface,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                    OutlinedButton(
-                      onPressed: () =>
-                          context.read<VideoProvider>().cancelFetch(),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 6,
-                        ),
-                        minimumSize: Size.zero,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        side: BorderSide(
-                          color: theme.colorScheme.error.withValues(alpha: 0.5),
-                        ),
-                        foregroundColor: theme.colorScheme.error,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        textStyle: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      child: const Text('Cancel'),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  'Analyzing streams and calculating final size',
-                  style: TextStyle(
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-                    fontSize: 12.5,
+                    ],
                   ),
                 ),
-                const SizedBox(height: 14),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(999),
-                  child: LinearProgressIndicator(
-                    minHeight: 5,
-                    color: theme.colorScheme.primary,
-                    backgroundColor: theme.colorScheme.onSurface.withValues(
-                      alpha: 0.1,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                _buildSkeletonLine(theme, isDark, widthFactor: 0.92),
-                const SizedBox(height: 8),
-                _buildSkeletonLine(theme, isDark, widthFactor: 0.78),
-              ],
-            ),
+              ),
+            ],
           ),
-          _buildDisabledDownloadSection(theme, context),
-        ],
-      ),
-    );
-  }
 
-  Widget _buildSkeletonLine(
-    ThemeData theme,
-    bool isDark, {
-    required double widthFactor,
-  }) {
-    return FractionallySizedBox(
-      widthFactor: widthFactor,
-      child: Container(
-        height: 8,
-        decoration: BoxDecoration(
-          color: isDark
-              ? Colors.white.withValues(alpha: 0.08)
-              : Colors.black.withValues(alpha: 0.07),
-          borderRadius: BorderRadius.circular(999),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDisabledDownloadSection(ThemeData theme, [BuildContext? ctx]) {
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Row(
-        children: [
-          Expanded(
-            child: OutlinedButton.icon(
-              onPressed: onClear,
-              icon: const Icon(Icons.clear_all, size: 18),
-              label: const Text('Clear'),
-              style: OutlinedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            flex: 2,
-            child: FilledButton.icon(
-              onPressed: ctx != null
-                  ? () => ctx.read<VideoProvider>().cancelFetch()
-                  : null,
-              icon: Icon(
-                ctx != null ? Icons.close_rounded : Icons.download_rounded,
-                size: 18,
-              ),
-              label: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(ctx != null ? 'Cancel' : 'Download'),
-                  Text(
-                    ctx != null ? 'Stop fetching' : 'Calculating...',
-                    style: TextStyle(
-                      fontSize: 10,
-                      color: Colors.white.withValues(alpha: 0.7),
-                    ),
-                  ),
-                ],
-              ),
-              style: FilledButton.styleFrom(
-                backgroundColor: ctx != null
-                    ? theme.colorScheme.error
-                    : theme.colorScheme.primary.withValues(alpha: 0.5),
-                foregroundColor: Colors.white,
-                disabledBackgroundColor: theme.colorScheme.primary.withValues(
-                  alpha: 0.5,
-                ),
-                disabledForegroundColor: Colors.white.withValues(alpha: 0.7),
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-            ),
+          // Sticky Bottom Action Bar
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: _buildStickyBottomBar(context, aero, videoProvider, video),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildErrorState(ThemeData theme, bool isDark, String? error) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.red.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.error_outline, color: Colors.red),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              error ?? 'Error',
-              style: TextStyle(
-                color: isDark ? Colors.red.shade300 : Colors.red.shade700,
-                fontSize: 13,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  // ==========================================
+  // 1. Collapsing 16:9 Header
+  // ==========================================
 
-  Widget _buildVideoConfiguration(
+  Widget _buildCollapsingHeader(
     BuildContext context,
-    ThemeData theme,
-    bool isDark,
-    VideoProvider videoProvider,
-  ) {
-    final video = videoProvider.videoInfo!;
-
-    return Container(
-      decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF141417) : Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: isDark
-              ? Colors.white.withValues(alpha: 0.08)
-              : Colors.black.withValues(alpha: 0.06),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.06),
-            blurRadius: 16,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _buildModeToggle(context, theme, videoProvider),
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _buildVideoInfoHeader(context, theme, video),
-                  const SizedBox(height: 24),
-                  if (!videoProvider.audioOnly) ...[
-                    _buildResolutionSection(context, theme, videoProvider),
-                    const SizedBox(height: 24),
-                  ],
-                  if (videoProvider.audioOnly) ...[
-                    _buildAudioQualitySection(context, theme, videoProvider),
-                    const SizedBox(height: 24),
-                  ],
-                  if (!videoProvider.audioOnly &&
-                      videoProvider.selectedVideoFormat?.hasAudio == false &&
-                      videoProvider.videoInfo!.audioOnlyFormats.isNotEmpty) ...[
-                    _buildAudioMergeSection(context, theme, videoProvider),
-                    const SizedBox(height: 24),
-                  ],
-                  if (videoProvider.videoInfo!.subtitles.isNotEmpty) ...[
-                    _buildSubtitleSection(context, theme, videoProvider),
-                    const SizedBox(height: 24),
-                  ],
-                ],
-              ),
-            ),
-          ),
-          _buildDownloadSection(context, theme, videoProvider),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildModeToggle(
-    BuildContext context,
-    ThemeData theme,
-    VideoProvider videoProvider,
-  ) {
-    final textColor = theme.colorScheme.onSurface;
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-      child: Row(
-        children: [
-          Expanded(
-            child: GestureDetector(
-              onTap: () => videoProvider.setAudioOnly(false),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                padding: const EdgeInsets.symmetric(vertical: 10),
-                decoration: BoxDecoration(
-                  color: !videoProvider.audioOnly
-                      ? theme.colorScheme.primary
-                      : textColor.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      Icons.videocam_outlined,
-                      size: 18,
-                      color: !videoProvider.audioOnly
-                          ? Colors.white
-                          : textColor.withValues(alpha: 0.5),
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      'Video',
-                      style: TextStyle(
-                        color: !videoProvider.audioOnly
-                            ? Colors.white
-                            : textColor.withValues(alpha: 0.5),
-                        fontWeight: FontWeight.w600,
-                        fontSize: 13,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: GestureDetector(
-              onTap: () => videoProvider.setAudioOnly(true),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                padding: const EdgeInsets.symmetric(vertical: 10),
-                decoration: BoxDecoration(
-                  color: videoProvider.audioOnly
-                      ? theme.colorScheme.primary
-                      : textColor.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      Icons.music_note_outlined,
-                      size: 18,
-                      color: videoProvider.audioOnly
-                          ? Colors.white
-                          : textColor.withValues(alpha: 0.5),
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      'Audio',
-                      style: TextStyle(
-                        color: videoProvider.audioOnly
-                            ? Colors.white
-                            : textColor.withValues(alpha: 0.5),
-                        fontWeight: FontWeight.w600,
-                        fontSize: 13,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildVideoInfoHeader(
-    BuildContext context,
-    ThemeData theme,
+    AeroColors aero,
+    VideoProvider provider,
     VideoInfo video,
   ) {
-    final textColor = theme.colorScheme.onSurface;
-    final textSecondaryColor = textColor.withValues(alpha: 0.6);
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final headerHeight = screenWidth * 9 / 16;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        AspectRatio(
-          aspectRatio: 16 / 9,
+    return SliverAppBar(
+      pinned: true,
+      stretch: true,
+      expandedHeight: headerHeight,
+      backgroundColor: aero.surface1,
+      elevation: 0,
+      leading: Padding(
+        padding: const EdgeInsets.all(8.0),
+        child: Container(
+          decoration: BoxDecoration(
+            color: aero.surface1.withValues(alpha: 0.75),
+            shape: BoxShape.circle,
+            border: Border.all(color: aero.outline, width: 1.0),
+          ),
+          child: IconButton(
+            icon: const Icon(Symbols.arrow_back_rounded, size: 20),
+            color: aero.onSurface,
+            tooltip: 'Back',
+            onPressed: () {
+              if (widget.onClear != null) {
+                widget.onClear!();
+              } else {
+                Navigator.pop(context);
+              }
+            },
+          ),
+        ),
+      ),
+      actions: [
+        Padding(
+          padding: const EdgeInsets.all(8.0),
           child: Container(
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.2),
-                  blurRadius: 6,
-                  offset: const Offset(0, 2),
-                ),
-              ],
+              color: aero.surface1.withValues(alpha: 0.75),
+              shape: BoxShape.circle,
+              border: Border.all(color: aero.outline, width: 1.0),
             ),
-            clipBehavior: Clip.antiAlias,
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                CachedNetworkImage(
-                  imageUrl: video.thumbnailUrl,
-                  fit: BoxFit.cover,
-                  memCacheWidth: 600,
-                  fadeInDuration: const Duration(milliseconds: 200),
-                  fadeOutDuration: const Duration(milliseconds: 200),
-                  placeholder: (context, url) => Container(
-                    color: theme.colorScheme.surfaceContainerHighest,
-                    child: const Center(
-                      child: SizedBox(
-                        width: 24,
-                        height: 24,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                    ),
-                  ),
-                  errorWidget: (context, url, error) => Container(
-                    color: theme.colorScheme.surfaceContainerHighest,
-                    child: Icon(
-                      Icons.broken_image_outlined,
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ),
-                Positioned(
-                  bottom: 8,
-                  right: 8,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 6,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.8),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Text(
-                      video.formattedDuration,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
+            child: IconButton(
+              icon: const Icon(Symbols.home_rounded, size: 20),
+              color: aero.onSurface,
+              tooltip: 'Home',
+              onPressed: () {
+                final nav = context.read<NavigationProvider>();
+                if (provider.isLoading) {
+                  provider.cancelFetch();
+                }
+                Navigator.of(context).popUntil((route) => route.isFirst);
+                nav.switchToHome();
+              },
             ),
           ),
         ),
-        const SizedBox(height: 14),
-        Text(
-          video.title,
-          style: TextStyle(
-            color: textColor,
-            fontWeight: FontWeight.bold,
-            fontSize: 16,
-            height: 1.3,
-          ),
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-        ),
-        const SizedBox(height: 6),
-        Row(
+      ],
+      flexibleSpace: FlexibleSpaceBar(
+        background: Stack(
+          fit: StackFit.expand,
           children: [
-            Icon(Icons.person_outline, size: 14, color: textSecondaryColor),
-            const SizedBox(width: 6),
-            Expanded(
-              child: Text(
-                video.channel,
-                style: TextStyle(color: textSecondaryColor, fontSize: 13),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+            // Thumbnail Tile
+            ThumbnailTile(
+              imageUrl: video.thumbnailUrl,
+              borderRadius: BorderRadius.zero,
+              fit: BoxFit.cover,
+            ),
+
+            // Bottom Gradient Scrim
+            Positioned.fill(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.black.withValues(alpha: 0.2),
+                      Colors.black.withValues(alpha: 0.0),
+                      Colors.black.withValues(alpha: 0.85),
+                    ],
+                    stops: const [0.0, 0.4, 1.0],
+                  ),
+                ),
+              ),
+            ),
+
+            // Metadata overlay at bottom of header
+            Positioned(
+              left: AeroSpace.lg,
+              right: AeroSpace.lg,
+              bottom: AeroSpace.md,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              video.title,
+                              style: AeroText.titleSm.copyWith(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w700,
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              '${video.channel} · ${video.formattedViewCount} views',
+                              style: AeroText.caption.copyWith(
+                                color: Colors.white.withValues(alpha: 0.8),
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: AeroSpace.sm),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.75),
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.2),
+                            width: 1.0,
+                          ),
+                        ),
+                        child: Text(
+                          video.formattedDuration,
+                          style: AeroText.caption.withTabularFigures().copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  // ==========================================
+  // 2. Video Quality Section
+  // ==========================================
+
+  Widget _buildVideoQualitySection(
+    BuildContext context,
+    AeroColors aero,
+    VideoProvider provider,
+  ) {
+    if (provider.availableResolutions.isEmpty) {
+      return Text(
+        'No resolutions available',
+        style: AeroText.bodySm.copyWith(color: aero.onSurfaceMuted),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SectionHeader(title: 'QUALITY'),
+        const SizedBox(height: AeroSpace.sm),
+
+        // Show the full quality ladder without hiding options off-screen.
+        Wrap(
+          spacing: AeroSpace.sm,
+          runSpacing: AeroSpace.sm,
+          children: provider.availableResolutions.map((option) {
+            final isSelected =
+                option.height == provider.selectedResolution?.height;
+
+            return FormatChip(
+              label: option.label,
+              sizeEstimate: option.formattedSize,
+              selected: isSelected,
+              onTap: () => provider.selectResolution(option),
+            );
+          }).toList(),
+        ),
+        const SizedBox(height: AeroSpace.lg),
+
+        // Codec variants row
+        _buildCodecVariants(context, aero, provider),
+
+        // Audio merge track selector if video is video-only
+        if (provider.selectedVideoFormat?.hasAudio == false) ...[
+          const SizedBox(height: AeroSpace.lg),
+          _buildAudioTrackSelector(context, aero, provider),
+        ],
       ],
     );
   }
 
-  Widget _buildResolutionSection(
+  Widget _buildCodecVariants(
     BuildContext context,
-    ThemeData theme,
-    VideoProvider videoProvider,
+    AeroColors aero,
+    VideoProvider provider,
   ) {
-    if (videoProvider.availableResolutions.isEmpty) {
+    final resolution = provider.selectedResolution;
+    if (resolution == null || resolution.formats.isEmpty) {
       return const SizedBox.shrink();
     }
 
-    final isDark = theme.brightness == Brightness.dark;
-    final textColor = theme.colorScheme.onSurface;
-    final labelColor = textColor.withValues(alpha: 0.5);
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'RESOLUTION',
-          style: TextStyle(
-            color: labelColor,
-            fontSize: 11,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 1.2,
-          ),
+        const SectionHeader(title: 'CODEC VARIANTS'),
+        const SizedBox(height: AeroSpace.sm),
+        Wrap(
+          spacing: AeroSpace.sm,
+          runSpacing: AeroSpace.sm,
+          children: resolution.formats.map((format) {
+            final isSelected =
+                provider.selectedVideoFormat?.formatId == format.formatId;
+            final container = (format.extension ?? 'mp4').toUpperCase();
+            final label = '$container · ${format.codecName}';
+
+            return FormatChip(
+              label: label,
+              badge: format.isHdr
+                  ? 'HDR'
+                  : format.is60fps
+                  ? '60fps'
+                  : null,
+              sizeEstimate: provider.formattedTotalSizeForFormat(format),
+              selected: isSelected,
+              onTap: () => provider.setSelectedVideoFormat(format),
+            );
+          }).toList(),
         ),
-        const SizedBox(height: 12),
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Row(
-            children: videoProvider.availableResolutions.map((option) {
-              final isSelected =
-                  option.height == videoProvider.selectedResolution?.height;
-              return Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: GestureDetector(
-                  onTap: () => videoProvider.selectResolution(option),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 200),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: isSelected
-                          ? theme.colorScheme.primary
-                          : (isDark
-                                ? Colors.white.withValues(alpha: 0.1)
-                                : theme.colorScheme.onSurface.withValues(
-                                    alpha: 0.08,
-                                  )),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(
-                        color: isSelected
-                            ? theme.colorScheme.primary
-                            : (isDark
-                                  ? Colors.white.withValues(alpha: 0.2)
-                                  : theme.colorScheme.outline),
-                      ),
-                    ),
-                    child: Text(
-                      option.label,
-                      style: TextStyle(
-                        color: isSelected
-                            ? Colors.white
-                            : textColor.withValues(alpha: 0.8),
-                        fontWeight: FontWeight.w600,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ),
-                ),
-              );
-            }).toList(),
-          ),
-        ),
-        const SizedBox(height: 16),
-        _buildVariantSelector(context, theme, videoProvider),
       ],
     );
   }
 
-  Widget _buildVariantSelector(
+  Widget _buildAudioTrackSelector(
     BuildContext context,
-    ThemeData theme,
-    VideoProvider videoProvider,
+    AeroColors aero,
+    VideoProvider provider,
   ) {
-    final resolution = videoProvider.selectedResolution;
-    if (resolution == null) return const SizedBox.shrink();
-
-    final isDark = theme.brightness == Brightness.dark;
-    final textColor = theme.colorScheme.onSurface;
-    final labelColor = textColor.withValues(alpha: 0.5);
+    final video = provider.videoInfo;
+    if (video == null || video.audioOnlyFormats.isEmpty) {
+      return const SizedBox.shrink();
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'CODEC VARIANTS',
-          style: TextStyle(
-            color: labelColor,
-            fontSize: 11,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 1.2,
-          ),
-        ),
-        const SizedBox(height: 8),
-        ...resolution.formats.map((format) {
-          final isSelected =
-              videoProvider.selectedVideoFormat?.formatId == format.formatId;
-          final container = (format.extension ?? 'mp4').toUpperCase();
-          final itemTextColor = theme.colorScheme.onSurface;
-
-          return GestureDetector(
-            onTap: () => videoProvider.setSelectedVideoFormat(format),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              margin: const EdgeInsets.only(bottom: 8),
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: isSelected
-                    ? theme.colorScheme.primary.withValues(alpha: 0.2)
-                    : (isDark
-                          ? Colors.white.withValues(alpha: 0.05)
-                          : theme.colorScheme.onSurface.withValues(
-                              alpha: 0.04,
-                            )),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(
-                  color: isSelected
-                      ? theme.colorScheme.primary
-                      : (isDark
-                            ? Colors.white.withValues(alpha: 0.1)
-                            : theme.colorScheme.outline),
-                ),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    width: 18,
-                    height: 18,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: isSelected
-                            ? theme.colorScheme.primary
-                            : itemTextColor.withValues(alpha: 0.3),
-                        width: 2,
-                      ),
-                      color: isSelected
-                          ? theme.colorScheme.primary
-                          : Colors.transparent,
-                    ),
-                    child: isSelected
-                        ? const Icon(Icons.check, size: 12, color: Colors.white)
-                        : null,
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Text(
-                              format.codecName,
-                              style: TextStyle(
-                                color: itemTextColor,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 13,
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              container,
-                              style: TextStyle(
-                                color: itemTextColor.withValues(alpha: 0.5),
-                                fontSize: 11,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 4),
-                        Row(
-                          children: [
-                            Text(
-                              videoProvider.formattedTotalSizeForFormat(format),
-                              style: TextStyle(
-                                color: itemTextColor.withValues(alpha: 0.5),
-                                fontSize: 11,
-                              ),
-                            ),
-                            if (format.isHdr) ...[
-                              const SizedBox(width: 8),
-                              _buildMiniTag('HDR', Colors.green),
-                            ],
-                            if (format.is60fps) ...[
-                              const SizedBox(width: 8),
-                              _buildMiniTag('60fps', Colors.orange),
-                            ],
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        }),
-      ],
-    );
-  }
-
-  Widget _buildMiniTag(String text, Color color) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.2),
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: Text(
-        text,
-        style: TextStyle(
-          color: color,
-          fontSize: 9,
-          fontWeight: FontWeight.bold,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildAudioMergeSection(
-    BuildContext context,
-    ThemeData theme,
-    VideoProvider videoProvider,
-  ) {
-    final isDark = theme.brightness == Brightness.dark;
-    final textColor = theme.colorScheme.onSurface;
-    final labelColor = textColor.withValues(alpha: 0.5);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'AUDIO TRACK',
-          style: TextStyle(
-            color: labelColor,
-            fontSize: 11,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 1.2,
-          ),
-        ),
-        const SizedBox(height: 8),
+        const SectionHeader(title: 'AUDIO TRACK TO MERGE'),
+        const SizedBox(height: AeroSpace.sm),
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
+          padding: const EdgeInsets.symmetric(horizontal: AeroSpace.md),
           decoration: BoxDecoration(
-            color: isDark
-                ? Colors.white.withValues(alpha: 0.05)
-                : theme.colorScheme.onSurface.withValues(alpha: 0.04),
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: isDark
-                  ? Colors.white.withValues(alpha: 0.1)
-                  : theme.colorScheme.outline,
-            ),
+            color: aero.surface2,
+            borderRadius: AeroRadius.smBorderRadius,
+            border: Border.all(color: aero.outline, width: 1.0),
           ),
           child: DropdownButtonHideUnderline(
             child: DropdownButton<FormatInfo>(
-              value: videoProvider.selectedAudioMergeStream,
+              value: provider.selectedAudioMergeStream,
               isExpanded: true,
-              dropdownColor: isDark
-                  ? const Color(0xFF2C2C2E)
-                  : theme.colorScheme.surface,
+              dropdownColor: aero.surface2,
               icon: Icon(
-                Icons.arrow_drop_down,
-                color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                Symbols.arrow_drop_down_rounded,
+                color: aero.onSurfaceMuted,
               ),
-              style: TextStyle(
-                color: theme.colorScheme.onSurface,
-                fontSize: 13,
-              ),
-              onChanged: (FormatInfo? newValue) {
+              style: AeroText.bodySm.copyWith(color: aero.onSurface),
+              onChanged: (newValue) {
                 if (newValue != null) {
-                  videoProvider.setSelectedAudioMergeStream(newValue);
+                  provider.setSelectedAudioMergeStream(newValue);
                 }
               },
-              items: videoProvider.videoInfo!.audioOnlyFormats.map((format) {
+              items: video.audioOnlyFormats.map((format) {
+                final bitrate = format.audioBitrate ?? 0;
+                final size = format.formattedEstimatedFilesize(video.duration);
                 return DropdownMenuItem<FormatInfo>(
                   value: format,
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.audiotrack,
-                        size: 16,
-                        color: theme.colorScheme.onSurface.withValues(
-                          alpha: 0.5,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          '${format.audioBitrate}kbps • ${format.formattedEstimatedFilesize(videoProvider.videoInfo?.duration)}',
-                          style: TextStyle(color: theme.colorScheme.onSurface),
-                        ),
-                      ),
-                      Text(
-                        format.codecName,
-                        style: TextStyle(
-                          color: theme.colorScheme.onSurface.withValues(
-                            alpha: 0.4,
-                          ),
-                          fontSize: 11,
-                        ),
-                      ),
-                    ],
+                  child: Text(
+                    '${format.audioTrackLabel} · ${bitrate}kbps ($size) [${format.codecName}]',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 );
               }).toList(),
@@ -859,422 +440,471 @@ class MobileVideoConfigurationWidget extends StatelessWidget {
     );
   }
 
+  // ==========================================
+  // 3. Audio Quality Section
+  // ==========================================
+
   Widget _buildAudioQualitySection(
     BuildContext context,
-    ThemeData theme,
-    VideoProvider videoProvider,
+    AeroColors aero,
+    VideoProvider provider,
   ) {
-    final isDark = theme.brightness == Brightness.dark;
-    final textColor = theme.colorScheme.onSurface;
-    final labelColor = textColor.withValues(alpha: 0.5);
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'AUDIO QUALITY',
-          style: TextStyle(
-            color: labelColor,
-            fontSize: 11,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 1.2,
-          ),
-        ),
-        const SizedBox(height: 12),
+        const SectionHeader(title: 'AUDIO QUALITY TIER'),
+        const SizedBox(height: AeroSpace.sm),
         SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           child: Row(
             children: AudioQuality.values.map((quality) {
-              final isSelected = quality == videoProvider.selectedAudioQuality;
+              final isSelected = quality == provider.selectedAudioQuality;
               return Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: GestureDetector(
-                  onTap: () => videoProvider.setAudioQuality(quality),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 200),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: isSelected
-                          ? theme.colorScheme.primary
-                          : (isDark
-                                ? Colors.white.withValues(alpha: 0.1)
-                                : theme.colorScheme.onSurface.withValues(
-                                    alpha: 0.08,
-                                  )),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(
-                        color: isSelected
-                            ? theme.colorScheme.primary
-                            : (isDark
-                                  ? Colors.white.withValues(alpha: 0.2)
-                                  : theme.colorScheme.outline),
-                      ),
-                    ),
-                    child: Text(
-                      quality.label,
-                      style: TextStyle(
-                        color: isSelected
-                            ? Colors.white
-                            : textColor.withValues(alpha: 0.8),
-                        fontWeight: FontWeight.w600,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ),
+                padding: const EdgeInsets.only(right: AeroSpace.sm),
+                child: FormatChip(
+                  label: quality.label,
+                  selected: isSelected,
+                  onTap: () => provider.setAudioQuality(quality),
                 ),
               );
             }).toList(),
           ),
         ),
-        const SizedBox(height: 16),
-        Text(
-          'AVAILABLE STREAMS',
-          style: TextStyle(
-            color: labelColor,
-            fontSize: 11,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 1.2,
-          ),
-        ),
-        const SizedBox(height: 8),
-        ...videoProvider.videoInfo!
-            .getAudioFormatsForQuality(videoProvider.selectedAudioQuality)
-            .map((format) {
-              final isSelected =
-                  format.formatId ==
-                  videoProvider.selectedAudioMergeStream?.formatId;
-              final itemTextColor = theme.colorScheme.onSurface;
-              return GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () => videoProvider.setSelectedAudioMergeStream(format),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  margin: const EdgeInsets.only(bottom: 8),
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: isSelected
-                        ? theme.colorScheme.primary.withValues(alpha: 0.2)
-                        : (isDark
-                              ? Colors.white.withValues(alpha: 0.05)
-                              : theme.colorScheme.onSurface.withValues(
-                                  alpha: 0.04,
-                                )),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(
-                      color: isSelected
-                          ? theme.colorScheme.primary
-                          : (isDark
-                                ? Colors.white.withValues(alpha: 0.1)
-                                : theme.colorScheme.outline),
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 18,
-                        height: 18,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: isSelected
-                                ? theme.colorScheme.primary
-                                : (isDark
-                                      ? Colors.white.withValues(alpha: 0.3)
-                                      : itemTextColor.withValues(alpha: 0.3)),
-                            width: 2,
-                          ),
-                          color: isSelected
-                              ? theme.colorScheme.primary
-                              : Colors.transparent,
-                        ),
-                        child: isSelected
-                            ? const Icon(
-                                Icons.check,
-                                size: 12,
-                                color: Colors.white,
-                              )
-                            : null,
-                      ),
-                      const SizedBox(width: 12),
-                      Icon(
-                        Icons.audiotrack,
-                        size: 18,
-                        color: isSelected
-                            ? theme.colorScheme.primary
-                            : itemTextColor.withValues(alpha: 0.5),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              '${format.codecName} • ${format.extension?.toUpperCase()}',
-                              style: TextStyle(
-                                color: isSelected
-                                    ? itemTextColor
-                                    : itemTextColor.withValues(alpha: 0.7),
-                                fontWeight: FontWeight.w600,
-                                fontSize: 12,
-                              ),
-                            ),
-                            Text(
-                              '${format.audioBitrate}kbps • ${format.formattedEstimatedFilesize(videoProvider.videoInfo?.duration)}',
-                              style: TextStyle(
-                                color: isSelected
-                                    ? itemTextColor.withValues(alpha: 0.7)
-                                    : itemTextColor.withValues(alpha: 0.5),
-                                fontSize: 11,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            }),
+        const SizedBox(height: AeroSpace.lg),
+        _buildAudioStreamsList(context, aero, provider),
       ],
     );
   }
 
-  Widget _buildSubtitleSection(
+  Widget _buildAudioStreamsList(
     BuildContext context,
-    ThemeData theme,
-    VideoProvider videoProvider,
+    AeroColors aero,
+    VideoProvider provider,
   ) {
-    final settingsProvider = context.watch<PlatformSettingsProvider>();
-    var subtitles = List<SubtitleTrack>.from(
-      videoProvider.videoInfo!.subtitles,
-    );
-    subtitles = _sortSubtitlesByDefault(
-      subtitles,
-      settingsProvider.defaultSubtitleLanguage,
+    final video = provider.videoInfo;
+    if (video == null) return const SizedBox.shrink();
+
+    final audioFormats = video.getAudioFormatsForQuality(
+      provider.selectedAudioQuality,
     );
 
-    final top3 = subtitles.take(3).toList();
-    final rest = subtitles.skip(3).toList();
-
-    final textColor = theme.colorScheme.onSurface;
-    final labelColor = textColor.withValues(alpha: 0.5);
+    if (audioFormats.isEmpty) {
+      return Text(
+        'No audio streams available.',
+        style: AeroText.bodySm.copyWith(color: aero.onSurfaceMuted),
+      );
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              'SUBTITLES',
-              style: TextStyle(
-                color: labelColor,
-                fontSize: 11,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 1.2,
-              ),
-            ),
-            Row(
-              children: [
-                Text(
-                  'Enable',
-                  style: TextStyle(
-                    color: textColor.withValues(alpha: 0.4),
-                    fontSize: 11,
-                  ),
-                ),
-                const SizedBox(width: 4),
-                Switch(
-                  value: videoProvider.subtitlesEnabled,
-                  onChanged: (v) => videoProvider.setSubtitlesEnabled(
-                    v,
-                    preferredLanguageCode:
-                        settingsProvider.defaultSubtitleLanguage,
-                  ),
-                  activeTrackColor: theme.colorScheme.primary.withValues(
-                    alpha: 0.5,
-                  ),
-                  thumbColor: WidgetStateProperty.resolveWith<Color>((states) {
-                    if (states.contains(WidgetState.selected)) {
-                      return theme.colorScheme.primary;
-                    }
-                    return Colors.grey;
-                  }),
-                ),
-              ],
-            ),
-          ],
+        const SectionHeader(title: 'AUDIO STREAMS'),
+        const SizedBox(height: AeroSpace.sm),
+        Wrap(
+          spacing: AeroSpace.sm,
+          runSpacing: AeroSpace.sm,
+          children: audioFormats.map((format) {
+            final isSelected =
+                format.formatId == provider.selectedAudioMergeStream?.formatId;
+            final ext = (format.extension ?? 'AUDIO').toUpperCase();
+            final label = '$ext · ${format.audioBitrate ?? 0}kbps';
+            final size = format.formattedEstimatedFilesize(video.duration);
+
+            return FormatChip(
+              label: label,
+              sizeEstimate: size,
+              badge: format.audioTrackLabel,
+              selected: isSelected,
+              onTap: () => provider.setSelectedAudioMergeStream(format),
+            );
+          }).toList(),
         ),
-        if (videoProvider.subtitlesEnabled) ...[
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: top3
-                .map((sub) => _buildSubtitleChip(context, videoProvider, sub))
-                .toList(),
-          ),
-          if (rest.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            Theme(
-              data: theme.copyWith(dividerColor: Colors.transparent),
-              child: ExpansionTile(
-                title: Text(
-                  'More (${rest.length})',
-                  style: TextStyle(
-                    color: theme.colorScheme.primary,
-                    fontSize: 12,
-                  ),
-                ),
-                subtitle: settingsProvider.defaultSubtitleLanguage != 'auto'
-                    ? Text(
-                        'Default appears first when available',
-                        style: TextStyle(
-                          color: textColor.withValues(alpha: 0.45),
-                          fontSize: 10.5,
-                        ),
-                      )
-                    : null,
-                tilePadding: EdgeInsets.zero,
-                childrenPadding: EdgeInsets.zero,
-                collapsedIconColor: theme.colorScheme.primary,
-                iconColor: theme.colorScheme.primary,
-                children: [
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: rest
-                        .map(
-                          (sub) =>
-                              _buildSubtitleChip(context, videoProvider, sub),
-                        )
-                        .toList(),
-                  ),
-                ],
-              ),
-            ),
-          ],
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Text(
-                'Embed in file',
-                style: TextStyle(
-                  color: textColor.withValues(alpha: 0.55),
-                  fontSize: 11,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Switch(
-                value: videoProvider.embedSubtitles,
-                onChanged: videoProvider.selectedSubtitles.isNotEmpty
-                    ? (v) => videoProvider.setEmbedSubtitles(v)
-                    : null,
-                activeTrackColor: theme.colorScheme.primary.withValues(
-                  alpha: 0.5,
-                ),
-                thumbColor: WidgetStateProperty.resolveWith<Color>((states) {
-                  if (states.contains(WidgetState.selected)) {
-                    return theme.colorScheme.primary;
-                  }
-                  return Colors.grey;
-                }),
-              ),
-              const SizedBox(width: 4),
-              Expanded(
-                child: Text(
-                  videoProvider.selectedSubtitles.isEmpty
-                      ? 'Select at least one language'
-                      : '${videoProvider.selectedSubtitles.length} selected',
-                  style: TextStyle(
-                    color: textColor.withValues(alpha: 0.45),
-                    fontSize: 10.5,
-                  ),
-                  textAlign: TextAlign.right,
-                ),
-              ),
-            ],
-          ),
-        ],
       ],
     );
   }
 
-  List<SubtitleTrack> _sortSubtitlesByDefault(
-    List<SubtitleTrack> subtitles,
-    String preferredLanguageCode,
-  ) {
-    if (preferredLanguageCode.isEmpty || preferredLanguageCode == 'auto') {
-      return subtitles;
-    }
+  // ==========================================
+  // 4. Options Accordion (Collapsible)
+  // ==========================================
 
-    final preferred = preferredLanguageCode.toLowerCase();
-    subtitles.sort((a, b) {
-      final aPreferred = _isPreferredSubtitle(a.languageCode, preferred);
-      final bPreferred = _isPreferredSubtitle(b.languageCode, preferred);
-      if (aPreferred == bPreferred) return a.name.compareTo(b.name);
-      return aPreferred ? -1 : 1;
-    });
-
-    return subtitles;
-  }
-
-  bool _isPreferredSubtitle(String languageCode, String preferred) {
-    final code = languageCode.toLowerCase();
-    return code == preferred ||
-        code.startsWith('$preferred-') ||
-        code.startsWith('${preferred}_') ||
-        code.startsWith(preferred);
-  }
-
-  Widget _buildSubtitleChip(
+  Widget _buildOptionsAccordion(
     BuildContext context,
-    VideoProvider videoProvider,
-    SubtitleTrack sub,
+    AeroColors aero,
+    VideoProvider provider,
+    VideoInfo video,
   ) {
-    final isSelected = videoProvider.selectedSubtitles.contains(sub);
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-    final textColor = theme.colorScheme.onSurface;
-    return GestureDetector(
-      onTap: () => videoProvider.toggleSubtitle(sub),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        decoration: BoxDecoration(
-          color: isSelected
-              ? theme.colorScheme.primary.withValues(alpha: 0.2)
-              : (isDark
-                    ? Colors.white.withValues(alpha: 0.05)
-                    : theme.colorScheme.onSurface.withValues(alpha: 0.04)),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: isSelected
-                ? theme.colorScheme.primary
-                : (isDark
-                      ? Colors.white.withValues(alpha: 0.1)
-                      : theme.colorScheme.outline),
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (isSelected) ...[
-              Icon(Icons.check, size: 14, color: theme.colorScheme.primary),
-              const SizedBox(width: 4),
-            ],
-            Text(
-              sub.name,
-              style: TextStyle(
-                color: isSelected
-                    ? theme.colorScheme.primary
-                    : textColor.withValues(alpha: 0.7),
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
+    final settingsProvider = context.watch<PlatformSettingsProvider>();
+
+    return AeroCard(
+      borderRadius: AeroRadius.mdBorderRadius,
+      backgroundColor: aero.surface1,
+      borderColor: aero.outline,
+      padding: EdgeInsets.zero,
+      child: Column(
+        children: [
+          // Header
+          InkWell(
+            onTap: () => setState(() => _optionsExpanded = !_optionsExpanded),
+            borderRadius: AeroRadius.mdBorderRadius,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: AeroSpace.lg,
+                vertical: AeroSpace.md,
               ),
+              child: Row(
+                children: [
+                  Icon(
+                    Symbols.tune_rounded,
+                    size: 18,
+                    color: aero.onSurfaceMuted,
+                  ),
+                  const SizedBox(width: AeroSpace.md),
+                  Text(
+                    'More Options',
+                    style: AeroText.bodySm.copyWith(
+                      color: aero.onSurface,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const Spacer(),
+                  AnimatedRotation(
+                    turns: _optionsExpanded ? 0.5 : 0.0,
+                    duration: appMotionDuration(context, AppMotion.short),
+                    child: Icon(
+                      Symbols.keyboard_arrow_down_rounded,
+                      size: 20,
+                      color: aero.onSurfaceMuted,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          // Options rows
+          if (_optionsExpanded) ...[
+            Divider(height: 1, color: aero.outline),
+
+            // Container row
+            SettingsRow(
+              icon: Symbols.folder_zip_rounded,
+              title: 'Container',
+              subtitle: provider.audioOnly
+                  ? 'Audio stream default'
+                  : (provider.selectedVideoFormat?.extension ?? 'mp4')
+                        .toUpperCase(),
+              trailing: Text(
+                provider.audioOnly
+                    ? (provider.selectedAudioMergeStream?.extension ?? 'AUDIO')
+                          .toUpperCase()
+                    : (provider.selectedVideoFormat?.extension ?? 'MP4')
+                          .toUpperCase(),
+                style: AeroText.caption.copyWith(
+                  color: aero.primary,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            Divider(height: 1, color: aero.outline),
+
+            // Subtitles row
+            if (video.subtitles.isNotEmpty) ...[
+              SettingsRow(
+                icon: Symbols.subtitles_rounded,
+                title: 'Subtitles',
+                subtitle: provider.selectedSubtitles.isEmpty
+                    ? 'None selected'
+                    : '${provider.selectedSubtitles.length} selected',
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Embed',
+                      style: AeroText.caption.copyWith(
+                        color: aero.onSurfaceMuted,
+                      ),
+                    ),
+                    const SizedBox(width: AeroSpace.xs),
+                    Switch(
+                      value: provider.embedSubtitles,
+                      onChanged: provider.selectedSubtitles.isNotEmpty
+                          ? (v) => provider.setEmbedSubtitles(v)
+                          : null,
+                      activeThumbColor: aero.primary,
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  AeroSpace.lg,
+                  0,
+                  AeroSpace.lg,
+                  AeroSpace.md,
+                ),
+                child: Wrap(
+                  spacing: AeroSpace.xs,
+                  runSpacing: AeroSpace.xs,
+                  children:
+                      _sortSubtitles(
+                        video.subtitles,
+                        settingsProvider.defaultSubtitleLanguage,
+                      ).take(6).map((sub) {
+                        final isSel = provider.selectedSubtitles.contains(sub);
+                        return AeroChip(
+                          text: sub.name,
+                          selected: isSel,
+                          onTap: () => provider.toggleSubtitle(sub),
+                        );
+                      }).toList(),
+                ),
+              ),
+              Divider(height: 1, color: aero.outline),
+            ],
+
+            // SponsorBlock row
+            SettingsRow(
+              icon: Symbols.shield_rounded,
+              title: 'SponsorBlock',
+              subtitle: 'Skip sponsored segments automatically',
+              trailing: Switch(
+                value: settingsProvider.sponsorBlockEnabled,
+                onChanged: (v) => settingsProvider.setSponsorBlockEnabled(v),
+                activeThumbColor: aero.primary,
+              ),
+            ),
+            Divider(height: 1, color: aero.outline),
+
+            // Trim row
+            SettingsRow(
+              icon: Symbols.content_cut_rounded,
+              title: 'Trim',
+              subtitle: 'Full video (0:00 - ${video.formattedDuration})',
+              trailing: Icon(
+                Symbols.chevron_right_rounded,
+                size: 20,
+                color: aero.onSurfaceMuted,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  List<SubtitleTrack> _sortSubtitles(
+    List<SubtitleTrack> subtitles,
+    String preferred,
+  ) {
+    if (preferred.isEmpty || preferred == 'auto') return subtitles;
+    final copy = List<SubtitleTrack>.from(subtitles);
+    copy.sort((a, b) {
+      final aPref = a.languageCode.toLowerCase().startsWith(
+        preferred.toLowerCase(),
+      );
+      final bPref = b.languageCode.toLowerCase().startsWith(
+        preferred.toLowerCase(),
+      );
+      if (aPref == bPref) return a.name.compareTo(b.name);
+      return aPref ? -1 : 1;
+    });
+    return copy;
+  }
+
+  // ==========================================
+  // 5. Sticky Bottom Action Bar
+  // ==========================================
+
+  Widget _buildStickyBottomBar(
+    BuildContext context,
+    AeroColors aero,
+    VideoProvider provider,
+    VideoInfo video,
+  ) {
+    final settingsProvider = context.watch<PlatformSettingsProvider>();
+    final outputPath = settingsProvider.settings.outputPath ?? '';
+
+    final estSize = provider.totalEstimatedDownloadSize;
+    final String sizeLabel = estSize > 0
+        ? ' · ${(estSize / 1024 / 1024).toStringAsFixed(1)} MB'
+        : '';
+
+    final videoId = video.id;
+    final videoUrl = video.url;
+
+    return Selector<MobileDownloadProvider, (String, DownloadStatus, double)?>(
+      selector: (_, p) {
+        for (final item in p.activeDownloads) {
+          if (item.id == videoId ||
+              item.id.startsWith('${videoId}_') ||
+              item.url == videoUrl) {
+            return (item.id, item.status, item.progress);
+          }
+        }
+        return null;
+      },
+      builder: (context, snapshot, _) {
+        final DownloadStatus? status = snapshot?.$2;
+        final bool isPreparing =
+            status == DownloadStatus.queued || status == DownloadStatus.pending;
+        final bool isDownloading =
+            status == DownloadStatus.downloadingVideo ||
+            status == DownloadStatus.downloadingAudio ||
+            status == DownloadStatus.merging;
+        final double progress = snapshot?.$3 ?? 0.0;
+
+        return Container(
+          padding: EdgeInsets.fromLTRB(
+            AeroSpace.lg,
+            AeroSpace.md,
+            AeroSpace.lg,
+            MediaQuery.paddingOf(context).bottom + AeroSpace.md,
+          ),
+          decoration: BoxDecoration(
+            color: aero.surface1,
+            border: Border(top: BorderSide(color: aero.outline, width: 1.0)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Live Progress Line while downloading
+              if (isDownloading) ...[
+                AeroProgress(value: progress),
+                const SizedBox(height: AeroSpace.sm),
+              ],
+
+              // Row: Destination Folder Ghost Button
+              Row(
+                children: [
+                  Expanded(
+                    child: AeroButton(
+                      variant: AeroButtonVariant.ghost,
+                      icon: const Icon(Symbols.folder_rounded, size: 16),
+                      text: outputPath.isNotEmpty
+                          ? outputPath.split(RegExp(r'[\\/]')).last
+                          : 'Select Destination Folder',
+                      tooltip: outputPath,
+                      onPressed: () async {
+                        final picked = await FilePicker.platform
+                            .getDirectoryPath();
+                        if (picked != null && picked.isNotEmpty) {
+                          await settingsProvider.setOutputPath(picked);
+                        }
+                      },
+                    ),
+                  ),
+                  if (widget.onClear != null && !isDownloading && !isPreparing)
+                    AeroButton(
+                      variant: AeroButtonVariant.ghost,
+                      text: 'Clear',
+                      onPressed: widget.onClear,
+                    ),
+                ],
+              ),
+              const SizedBox(height: AeroSpace.sm),
+
+              // Full-Width Primary Download Button
+              AeroButton(
+                variant: AeroButtonVariant.primary,
+                expand: true,
+                isLoading: isPreparing,
+                icon: const Icon(Symbols.download_rounded, size: 18),
+                text: isPreparing
+                    ? (status == DownloadStatus.queued
+                          ? 'Queued...'
+                          : 'Preparing...')
+                    : isDownloading
+                    ? (status == DownloadStatus.merging
+                          ? 'Merging · ${(progress * 100).toInt()}%'
+                          : 'Downloading · ${(progress * 100).toInt()}%')
+                    : 'Download$sizeLabel',
+                onPressed: (isDownloading || isPreparing)
+                    ? null
+                    : () => widget.onDownload(),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  // ==========================================
+  // Loading & Error States
+  // ==========================================
+
+  Widget _buildLoadingState(
+    BuildContext context,
+    AeroColors aero,
+    VideoProvider provider,
+  ) {
+    return Scaffold(
+      backgroundColor: aero.bg,
+      appBar: AppBar(
+        backgroundColor: aero.surface1,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Symbols.arrow_back_rounded),
+          onPressed: () {
+            provider.cancelFetch();
+            if (widget.onClear != null) {
+              widget.onClear!();
+            } else {
+              Navigator.pop(context);
+            }
+          },
+        ),
+        title: Text('Loading Video', style: AeroText.titleSm),
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(AeroSpace.xxl),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const AspectRatio(
+              aspectRatio: 16 / 9,
+              child: ThumbnailTile(
+                borderRadius: BorderRadius.all(Radius.circular(14)),
+              ),
+            ),
+            const SizedBox(height: AeroSpace.xl),
+            _skeletonBar(aero, height: 18, widthFactor: 0.9),
+            const SizedBox(height: AeroSpace.md),
+            _skeletonBar(aero, height: 12, widthFactor: 0.5),
+            const SizedBox(height: AeroSpace.xxl),
+            Row(
+              children: [
+                Expanded(
+                  child: _skeletonBar(aero, height: 44, widthFactor: 1.0),
+                ),
+                const SizedBox(width: AeroSpace.sm),
+                Expanded(
+                  child: _skeletonBar(aero, height: 44, widthFactor: 1.0),
+                ),
+                const SizedBox(width: AeroSpace.sm),
+                Expanded(
+                  child: _skeletonBar(aero, height: 44, widthFactor: 1.0),
+                ),
+              ],
+            ),
+            const Spacer(),
+            Row(
+              children: [
+                Expanded(
+                  child: AeroButton(
+                    variant: AeroButtonVariant.ghost,
+                    text: 'Cancel',
+                    onPressed: () {
+                      provider.cancelFetch();
+                      if (widget.onClear != null) {
+                        widget.onClear!();
+                      } else {
+                        Navigator.pop(context);
+                      }
+                    },
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -1282,185 +912,64 @@ class MobileVideoConfigurationWidget extends StatelessWidget {
     );
   }
 
-  Widget _buildDownloadSection(
+  Widget _skeletonBar(
+    AeroColors aero, {
+    required double height,
+    required double widthFactor,
+  }) {
+    return FractionallySizedBox(
+      widthFactor: widthFactor,
+      child: Container(
+        height: height,
+        decoration: BoxDecoration(
+          color: aero.surface2,
+          borderRadius: AeroRadius.smBorderRadius,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildErrorState(
     BuildContext context,
-    ThemeData theme,
-    VideoProvider videoProvider,
+    AeroColors aero,
+    VideoProvider provider,
   ) {
-    final textColor = theme.colorScheme.onSurface;
-    final video = videoProvider.videoInfo;
-    final videoId = video?.id;
-    final videoUrl = video?.url;
-
-    // Scoped to this video's (id, status, progress) record instead of
-    // watching the whole provider: progress ticks rebuild only this button,
-    // not the entire configuration panel.
-    return Selector<MobileDownloadProvider, (String, DownloadStatus, double)?>(
-      selector: (_, provider) {
-        if (videoId == null && videoUrl == null) return null;
-        for (final item in provider.activeDownloads) {
-          final matches =
-              item.id == videoId ||
-              (videoId != null && item.id.startsWith('${videoId}_')) ||
-              item.url == videoUrl;
-          if (matches) return (item.id, item.status, item.progress);
-        }
-        return null;
-      },
-      builder: (context, snapshot, _) {
-        final DownloadStatus? status = snapshot?.$2;
-
-        final bool isPreparing =
-            status == DownloadStatus.queued || status == DownloadStatus.pending;
-
-        final bool isDownloading =
-            status == DownloadStatus.downloadingVideo ||
-            status == DownloadStatus.downloadingAudio ||
-            status == DownloadStatus.merging;
-
-        final bool isDownloadActive = isPreparing || isDownloading;
-        final double downloadProgress = snapshot?.$3 ?? 0.0;
-
-        final String stateKey = !isDownloadActive
-            ? 'idle'
-            : isPreparing
-            ? 'preparing'
-            : 'downloading';
-
-        final Widget icon = AnimatedSwitcher(
-          duration: appMotionDuration(context, AppMotion.short),
-          child: SizedBox(
-            key: ValueKey(stateKey),
-            width: 18,
-            height: 18,
-            child: isPreparing
-                ? CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: theme.colorScheme.onPrimary,
-                  )
-                : Icon(
-                    isDownloading
-                        ? Icons.downloading_rounded
-                        : Icons.download_rounded,
-                    size: 18,
-                  ),
-          ),
-        );
-
-        final Widget label = AnimatedSwitcher(
-          duration: appMotionDuration(context, AppMotion.short),
-          child: KeyedSubtree(
-            key: ValueKey(stateKey),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  isPreparing
-                      ? (status == DownloadStatus.queued
-                            ? 'Queued...'
-                            : 'Preparing...')
-                      : isDownloading
-                      ? (status == DownloadStatus.merging
-                            ? 'Merging... ${(downloadProgress * 100).toInt()}%'
-                            : 'Downloading... ${(downloadProgress * 100).toInt()}%')
-                      : 'Download',
-                ),
-                Text(
-                  videoProvider.totalEstimatedDownloadSize > 0
-                      ? '~${(videoProvider.totalEstimatedDownloadSize / 1024 / 1024).toStringAsFixed(1)} MB'
-                      : 'Calculating...',
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: Colors.white.withValues(alpha: 0.7),
-                  ),
-                ),
-                // Thin live progress line inside the button while downloading.
-                if (isDownloading)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 4),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(2),
-                      child: TweenAnimationBuilder<double>(
-                        tween: Tween(end: downloadProgress),
-                        duration: appMotionDuration(
-                          context,
-                          const Duration(milliseconds: 320),
-                        ),
-                        curve: AppMotion.decelerate,
-                        builder: (context, value, _) => LinearProgressIndicator(
-                          value: value,
-                          minHeight: 3,
-                          backgroundColor: Colors.white.withValues(alpha: 0.2),
-                          valueColor: const AlwaysStoppedAnimation(
-                            Colors.white,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        );
-
-        return RepaintBoundary(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: isDownloadActive ? null : onClear,
-                    icon: const Icon(Icons.clear_all, size: 18),
-                    label: const Text('Clear'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: textColor,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      side: BorderSide(color: textColor.withValues(alpha: 0.3)),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  flex: 2,
-                  child: TweenAnimationBuilder<BorderRadius>(
-                    // Morph from rounded rect to pill while a download runs.
-                    tween: Tween<BorderRadius>(
-                      begin: BorderRadius.circular(10),
-                      end: BorderRadius.circular(isDownloadActive ? 20 : 10),
-                    ),
-                    duration: appMotionDuration(context, AppMotion.medium),
-                    curve: AppMotion.spatialSpringCurve,
-                    builder: (context, radius, _) => FilledButton.icon(
-                      onPressed: isDownloadActive ? null : onDownload,
-                      icon: icon,
-                      label: label,
-                      style: FilledButton.styleFrom(
-                        backgroundColor: isDownloadActive
-                            ? theme.colorScheme.onSurface.withValues(
-                                alpha: 0.12,
-                              )
-                            : theme.colorScheme.primary,
-                        foregroundColor: isDownloadActive
-                            ? theme.colorScheme.onSurface.withValues(
-                                alpha: 0.38,
-                              )
-                            : Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(borderRadius: radius),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
+    return Scaffold(
+      backgroundColor: aero.bg,
+      appBar: AppBar(
+        backgroundColor: aero.surface1,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Symbols.arrow_back_rounded),
+          onPressed: () {
+            if (widget.onClear != null) {
+              widget.onClear!();
+            } else {
+              Navigator.pop(context);
+            }
+          },
+        ),
+      ),
+      body: Center(
+        child: EmptyState(
+          icon: Symbols.error_rounded,
+          title: "Couldn't load video info",
+          description: provider.errorMessage ?? 'Failed to load video streams.',
+          actionLabel: 'Try again',
+          onAction: () {
+            final url = provider.currentUrl;
+            if (url.isNotEmpty) provider.fetchVideoInfo(url);
+          },
+          secondaryActionLabel: 'Back',
+          onSecondaryAction: () {
+            if (widget.onClear != null) {
+              widget.onClear!();
+            } else {
+              Navigator.pop(context);
+            }
+          },
+        ),
+      ),
     );
   }
 }

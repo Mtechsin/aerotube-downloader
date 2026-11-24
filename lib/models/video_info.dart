@@ -257,7 +257,12 @@ class VideoInfo with VideoDisplayItem {
       viewCount: json['view_count']?.toInt() ?? 0,
       uploadDate: json['upload_date'] ?? '',
       formats: formatsList,
-      url: json['webpage_url'] ?? json['url'] ?? '',
+      // M25: do not fall back to json['url'] — that is often a CDN stream
+      // URL, not the watch page. Prefer webpage_url, else derive from id.
+      url: json['webpage_url'] ??
+          ((json['id'] is String && (json['id'] as String).isNotEmpty)
+              ? 'https://www.youtube.com/watch?v=${json['id']}'
+              : ''),
       subtitles: subsList,
     );
   }
@@ -282,17 +287,37 @@ class VideoInfo with VideoDisplayItem {
     return _videoOnlyCached = List.unmodifiable(videoFormats);
   }
 
-  /// Get audio-only formats sorted by quality — lazy cached.
+  /// Get audio-only formats sorted for selection UX:
+  /// 1. Original track (no language tag) first
+  /// 2. Then by language code (groups dubs together)
+  /// 3. Then by bitrate descending within each language
+  /// Exact twins (same language + codec + bitrate + ext) are dropped.
   List<FormatInfo> get audioOnlyFormats {
     final cached = _audioOnlyCached;
     if (cached != null) return cached;
     final audioFormats = formats
         .where((f) => f.hasAudio && !f.hasVideo)
         .toList();
-    audioFormats.sort(
-      (a, b) => (b.audioBitrate ?? 0).compareTo(a.audioBitrate ?? 0),
-    );
-    return _audioOnlyCached = List.unmodifiable(audioFormats);
+
+    // Drop exact twins that would render as identical rows (common on
+    // multi-language YouTube videos when the UI only shows bitrate).
+    final seen = <String>{};
+    final unique = <FormatInfo>[];
+    for (final f in audioFormats) {
+      final key =
+          '${f.language ?? ''}|${f.audioCodec ?? ''}|${f.audioBitrate ?? 0}|${f.extension ?? ''}';
+      if (seen.add(key)) unique.add(f);
+    }
+
+    unique.sort((a, b) {
+      final aOrig = !a.hasLanguageTag;
+      final bOrig = !b.hasLanguageTag;
+      if (aOrig != bOrig) return aOrig ? -1 : 1;
+      final langCmp = a.languageSortKey.compareTo(b.languageSortKey);
+      if (langCmp != 0) return langCmp;
+      return (b.audioBitrate ?? 0).compareTo(a.audioBitrate ?? 0);
+    });
+    return _audioOnlyCached = List.unmodifiable(unique);
   }
 
   /// Get combined video+audio formats — lazy cached.
@@ -524,6 +549,126 @@ class FormatInfo {
 
   /// Best known exact or approximate size from yt-dlp (prefers exact).
   int? get knownFilesize => filesize ?? filesizeApprox;
+
+  /// True when yt-dlp tagged this audio stream with a language (dub track).
+  bool get hasLanguageTag => language != null && language!.trim().isNotEmpty;
+
+  /// Stable sort key so same-language tracks group together.
+  String get languageSortKey => (language ?? '').trim().toLowerCase();
+
+  /// Short badge for UI chips: "EN", "AR", … Null when untagged (original).
+  String? get languageBadge {
+    if (!hasLanguageTag) return null;
+    final base = language!.trim().split(RegExp(r'[-_]')).first;
+    return base.isEmpty ? null : base.toUpperCase();
+  }
+
+  /// Human-readable language name, e.g. "en-US" → "English".
+  /// Null when untagged (treat as the video's original audio).
+  String? get languageDisplayName {
+    if (!hasLanguageTag) return null;
+    final raw = language!.trim();
+    final base = raw.split(RegExp(r'[-_]')).first.toLowerCase();
+    return languageNameForCode(base) ?? raw;
+  }
+
+  /// Label used in pickers: "Original" when untagged, else the language name.
+  String get audioTrackLabel {
+    final name = languageDisplayName;
+    if (name == null) return 'Original';
+    return name;
+  }
+
+  /// Shared code → display-name map (base ISO 639-1 codes).
+  static String? languageNameForCode(String baseCode) {
+    const names = <String, String>{
+      'en': 'English',
+      'ar': 'Arabic',
+      'es': 'Spanish',
+      'fr': 'French',
+      'de': 'German',
+      'it': 'Italian',
+      'pt': 'Portuguese',
+      'ru': 'Russian',
+      'hi': 'Hindi',
+      'tr': 'Turkish',
+      'ja': 'Japanese',
+      'ko': 'Korean',
+      'zh': 'Chinese',
+      'id': 'Indonesian',
+      'ms': 'Malay',
+      'th': 'Thai',
+      'vi': 'Vietnamese',
+      'nl': 'Dutch',
+      'pl': 'Polish',
+      'sv': 'Swedish',
+      'da': 'Danish',
+      'fi': 'Finnish',
+      'no': 'Norwegian',
+      'nb': 'Norwegian',
+      'cs': 'Czech',
+      'el': 'Greek',
+      'he': 'Hebrew',
+      'fa': 'Persian',
+      'ur': 'Urdu',
+      'bn': 'Bengali',
+      'ta': 'Tamil',
+      'te': 'Telugu',
+      'mr': 'Marathi',
+      'gu': 'Gujarati',
+      'kn': 'Kannada',
+      'ml': 'Malayalam',
+      'pa': 'Punjabi',
+      'si': 'Sinhala',
+      'my': 'Burmese',
+      'km': 'Khmer',
+      'lo': 'Lao',
+      'ne': 'Nepali',
+      'am': 'Amharic',
+      'sw': 'Swahili',
+      'af': 'Afrikaans',
+      'sq': 'Albanian',
+      'hy': 'Armenian',
+      'az': 'Azerbaijani',
+      'be': 'Belarusian',
+      'bg': 'Bulgarian',
+      'ca': 'Catalan',
+      'hr': 'Croatian',
+      'et': 'Estonian',
+      'tl': 'Filipino',
+      'ka': 'Georgian',
+      'hu': 'Hungarian',
+      'is': 'Icelandic',
+      'ga': 'Irish',
+      'kk': 'Kazakh',
+      'lv': 'Latvian',
+      'lt': 'Lithuanian',
+      'mk': 'Macedonian',
+      'mt': 'Maltese',
+      'mn': 'Mongolian',
+      'ro': 'Romanian',
+      'sr': 'Serbian',
+      'sk': 'Slovak',
+      'sl': 'Slovenian',
+      'uk': 'Ukrainian',
+      'uz': 'Uzbek',
+      'cy': 'Welsh',
+      'yo': 'Yoruba',
+      'ig': 'Igbo',
+      'ha': 'Hausa',
+      'zu': 'Zulu',
+      'so': 'Somali',
+      'ps': 'Pashto',
+      'ku': 'Kurdish',
+      'azb': 'Azerbaijani',
+      'ceb': 'Cebuano',
+      'haw': 'Hawaiian',
+      'hmong': 'Hmong',
+      'jv': 'Javanese',
+      'su': 'Sundanese',
+    };
+    return names[baseCode.toLowerCase()];
+  }
 
   /// True if this is an approximate size (filesize_approx or bitrate estimate), not exact filesize.
   bool get isApproximate => filesize == null && filesizeApprox != null;

@@ -1,0 +1,14 @@
+00:00 +0: loading E:/youtube downloader/test/ui/desktop_design_test.dart
+00:00 +0: (setUpAll)
+00:00 +0: settings dark at 1280.0
+00:01 +1: settings dark at 960.0
+00:01 +2: settings dark at 640.0
+00:01 +3: settings dark at 360.0
+00:01 +4: settings dark at 320.0
+00:01 +5: settings light at 1280.0
+00:01 +6: settings light at 960.0
+00:02 +7: settings light at 640.0
+00:02 +8: settings light at 360.0
+00:02 +9: settings light at 320.0
+00:02 +10: (tearDownAll)
+00:02 +10: All tests passed!

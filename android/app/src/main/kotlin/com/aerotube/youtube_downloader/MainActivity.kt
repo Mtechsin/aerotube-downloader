@@ -16,19 +16,16 @@ import android.webkit.MimeTypeMap
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
-import com.yausername.ffmpeg.FFmpeg
-import com.yausername.youtubedl_android.YoutubeDL
-import com.yausername.youtubedl_android.YoutubeDLRequest
-import com.yausername.youtubedl_android.YoutubeDLResponse
-import com.yausername.youtubedl_android.YoutubeDL.UpdateStatus
+import androidx.lifecycle.lifecycleScope
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.io.File
 import java.lang.reflect.Method
-import java.util.concurrent.ConcurrentHashMap
 
 class MainActivity : FlutterActivity() {
     private val CHANNEL = "com.aerotube.youtube_downloader/permissions"
@@ -38,20 +35,11 @@ class MainActivity : FlutterActivity() {
     private val FILE_PROVIDER_CHANNEL = "com.aerotube.youtube_downloader/file_provider"
     private val DEEP_LINK_CHANNEL = "com.aerotube.youtube_downloader/deep_links"
     private val DEEP_LINK_EVENTS_CHANNEL = "com.aerotube.youtube_downloader/deep_links/events"
-    
-    // Store active download processes by ID
-    private val activeDownloads = ConcurrentHashMap<String, Boolean>()
-    @Volatile
-    private var downloadEventSink: EventChannel.EventSink? = null
+
     @Volatile
     private var deepLinkEventSink: EventChannel.EventSink? = null
     @Volatile
     private var pendingDeepLink: String? = null
-    
-    @Volatile
-    private var youtubeDLInitialized = false
-    @Volatile
-    private var ffmpegReady = false
 
     // Battery-optimization request: holds the pending MethodChannel.Result
     // until the user responds to the system dialog.
@@ -525,11 +513,13 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
-        // Initialize YoutubeDL and FFmpeg
-        try {
-            ensureYoutubeDLInitialized()
-        } catch (e: Throwable) {
-            Log.e(TAG, "YoutubeDL init failed", e)
+        // Warm the engine off the main thread; method handlers re-check via ensureInit.
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                YtDlpEngine.ensureInit(applicationContext)
+            } catch (e: Throwable) {
+                Log.e(TAG, "YoutubeDL init failed", e)
+            }
         }
 
         pendingDeepLink = extractDeepLink(intent)
@@ -918,38 +908,42 @@ class MainActivity : FlutterActivity() {
 
         // youtubedl-android channel
         // B24 fix: ensure MethodChannel result is always delivered even if Activity is
-        // destroyed before the background Thread finishes. Use main looper + safe wrappers
-        // so Dart Futures don't hang forever (which previously left UI stuck on "Preparing...").
-        // Dart side also adds .timeout() as defense-in-depth.
+        // destroyed before the background work finishes. Use main looper + safe wrappers
+        // so Dart Futures don't hang forever. Dart side also adds .timeout() as defense-in-depth.
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, YTDLP_CHANNEL).setMethodCallHandler { call, result ->
-            Thread {
-                val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
-                fun safeSuccess(value: Any?) {
-                    mainHandler.post {
-                        try { result.success(value) } catch (e: Throwable) {
-                            Log.w(TAG, "safeSuccess failed (activity detached or reply already submitted)", e)
-                        }
+            val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+            fun safeSuccess(value: Any?) {
+                mainHandler.post {
+                    try { result.success(value) } catch (e: Throwable) {
+                        Log.w(TAG, "safeSuccess failed (activity detached or reply already submitted)", e)
                     }
                 }
-                fun safeError(code: String, msg: String?, details: Any?) {
-                    mainHandler.post {
-                        try { result.error(code, msg, details) } catch (e: Throwable) {
-                            Log.w(TAG, "safeError failed (activity detached or reply already submitted)", e)
-                        }
+            }
+            fun safeError(code: String, msg: String?, details: Any?) {
+                mainHandler.post {
+                    try { result.error(code, msg, details) } catch (e: Throwable) {
+                        Log.w(TAG, "safeError failed (activity detached or reply already submitted)", e)
                     }
                 }
-                fun safeNotImplemented() {
-                    mainHandler.post {
-                        try { result.notImplemented() } catch (e: Throwable) {
-                            Log.w(TAG, "safeNotImplemented failed", e)
-                        }
+            }
+            fun safeNotImplemented() {
+                mainHandler.post {
+                    try { result.notImplemented() } catch (e: Throwable) {
+                        Log.w(TAG, "safeNotImplemented failed", e)
                     }
                 }
+            }
+
+            lifecycleScope.launch(Dispatchers.IO) {
                 try {
                     when (call.method) {
                         "getVersion" -> {
-                            val version = getVersion()
+                            val version = YtDlpEngine.getVersion(applicationContext)
                             safeSuccess(version)
+                        }
+                        "getFfmpegVersion" -> {
+                            YtDlpEngine.ensureInit(applicationContext)
+                            safeSuccess(YtDlpEngine.ffmpegVersion())
                         }
                         "getVideoInfo" -> {
                             val url = call.argument<String>("url")
@@ -958,23 +952,26 @@ class MainActivity : FlutterActivity() {
 
                             if (url == null) {
                                 safeError("INVALID_ARGUMENT", "URL is required", null)
-                                return@Thread
+                                return@launch
                             }
 
-                            val infoJson = getVideoInfo(url, cookiesPath, userAgent)
+                            val infoJson = YtDlpEngine.getVideoInfo(applicationContext, url, cookiesPath, userAgent)
                             safeSuccess(infoJson)
                         }
                         "getPlaylistInfo" -> {
                             val url = call.argument<String>("url")
                             val cookiesPath = call.argument<String>("cookies_path")
                             val userAgent = call.argument<String>("user_agent")
+                            val playlistItems = call.argument<String>("playlist_items")
 
                             if (url == null) {
                                 safeError("INVALID_ARGUMENT", "URL is required", null)
-                                return@Thread
+                                return@launch
                             }
 
-                            val playlistJson = getPlaylistInfo(url, cookiesPath, userAgent)
+                            val playlistJson = YtDlpEngine.getPlaylistInfo(
+                                applicationContext, url, cookiesPath, userAgent, playlistItems
+                            )
                             safeSuccess(playlistJson)
                         }
                         "downloadVideo" -> {
@@ -990,41 +987,86 @@ class MainActivity : FlutterActivity() {
                             val sponsorBlock = call.argument<Boolean>("sponsor_block") ?: false
                             val embedThumbnail = call.argument<Boolean>("embed_thumbnail") ?: true
                             val embedMetadata = call.argument<Boolean>("embed_metadata") ?: true
+                            // Optional progressive/audio controls (Dart may omit).
+                            val audioOnly = call.argument<Boolean>("audio_only") ?: false
+                            val targetHeight = call.argument<Int>("target_height")
+                            val audioQuality = call.argument<String>("audio_quality")
+                            val concurrentFragments = call.argument<Int>("concurrent_fragments")
 
                             if (url == null || outputPath == null) {
                                 safeError("INVALID_ARGUMENT", "URL and output_path are required", null)
-                                return@Thread
+                                return@launch
                             }
 
                             val id = processId ?: "download_${System.currentTimeMillis()}"
-                            val downloadResult = downloadVideo(
-                                url,
-                                outputPath,
-                                format,
-                                cookiesPath,
-                                userAgent,
-                                id,
-                                archivePath,
-                                subtitleLanguages,
-                                embedSubtitles,
-                                sponsorBlock,
-                                embedThumbnail,
-                                embedMetadata
+                            YtDlpEngine.ensureInit(applicationContext)
+                            val ffmpegAvailable = YtDlpEngine.ensureFfmpeg()
+                            val job = DownloadJob(
+                                url = url,
+                                outputPath = outputPath,
+                                format = format,
+                                cookiesPath = cookiesPath,
+                                userAgent = userAgent,
+                                archivePath = archivePath,
+                                subtitleLanguages = subtitleLanguages,
+                                embedSubs = embedSubtitles,
+                                sponsorBlock = sponsorBlock,
+                                embedThumbnail = embedThumbnail,
+                                embedMetadata = embedMetadata,
+                                ffmpegAvailable = ffmpegAvailable,
+                                audioOnly = audioOnly,
+                                targetHeight = targetHeight,
+                                audioQuality = audioQuality,
+                                // null → engine defaults to 4 (cellular-safe).
+                                concurrentFragments = concurrentFragments,
+                                // Isolate .part files from public Gallery.
+                                tempDir = File(cacheDir, "aerotube_temp").absolutePath,
+                                // printToFile owned by YtDlpEngine.startDownload
+                                // (per-process path oracle in cacheDir).
+                                printToFile = null
                             )
-                            safeSuccess(downloadResult)
+
+                            // Ensure FGS is running so the download has a notification
+                            // and is not killed in the background. Then hand execution
+                            // to the engine — do NOT wait for the download to finish.
+                            startDownloadService(id, url, outputPath, format, cookiesPath, userAgent, null)
+                            YtDlpEngine.startDownload(applicationContext, job, id)
+
+                            val json = JSONObject()
+                            json.put("success", true)
+                            json.put("process_id", id)
+                            safeSuccess(json.toString())
                         }
                         "cancelDownload" -> {
                             val processId = call.argument<String>("process_id")
                             if (processId == null) {
                                 safeError("INVALID_ARGUMENT", "process_id is required", null)
-                                return@Thread
+                                return@launch
                             }
-                            val success = cancelDownload(processId)
+                            val success = YtDlpEngine.cancel(processId)
                             safeSuccess(success)
+                        }
+                        "cancelAll" -> {
+                            YtDlpEngine.cancelAll()
+                            safeSuccess(true)
+                        }
+                        "searchVideos" -> {
+                            val query = call.argument<String>("query")
+                            val limit = call.argument<Int>("limit") ?: 10
+                            val cookiesPath = call.argument<String>("cookies_path")
+                            val userAgent = call.argument<String>("user_agent")
+                            if (query.isNullOrBlank()) {
+                                safeError("INVALID_ARGUMENT", "query is required", null)
+                                return@launch
+                            }
+                            val searchJson = YtDlpEngine.searchVideos(
+                                applicationContext, query, limit, cookiesPath, userAgent
+                            )
+                            safeSuccess(searchJson)
                         }
                         "updateYoutubeDL" -> {
                             val updateChannel = call.argument<String>("update_channel") ?: "stable"
-                            val updateResult = updateYoutubeDL(updateChannel)
+                            val updateResult = YtDlpEngine.updateYoutubeDL(applicationContext, updateChannel)
                             safeSuccess(updateResult)
                         }
                         else -> {
@@ -1033,19 +1075,34 @@ class MainActivity : FlutterActivity() {
                     }
                 } catch (e: Throwable) {
                     Log.e(TAG, "Error handling method call", e)
-                    safeError("YTDLP_ERROR", e.message, e.stackTraceToString())
+                    // Include the exception class name: after R8 minification,
+                    // e.message is often just an obfuscated name like "I4.f"
+                    // (NoClassDefFoundError), which is useless for diagnosis.
+                    val detail = buildString {
+                        append(e.javaClass.name)
+                        val msg = e.message
+                        if (!msg.isNullOrBlank()) append(": ").append(msg)
+                        // Unwrap one cause level for ClassNotFoundException chains.
+                        val cause = e.cause
+                        if (cause != null && cause !== e) {
+                            append("\nCaused by ").append(cause.javaClass.name)
+                            val causeMsg = cause.message
+                            if (!causeMsg.isNullOrBlank()) append(": ").append(causeMsg)
+                        }
+                    }
+                    safeError("YTDLP_ERROR", detail, e.stackTraceToString())
                 }
-            }.start()
+            }
         }
 
         EventChannel(flutterEngine.dartExecutor.binaryMessenger, YTDLP_EVENTS_CHANNEL)
             .setStreamHandler(object : EventChannel.StreamHandler {
                 override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
-                    downloadEventSink = events
+                    DownloadEventBus.setSink(events)
                 }
 
                 override fun onCancel(arguments: Any?) {
-                    downloadEventSink = null
+                    DownloadEventBus.setSink(null)
                 }
             })
 
@@ -1392,569 +1449,6 @@ class MainActivity : FlutterActivity() {
         return uri
     }
 
-    private fun getVersion(): String? {
-        return try {
-            YoutubeDL.getInstance().version(applicationContext)
-        } catch (e: Throwable) {
-            Log.e(TAG, "Failed to get version", e)
-            null
-        }
-    }
-
-    @Synchronized
-    private fun ensureYoutubeDLInitialized() {
-        if (youtubeDLInitialized) return
-
-        YoutubeDL.getInstance().init(applicationContext)
-        ensureFfmpegReady()
-
-        youtubeDLInitialized = true
-        Log.d(TAG, "YoutubeDL initialized successfully")
-    }
-
-    // FFmpeg is only needed for post-processing (stream merge, thumbnail and
-    // metadata embedding). Retried on demand so a transient failure at app
-    // start doesn't silently disable embedding for the whole session; callers
-    // skip ffmpeg-dependent options when this returns false.
-    @Synchronized
-    private fun ensureFfmpegReady(): Boolean {
-        if (ffmpegReady) return true
-        ffmpegReady = try {
-            FFmpeg.getInstance().init(applicationContext)
-            Log.d(TAG, "FFmpeg initialized successfully")
-            true
-        } catch (e: Throwable) {
-            Log.e(TAG, "FFmpeg unavailable — merge/thumbnail/metadata embedding will be skipped", e)
-            false
-        }
-        return ffmpegReady
-    }
-
-    private fun getVideoInfo(url: String, cookiesPath: String?, userAgent: String?): String {
-        return try {
-            ensureYoutubeDLInitialized()
-            val request = YoutubeDLRequest(url)
-
-            // Add cookies if provided
-            if (cookiesPath != null && cookiesPath.isNotEmpty()) {
-                Log.d(TAG, "Using cookies from file: $cookiesPath")
-                val cookieFile = File(cookiesPath)
-                if (cookieFile.exists()) {
-                    Log.d(TAG, "Cookie file exists, size: ${cookieFile.length()} bytes")
-                    request.addOption("--cookies", cookiesPath)
-                } else {
-                    Log.e(TAG, "Cookie file not found at: $cookiesPath")
-                }
-            }
-
-            // Add custom user agent if provided
-            if (userAgent != null && userAgent.isNotEmpty()) {
-                request.addOption("--user-agent", userAgent)
-            }
-
-            // Reliability fixes
-            request.addOption("--force-ipv4") 
-            request.addOption("--socket-timeout", "15")
-            request.addOption("--retries", "3")
-            request.addOption("--no-warnings")
-
-            // player_client=media is NOT a valid yt-dlp client (it is not in
-            // INNERTUBE_CLIENTS). Forcing it makes extraction fail. Use the
-            // battle-tested default multi-client set instead.
-            request.addOption("--extractor-args", "youtube:player_client=tv,web,android,ios")
-            
-            // Get video info as JSON
-            request.addOption("-j") // --dump-json
-            request.addOption("--no-playlist")
-
-            val response = YoutubeDL.getInstance().execute(request)
-
-            // The JSON output is in out
-            val stdout = response.out
-            val json = JSONObject()
-            json.put("success", true)
-            json.put("info", JSONObject(stdout.trim()))
-            
-            // Log format count for debugging
-            val infoJson = JSONObject(stdout.trim())
-            if (infoJson.has("formats")) {
-                val formats = infoJson.getJSONArray("formats")
-                Log.d(TAG, "Received ${formats.length()} formats from yt-dlp")
-                
-                // Count format types
-                var videoOnly = 0
-                var audioOnly = 0
-                var combined = 0
-                for (i in 0 until formats.length()) {
-                    val format = formats.getJSONObject(i)
-                    val vcodec = format.optString("vcodec", "none")
-                    val acodec = format.optString("acodec", "none")
-                    val hasVideo = vcodec.isNotEmpty() && vcodec != "none"
-                    val hasAudio = acodec.isNotEmpty() && acodec != "none"
-                    
-                    when {
-                        hasVideo && !hasAudio -> videoOnly++
-                        !hasVideo && hasAudio -> audioOnly++
-                        hasVideo && hasAudio -> combined++
-                    }
-                }
-                Log.d(TAG, "Video-only: $videoOnly, Audio-only: $audioOnly, Combined: $combined")
-            } else {
-                Log.w(TAG, "No 'formats' array in yt-dlp output!")
-            }
-            
-            json.toString()
-        } catch (e: Exception) {
-            val errorMsg = e.message ?: "Unknown error"
-            val fullError = "${errorMsg}\nStack: ${Log.getStackTraceString(e)}"
-            Log.e(TAG, "Failed to get video info", e)
-            val json = JSONObject()
-            json.put("success", false)
-            json.put("error", fullError)
-            json.toString()
-        }
-    }
-
-    private fun getPlaylistInfo(url: String, cookiesPath: String?, userAgent: String?): String {
-        return try {
-            ensureYoutubeDLInitialized()
-            val request = YoutubeDLRequest(url)
-            
-            // Add cookies if provided
-            if (cookiesPath != null && cookiesPath.isNotEmpty()) {
-                request.addOption("--cookies", cookiesPath)
-            }
-            
-            // Add custom user agent if provided
-            if (userAgent != null && userAgent.isNotEmpty()) {
-                request.addOption("--user-agent", userAgent)
-            }
-            
-            // Reliability fixes
-            request.addOption("--force-ipv4") 
-            request.addOption("--socket-timeout", "15")
-            request.addOption("--retries", "3")
-            request.addOption("--no-warnings")
-
-            // Get playlist info
-            request.addOption("-J") // --dump-single-json
-            request.addOption("--flat-playlist")
-            
-            val response = YoutubeDL.getInstance().execute(request)
-            val stdout = response.out
-            val json = JSONObject()
-            json.put("success", true)
-            json.put("playlist", JSONObject(stdout.trim()))
-            json.toString()
-        } catch (e: Exception) {
-            val errorMsg = e.message ?: "Unknown error"
-            val fullError = "${errorMsg}\nStack: ${Log.getStackTraceString(e)}"
-            Log.e(TAG, "Failed to get playlist info", e)
-            val json = JSONObject()
-            json.put("success", false)
-            json.put("error", fullError)
-            json.toString()
-        }
-    }
-
-    private fun downloadVideo(
-        url: String,
-        outputPath: String,
-        format: String?,
-        cookiesPath: String?,
-        userAgent: String?,
-        processId: String,
-        archivePath: String? = null,
-        subtitleLanguages: List<String>? = null,
-        embedSubtitles: Boolean = false,
-        sponsorBlock: Boolean = false,
-        embedThumbnail: Boolean = true,
-        embedMetadata: Boolean = true
-    ): String {
-        // B23 fix: ensure activeDownloads entry always removed via finally (leaked on success before)
-        activeDownloads[processId] = true
-        return try {
-            ensureYoutubeDLInitialized()
-            val outDir = File(outputPath)
-            if (!outDir.exists()) {
-                outDir.mkdirs()
-            }
-            emitDownloadEvent(
-                mapOf(
-                    "event" to "started",
-                    "process_id" to processId,
-                    "output_path" to outputPath
-                )
-            )
-
-            val request = YoutubeDLRequest(url)
-            
-            // Set output template (200B cap avoids ENAMETOOLONG on long titles)
-            request.addOption("-o", "$outputPath/%(title).200B.%(ext)s")
-            
-            // Set format if provided
-            if (format != null && format.isNotEmpty()) {
-                request.addOption("-f", format)
-            } else {
-                request.addOption("-f", "best")
-            }
-            
-            // Add cookies if provided
-            if (cookiesPath != null && cookiesPath.isNotEmpty()) {
-                request.addOption("--cookies", cookiesPath)
-            }
-            
-            // Add custom user agent if provided
-            if (userAgent != null && userAgent.isNotEmpty()) {
-                request.addOption("--user-agent", userAgent)
-            }
-            
-            // Reliability fixes
-            request.addOption("--force-ipv4") 
-            request.addOption("--socket-timeout", "15")
-            request.addOption("--retries", "3")
-            request.addOption("--no-playlist")
-            request.addOption("--no-warnings")
-            request.addOption("--newline")
-            // Pause/resume relies on yt-dlp continuing partial (.part) files
-            // after pause kills the process. Pass --continue explicitly so the
-            // resume contract is documented, not implicit.
-            request.addOption("--continue")
-            
-            // Post-processing (stream merge, thumbnail/metadata/subtitle
-            // embedding) requires FFmpeg. Skip those options when unavailable
-            // so the download itself completes instead of dying in
-            // post-processing or silently producing an unembedded file.
-            val ffmpegAvailable = ensureFfmpegReady()
-
-            // Valid multi-client set (media is not a real yt-dlp client).
-            request.addOption("--extractor-args", "youtube:player_client=tv,web,android,ios")
-
-            // Ensure merging to MP4 container (required for bestvideo+bestaudio)
-            if (ffmpegAvailable) {
-                request.addOption("--merge-output-format", "mp4")
-            } else {
-                Log.w(TAG, "FFmpeg unavailable for download $processId — merge and embedding skipped")
-            }
-
-            // Download options
-            if (archivePath != null && archivePath.isNotEmpty()) {
-                request.addOption("--download-archive", archivePath)
-            }
-            if (subtitleLanguages != null && subtitleLanguages.isNotEmpty()) {
-                request.addOption("--sub-langs", subtitleLanguages.joinToString(","))
-                request.addOption("--write-subs")
-                if (embedSubtitles && ffmpegAvailable) {
-                    request.addOption("--embed-subs")
-                }
-            }
-            if (sponsorBlock) {
-                request.addOption("--sponsorblock-remove", "all")
-            }
-            if (embedThumbnail && ffmpegAvailable) {
-                request.addOption("--write-thumbnail")
-                request.addOption("--embed-thumbnail")
-            }
-            if (embedMetadata && ffmpegAvailable) {
-                request.addOption("--embed-metadata")
-            }
-
-            // Execute download with progress callback
-            YoutubeDL.getInstance().execute(request, processId) { progress, eta, line ->
-                Log.d(TAG, "Download progress: $progress% - ETA: ${eta}s - Speed: $line bytes/s")
-                emitDownloadEvent(
-                    mapOf(
-                        "event" to "progress",
-                        "process_id" to processId,
-                        "progress" to progress,
-                        "eta" to eta,
-                        "line" to line,
-                        "output_path" to outputPath
-                    )
-                )
-            }
-
-            emitDownloadEvent(
-                mapOf(
-                    "event" to "completed",
-                    "process_id" to processId,
-                    "output_path" to outputPath,
-                    // Surface post-processing degradation instead of silently
-                    // shipping an unembedded/unmerged file.
-                    "ffmpeg_skipped" to !ffmpegAvailable
-                )
-            )
-
-            val json = JSONObject()
-            json.put("success", true)
-            json.put("process_id", processId)
-            json.put(
-                "message",
-                if (ffmpegAvailable) "Download started"
-                else "Download completed without merge/embedding (FFmpeg unavailable)"
-            )
-            json.toString()
-        } catch (e: Exception) {
-            val errorMsg = e.message ?: "Unknown error"
-            val fullError = "${errorMsg}\nStack: ${Log.getStackTraceString(e)}"
-            Log.e(TAG, "Failed to download video", e)
-            emitDownloadEvent(
-                mapOf(
-                    "event" to "error",
-                    "process_id" to processId,
-                    "output_path" to outputPath,
-                    "error" to fullError
-                )
-            )
-            val json = JSONObject()
-            json.put("success", false)
-            json.put("error", fullError)
-            json.toString()
-        } finally {
-            // B23 fix: always clean map entry (success, error, or cancellation)
-            activeDownloads.remove(processId)
-        }
-    }
-
-    private fun cancelDownload(processId: String): Boolean {
-        return try {
-            ensureYoutubeDLInitialized()
-            YoutubeDL.getInstance().destroyProcessById(processId)
-            activeDownloads.remove(processId)
-            emitDownloadEvent(
-                mapOf(
-                    "event" to "cancelled",
-                    "process_id" to processId
-                )
-            )
-            true
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to cancel download", e)
-            false
-        }
-    }
-
-    private fun emitDownloadEvent(event: Map<String, Any?>) {
-        runOnUiThread {
-            try {
-                downloadEventSink?.success(event)
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to emit download event", e)
-            }
-        }
-    }
-
-    private fun updateYoutubeDL(updateChannel: String): String {
-        val json = JSONObject()
-        var lastNativeError: String? = null
-
-        try {
-            ensureYoutubeDLInitialized()
-            
-            val status = if (updateChannel == "nightly") {
-                YoutubeDL.getInstance().updateYoutubeDL(applicationContext, YoutubeDL.UpdateChannel.NIGHTLY)
-            } else {
-                YoutubeDL.getInstance().updateYoutubeDL(applicationContext, YoutubeDL.UpdateChannel.STABLE)
-            }
-            
-            when (status?.name) {
-                "DONE", "SUCCESS" -> {
-                    json.put("success", true)
-                    json.put("message", "Update successful")
-                    json.put("status", "updated")
-                    Log.d(TAG, "yt-dlp update successful via native updater")
-                    return json.toString()
-                }
-                "ALREADY_UP_TO_DATE" -> {
-                    json.put("success", true)
-                    json.put("message", "Already up to date")
-                    json.put("status", "up_to_date")
-                    Log.d(TAG, "yt-dlp already up to date")
-                    return json.toString()
-                }
-                else -> {
-                    lastNativeError = "Native updater status: ${status?.name}"
-                    Log.w(TAG, "Native yt-dlp update returned status: $status, attempting fallback")
-                }
-            }
-        } catch (e: Throwable) {
-            lastNativeError = e.message ?: e.toString()
-            Log.w(TAG, "Native yt-dlp update threw exception, attempting fallback: $lastNativeError")
-        }
-
-        // Fallback: Direct download from release endpoints with user-agent and redirect support
-        return try {
-            val fallbackResult = downloadAndInstallYtdlpFallback()
-            if (fallbackResult.first) {
-                val installedVersion = fallbackResult.second ?: "latest"
-                json.put("success", true)
-                json.put("message", "Update successful via fallback")
-                json.put("status", "updated")
-                json.put("version", installedVersion)
-                Log.d(TAG, "yt-dlp fallback update succeeded with version $installedVersion")
-            } else {
-                val failureReason = fallbackResult.second ?: "Direct download failed"
-                json.put("success", false)
-                json.put("status", "update_failed")
-
-                val is403 = lastNativeError?.contains("403") == true || failureReason.contains("403")
-                val isTimeout = lastNativeError?.contains("timeout", ignoreCase = true) == true ||
-                                failureReason.contains("timeout", ignoreCase = true) ||
-                                lastNativeError?.contains("ConnectException") == true
-
-                val category = when {
-                    is403 -> "rateLimit"
-                    isTimeout -> "network"
-                    else -> "unknown"
-                }
-
-                val friendlyMsg = when {
-                    is403 -> "GitHub rate limit exceeded. Direct fallback also failed."
-                    isTimeout -> "Network connection to GitHub timed out. Check internet or VPN."
-                    else -> "Failed to update yt-dlp: $failureReason"
-                }
-
-                json.put("error", friendlyMsg)
-                json.put("category", category)
-                json.put("details", "Native error: $lastNativeError\nFallback error: $failureReason")
-                json.put("suggestion", if (is403) "Wait 15 minutes for the rate limit to reset, or switch internet connection/VPN." else "Check internet connectivity and try again.")
-            }
-            json.toString()
-        } catch (fallbackEx: Throwable) {
-            Log.e(TAG, "Fallback yt-dlp update crashed", fallbackEx)
-            json.put("success", false)
-            json.put("status", "update_failed")
-            json.put("error", fallbackEx.message ?: "Update failed")
-            json.put("details", "Native: $lastNativeError\nFallback: ${fallbackEx.message}")
-            json.put("stacktrace", fallbackEx.stackTraceToString())
-            json.toString()
-        }
-    }
-
-    private fun downloadAndInstallYtdlpFallback(): Pair<Boolean, String?> {
-        val downloadUrls = listOf(
-            "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp",
-            "https://ghproxy.net/https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp"
-        )
-
-        val tempFile = File.createTempFile("ytdlp_dl", ".tmp", applicationContext.cacheDir)
-        var lastErr = ""
-
-        try {
-            var downloadSuccess = false
-            for (urlString in downloadUrls) {
-                try {
-                    Log.d(TAG, "Attempting yt-dlp download from: $urlString")
-                    var currentUrl = urlString
-                    var conn: java.net.HttpURLConnection? = null
-                    var redirects = 0
-                    val maxRedirects = 6
-
-                    while (redirects < maxRedirects) {
-                        val url = java.net.URL(currentUrl)
-                        conn = (url.openConnection() as java.net.HttpURLConnection).apply {
-                            instanceFollowRedirects = false
-                            connectTimeout = 15000
-                            readTimeout = 40000
-                            setRequestProperty("User-Agent", "Mozilla/5.0 (Android; AeroTube-Downloader/1.0)")
-                            setRequestProperty("Accept", "*/*")
-                        }
-                        val code = conn.responseCode
-                        if (code in 301..308) {
-                            val newLoc = conn.getHeaderField("Location")
-                            conn.disconnect()
-                            if (newLoc != null) {
-                                currentUrl = newLoc
-                                redirects++
-                                continue
-                            }
-                        }
-                        break
-                    }
-
-                    if (conn != null && conn.responseCode == java.net.HttpURLConnection.HTTP_OK) {
-                        conn.inputStream.use { input ->
-                            tempFile.outputStream().use { output ->
-                                input.copyTo(output)
-                            }
-                        }
-                        conn.disconnect()
-
-                        // Verify that we downloaded a valid file (> 1 MB)
-                        if (tempFile.exists() && tempFile.length() > 1024 * 1024) {
-                            downloadSuccess = true
-                            Log.d(TAG, "yt-dlp download completed (${tempFile.length()} bytes)")
-                            break
-                        } else {
-                            lastErr = "Downloaded file too small (${tempFile.length()} bytes)"
-                        }
-                    } else {
-                        lastErr = "HTTP ${conn?.responseCode} from $urlString"
-                        conn?.disconnect()
-                    }
-                } catch (e: Exception) {
-                    lastErr = e.message ?: e.toString()
-                    Log.w(TAG, "Download attempt failed from $urlString: $lastErr")
-                }
-            }
-
-            if (!downloadSuccess) {
-                tempFile.delete()
-                return Pair(false, lastErr)
-            }
-
-            // Extract version from zipapp if possible
-            var extractedVersion: String? = null
-            try {
-                java.util.zip.ZipFile(tempFile).use { zip ->
-                    val entry = zip.getEntry("yt_dlp/version.py")
-                    if (entry != null) {
-                        val content = zip.getInputStream(entry).bufferedReader().use { it.readText() }
-                        val match = Regex("""__version__\s*=\s*['"]([^'"]+)['"]""").find(content)
-                        extractedVersion = match?.groupValues?.get(1)
-                    }
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Could not extract version from yt-dlp zipapp: ${e.message}")
-            }
-
-            if (extractedVersion == null) {
-                val sdf = java.text.SimpleDateFormat("yyyy.MM.dd", java.util.Locale.US)
-                extractedVersion = sdf.format(java.util.Date())
-            }
-
-            // Install into youtubedl-android directory
-            val baseDir = File(applicationContext.noBackupFilesDir, "youtubedl-android")
-            val ytdlpDir = File(baseDir, "yt-dlp")
-            if (ytdlpDir.exists()) {
-                ytdlpDir.deleteRecursively()
-            }
-            ytdlpDir.mkdirs()
-
-            val targetFile = File(ytdlpDir, "yt-dlp")
-            tempFile.copyTo(targetFile, overwrite = true)
-            tempFile.delete()
-
-            // Initialize yt-dlp in library
-            YoutubeDL.getInstance().init_ytdlp(applicationContext, ytdlpDir)
-
-            // Update shared preferences with version
-            try {
-                val prefs = applicationContext.getSharedPreferences("youtubedl-android", android.content.Context.MODE_PRIVATE)
-                prefs.edit()
-                    .putString("dlpVersion", extractedVersion)
-                    .putString("dlpVersionName", extractedVersion)
-                    .apply()
-            } catch (pe: Exception) {
-                Log.w(TAG, "Failed to save version to prefs: ${pe.message}")
-            }
-
-            return Pair(true, extractedVersion)
-        } catch (e: Exception) {
-            tempFile.delete()
-            return Pair(false, e.message ?: e.toString())
-        }
-    }
     private fun setFileExecutable(path: String): Boolean {
         return try {
             val file = File(path)

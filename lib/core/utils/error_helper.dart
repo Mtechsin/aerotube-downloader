@@ -65,6 +65,28 @@ class ErrorHelper {
     }
   }
 
+  /// Shared "yt-dlp extractor looks broken/outdated" detector.
+  ///
+  /// Used by both [YtdlpService.isBrokenError] and
+  /// [YtdlpServiceAndroid.isBrokenError] so Windows/Android stop disagreeing
+  /// on which phrases count as a broken extractor.
+  /// H16: only match yt-dlp-specific phrasing — a bare "outdated" or
+  /// "signature" (TLS cert failure, a title containing "signature") must not
+  /// trigger an auto-update.
+  static bool isBrokenExtractorError(String error) {
+    final lower = error.toLowerCase();
+    return lower.contains('signature extraction failed') ||
+        lower.contains('nsig extraction failed') ||
+        lower.contains('unable to extract') ||
+        lower.contains('extraction failed') ||
+        lower.contains('decipher') ||
+        lower.contains('update yt-dlp') ||
+        lower.contains('unsupported player_client') ||
+        lower.contains('youtube said: manual proxy of this kind is not allowed') ||
+        lower.contains('please update yt-dlp') ||
+        lower.contains('yt-dlp is out of date');
+  }
+
   /// Strips out exception class name prefixes like "YtdlpException: ", "Exception: ", etc.
   static String clean(String raw) {
     var cleaned = raw.trim();
@@ -154,12 +176,41 @@ class ErrorHelper {
       );
     }
 
-    // Native tool update failures
+    // Native class-loading / R8 minification crashes.
+    // These surface as ClassNotFoundException / NoClassDefFoundError whose
+    // message is often just an obfuscated name (e.g. "I4.f", "14.f"). They are
+    // NOT fixed by updating yt-dlp — the APK itself is broken and must be
+    // rebuilt with correct ProGuard keep rules (com.yausername.**).
+    // Match short obfuscated tokens after "Platform error:" — 1–4 alphanumerics,
+    // optionally a dotted suffix. Real yt-dlp errors are much longer/wordier.
+    final looksLikeObfuscatedPlatformError = RegExp(
+      r'platform error:\s*[a-z0-9]{1,4}(\.[a-z0-9]{1,4})?\s*$',
+      caseSensitive: false,
+    ).hasMatch(lower);
+    if (lower.contains('noclassdeffounderror') ||
+        lower.contains('classnotfoundexception') ||
+        lower.contains('nosuchmethoderror') ||
+        lower.contains('nosuchfielderror') ||
+        lower.contains('exceptionininitializererror') ||
+        lower.contains('unsatisfiedlinkerror') ||
+        looksLikeObfuscatedPlatformError) {
+      return ErrorHelper(
+        title: 'App Binary Error',
+        friendlyMessage:
+            'The installed app is missing native components (likely a broken release build).',
+        suggestion:
+            'Reinstall a release APK built with the fixed ProGuard rules, or use a debug build. Updating yt-dlp will not fix this.',
+        category: ErrorCategory.process,
+        originalError: rawError,
+        technicalDetails: error,
+      );
+    }
+
+    // Native tool update failures (real updater failures, not class-loading crashes)
     if (lower.contains('native update failed') ||
-        lower.contains('update failed') ||
-        lower.contains('platform error') ||
-        lower.contains('14.f') ||
-        lower.contains('status: update_failed')) {
+        lower.contains('status: update_failed') ||
+        (lower.contains('update failed') &&
+            (lower.contains('yt-dlp') || lower.contains('ytdlp') || lower.contains('github')))) {
       return ErrorHelper(
         title: 'Tool Update Failed',
         friendlyMessage: 'Could not complete the yt-dlp update automatically.',
@@ -219,14 +270,27 @@ class ErrorHelper {
     }
 
     // Outdated extractor / yt-dlp signature issues
+    // H16: require yt-dlp-specific phrasing. Bare "signature" / "outdated"
+    // matches TLS cert errors and unrelated messages.
+    if (lower.contains('requested format is not available')) {
+      return ErrorHelper(
+        title: 'Format Not Available',
+        friendlyMessage: 'That quality/format is no longer offered for this video.',
+        suggestion:
+            'Go back to Home, paste the URL again to refresh formats, then pick another quality and retry.',
+        category: ErrorCategory.outdatedTool,
+        originalError: rawError,
+        technicalDetails: error,
+      );
+    }
     if (lower.contains('update yt-dlp') ||
-        lower.contains('outdated') ||
+        lower.contains('please update yt-dlp') ||
+        lower.contains('yt-dlp is out of date') ||
         lower.contains('unable to extract') ||
+        lower.contains('signature extraction failed') ||
+        lower.contains('nsig extraction failed') ||
         lower.contains('decipher') ||
-        lower.contains('signature') ||
-        lower.contains('unsupported player_client') ||
-        lower.contains('requested format is not available') ||
-        lower.contains('nsig extraction failed')) {
+        lower.contains('unsupported player_client')) {
       return ErrorHelper(
         title: 'Extractor Update Required',
         friendlyMessage: 'Extractor update required',

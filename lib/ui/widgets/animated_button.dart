@@ -15,7 +15,7 @@ class AnimatedButton extends StatefulWidget {
     required this.child,
     this.scale = 0.95,
     this.duration = const Duration(milliseconds: 150),
-    this.curve = Curves.easeOutCubic,
+    this.curve = Curves.linear,
   });
 
   @override
@@ -46,6 +46,27 @@ class _AnimatedButtonState extends State<AnimatedButton> {
 
   @override
   Widget build(BuildContext context) {
+    final enabled = widget.onPressed != null;
+    final Widget content = TweenAnimationBuilder<double>(
+      tween: Tween(end: _isPressed ? widget.scale : 1.0),
+      // Use the same duration in both directions for steady press feedback.
+      duration: appMotionDuration(context, widget.duration),
+      curve: _isPressed ? widget.curve : AppMotion.linear,
+      builder: (context, value, child) =>
+          Transform.scale(scale: value, child: child),
+      child: widget.child,
+    );
+
+    if (!enabled) {
+      // H26: disabled buttons must not accept pointer events and should
+      // visually read as disabled with proper a11y semantics.
+      return Semantics(
+        button: true,
+        enabled: false,
+        child: Opacity(opacity: 0.5, child: content),
+      );
+    }
+
     return GestureDetector(
       // Own the full bounds: children without a decoration (transparent
       // containers, bare text) would otherwise only hit-test on their glyphs.
@@ -53,19 +74,7 @@ class _AnimatedButtonState extends State<AnimatedButton> {
       onTapDown: _handleTapDown,
       onTapUp: _handleTapUp,
       onTapCancel: _handleTapCancel,
-      child: TweenAnimationBuilder<double>(
-        tween: Tween(end: _isPressed ? widget.scale : 1.0),
-        // Press compresses quickly on the caller's curve; release springs
-        // back with a subtle overshoot for the expressive feel.
-        duration: appMotionDuration(
-          context,
-          _isPressed ? widget.duration : AppMotion.medium,
-        ),
-        curve: _isPressed ? widget.curve : AppMotion.snappySpringCurve,
-        builder: (context, value, child) =>
-            Transform.scale(scale: value, child: child),
-        child: widget.child,
-      ),
+      child: content,
     );
   }
 }

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 import 'app.dart';
@@ -34,6 +35,7 @@ import 'models/download_item.dart';
 import 'models/video_info.dart';
 
 void main() {
+  Animate.defaultCurve = Curves.linear;
   final loggingService = LoggingService();
 
   // Run app in a guarded zone to catch all async errors
@@ -57,10 +59,7 @@ void main() {
       final authService = AuthService();
 
       // Batch independent I/O: Hive + settings init in parallel
-      await Future.wait([
-        Hive.initFlutter(),
-        settingsService.init(),
-      ]);
+      await Future.wait([Hive.initFlutter(), settingsService.init()]);
 
       // Register Hive adapters BEFORE any box is opened (fix typeId 33 crash).
       // Guarded so hot-restart / re-init does not throw duplicate registration.
@@ -147,25 +146,25 @@ void main() {
 
       // Warm yt-dlp via background isolate — offloads Process.run from main thread
       compute(YtdlpService.checkBinaryAvailable, ytdlpService.ytdlpPath)
-        .then((version) {
-          if (version != null) {
-            ytdlpService.markReady(version);
-          } else {
-            return ytdlpService.initialize(); // fallback: try download
-          }
-        })
-        .then((_) {
-          loggingService.info(
-            'yt-dlp service initialized',
-            component: 'Main',
-          );
-        })
-        .catchError((e) {
-          loggingService.warning(
-            'yt-dlp initialization failed: $e',
-            component: 'Main',
-          );
-        });
+          .then((version) {
+            if (version != null) {
+              ytdlpService.markReady(version);
+            } else {
+              return ytdlpService.initialize(); // fallback: try download
+            }
+          })
+          .then((_) {
+            loggingService.info(
+              'yt-dlp service initialized',
+              component: 'Main',
+            );
+          })
+          .catchError((e) {
+            loggingService.warning(
+              'yt-dlp initialization failed: $e',
+              component: 'Main',
+            );
+          });
 
       runApp(
         MultiProvider(
@@ -185,6 +184,7 @@ void main() {
                   ytdlpService: ytdlpService,
                   cookieService: cookieService,
                   settingsProvider: context.read<PlatformSettingsProvider>(),
+                  notificationService: notificationService,
                 )..initialize(),
               ),
             ChangeNotifierProvider<DownloadProvider>(
@@ -207,7 +207,9 @@ void main() {
                 settingsProvider: context.read<PlatformSettingsProvider>(),
               )..init(),
             ),
-            ChangeNotifierProvider(create: (_) => SearchProvider()),
+            ChangeNotifierProvider(
+              create: (_) => SearchProvider(ytdlpService: ytdlpService),
+            ),
             ChangeNotifierProvider(create: (_) => NavigationProvider()),
             Provider<CookieService>.value(value: cookieService),
             Provider<NotificationService>.value(value: notificationService),

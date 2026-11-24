@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../../models/video_info.dart';
@@ -54,6 +55,59 @@ class YtdlpServiceAndroid implements YtdlpToolService {
   Future<void> cancelFetch() async {
     _fetchGen++;
     _logger.info('Android fetch cancelled by user (gen $_fetchGen)', component: 'YtdlpServiceAndroid');
+  }
+
+  /// Default concurrent fragment count for yt-dlp `-N`. Overridable via
+  /// downloadVideo's [concurrentFragments] parameter.
+  /// Matched to Windows (16) so dual-stream DASH downloads saturate the link
+  /// instead of crawling at yt-dlp's single-fragment default.
+  static const int defaultConcurrentFragments = 16;
+
+  /// In-memory getVideoInfo cache keyed by URL with a 10-minute TTL.
+  /// Avoids re-hitting the native extract path when the user re-opens the
+  /// same URL. Downloads themselves still use a fresh format ladder from
+  /// native — this cache is only for the info/metadata fetch.
+  /// H8: capped LRU (max 30) with expired-entry purge on write.
+  static const Duration _videoInfoCacheTtl = Duration(minutes: 10);
+  static const int _maxVideoInfoCacheSize = 30;
+  static final Map<String, ({VideoInfo info, DateTime at})> _videoInfoCache =
+      {};
+
+  /// Drop cached video info (all URLs, or a single URL).
+  @visibleForTesting
+  void invalidateVideoInfoCache([String? url]) {
+    if (url == null) {
+      _videoInfoCache.clear();
+    } else {
+      _videoInfoCache.remove(url);
+    }
+  }
+
+  /// Remove expired entries (TTL exceeded).
+  void _purgeExpiredVideoInfoCache() {
+    final now = DateTime.now();
+    _videoInfoCache.removeWhere(
+      (_, entry) => now.difference(entry.at) >= _videoInfoCacheTtl,
+    );
+  }
+
+  /// Insert with LRU eviction + expired purge. Dart LinkedHashMap keeps
+  /// insertion order, so keys.first is the oldest entry.
+  void _putVideoInfoCache(String url, VideoInfo info) {
+    _purgeExpiredVideoInfoCache();
+    if (_videoInfoCache.containsKey(url)) {
+      _videoInfoCache.remove(url);
+    } else if (_videoInfoCache.length >= _maxVideoInfoCacheSize) {
+      final oldest = _videoInfoCache.keys.first;
+      _videoInfoCache.remove(oldest);
+    }
+    _videoInfoCache[url] = (info: info, at: DateTime.now());
+  }
+
+  void _checkFetchGeneration(int gen) {
+    if (gen != _fetchGen) {
+      throw YtdlpFetchCancelledException('Fetch cancelled by user');
+    }
   }
 
   YtdlpServiceAndroid({
@@ -383,21 +437,31 @@ class YtdlpServiceAndroid implements YtdlpToolService {
     );
   }
 
-  /// Handle "broken" yt-dlp errors by recommending an update
-  bool isBrokenError(String error) {
-    final lowerError = error.toLowerCase();
-    return lowerError.contains('signature extraction failed') ||
-        lowerError.contains('unable to extract') ||
-        lowerError.contains(
-          'youtube said: manual proxy of this kind is not allowed',
-        );
-  }
+  /// Handle "broken" yt-dlp errors by recommending an update.
+  /// Shared with Windows via [ErrorHelper.isBrokenExtractorError].
+  bool isBrokenError(String error) =>
+      ErrorHelper.isBrokenExtractorError(error);
 
   /// Fetch video information from URL
   Future<VideoInfo> getVideoInfo(
     String url, {
     Function(String status)? onProgress,
   }) async {
+    final gen = _fetchGen;
+
+    final cached = _videoInfoCache[url];
+    if (cached != null &&
+        DateTime.now().difference(cached.at) < _videoInfoCacheTtl) {
+      // Refresh LRU position (move to end of LinkedHashMap).
+      _videoInfoCache.remove(url);
+      _videoInfoCache[url] = cached;
+      _logger.debug(
+        'Returning cached video info for: $url',
+        component: 'YtdlpServiceAndroid',
+      );
+      return cached.info;
+    }
+
     onProgress?.call('Fetching video information...');
 
     _logger.info(
@@ -412,6 +476,8 @@ class YtdlpServiceAndroid implements YtdlpToolService {
         userAgent: _userAgent,
       );
 
+      _checkFetchGeneration(gen);
+
       _logger.debug(
         'Raw video info result: ${result.keys.join(', ')}',
         component: 'YtdlpServiceAndroid',
@@ -422,8 +488,13 @@ class YtdlpServiceAndroid implements YtdlpToolService {
         throw YtdlpAndroidException('No info object found in result');
       }
 
-      return VideoInfo.fromJson(result['info'] as Map<String, dynamic>);
+      final info = VideoInfo.fromJson(result['info'] as Map<String, dynamic>);
+      _putVideoInfoCache(url, info);
+      return info;
     } catch (e, stackTrace) {
+      if (e is YtdlpFetchCancelledException) {
+        rethrow;
+      }
       _logger.error(
         'Failed to get video info',
         component: 'YtdlpServiceAndroid',
@@ -437,12 +508,16 @@ class YtdlpServiceAndroid implements YtdlpToolService {
   /// Fetch playlist information from URL
   Future<PlaylistInfo> getPlaylistInfo(
     String url, {
+    String? playlistItems,
     Function(String status)? onProgress,
   }) async {
+    final gen = _fetchGen;
+
     onProgress?.call('Fetching playlist information...');
 
     _logger.info(
-      'Getting playlist info for: $url',
+      'Getting playlist info for: $url'
+      '${playlistItems != null ? ' (items=$playlistItems)' : ''}',
       component: 'YtdlpServiceAndroid',
     );
 
@@ -451,7 +526,10 @@ class YtdlpServiceAndroid implements YtdlpToolService {
         url,
         cookiesPath: _enableCookies ? _cookiePath : null,
         userAgent: _userAgent,
+        playlistItems: playlistItems,
       );
+
+      _checkFetchGeneration(gen);
 
       _logger.debug(
         'Raw playlist info result keys: ${result.keys.join(', ')}',
@@ -465,6 +543,9 @@ class YtdlpServiceAndroid implements YtdlpToolService {
 
       return PlaylistInfo.fromJson(result['playlist'] as Map<String, dynamic>);
     } catch (e, stackTrace) {
+      if (e is YtdlpFetchCancelledException) {
+        rethrow;
+      }
       _logger.error(
         'Failed to get playlist info',
         component: 'YtdlpServiceAndroid',
@@ -475,7 +556,25 @@ class YtdlpServiceAndroid implements YtdlpToolService {
     }
   }
 
-  /// Download video with specified format
+  /// yt-dlp search fallback used when youtube_explode search fails.
+  /// Returns a raw yt-dlp flat-playlist JSON map (`entries` array).
+  Future<Map<String, dynamic>> searchVideosRaw(
+    String query, {
+    int limit = 10,
+  }) async {
+    return NativeYtdlpAndroid.searchVideos(
+      query,
+      limit: limit,
+      cookiesPath: _enableCookies ? _cookiePath : null,
+      userAgent: _userAgent,
+    );
+  }
+
+  /// Enqueue a download on the native yt-dlp library.
+  ///
+  /// Returns the process id once native work has been accepted, or null if
+  /// enqueueing failed. This does NOT wait for the download to finish —
+  /// terminal outcomes arrive only via [NativeYtdlpAndroid.downloadEvents].
   Future<String?> downloadVideo({
     required String url,
     required String outputPath,
@@ -491,21 +590,32 @@ class YtdlpServiceAndroid implements YtdlpToolService {
     bool embedSubtitles = false,
     bool sponsorBlock = false,
     String? archivePath,
+    int? concurrentFragments,
     Function(double progress, String line, int eta)? onProgress,
   }) async {
     StreamSubscription<Map<String, dynamic>>? progressSubscription;
     try {
-      // Build format string
-      String? format;
+      // Build format string.
+      //
+      // Plan 2.4: progressive auto-select for ≤720p (single stream, no
+      // merge). Dual-stream only for explicit 1080p+ quality. The default
+      // without an explicit target is progressive `best[ext=mp4]/best` —
+      // half the work of the old bestvideo+bestaudio default.
+      final String format;
       if (audioOnly) {
         format = audioFormatId ?? 'bestaudio';
       } else if (formatId != null && audioFormatId != null) {
         format = '$formatId+$audioFormatId';
       } else if (formatId != null) {
         format = formatId;
+      } else if (targetHeight != null && targetHeight <= 720) {
+        format =
+            'best[height<=$targetHeight][ext=mp4]/best[height<=$targetHeight]/best[ext=mp4]/best';
+      } else if (targetHeight != null) {
+        format =
+            'bestvideo[height<=$targetHeight][ext=mp4]+bestaudio[ext=m4a]/best[height<=$targetHeight]/best';
       } else {
-        // Default to best video with mp4
-        format = 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best';
+        format = 'best[ext=mp4]/best';
       }
 
       // Generate process ID for tracking
@@ -513,7 +623,7 @@ class YtdlpServiceAndroid implements YtdlpToolService {
           processId ?? 'download_${DateTime.now().millisecondsSinceEpoch}';
 
       _logger.info(
-        'Starting download: $url -> $outputPath',
+        'Enqueueing download: $url -> $outputPath (format=$format)',
         component: 'YtdlpServiceAndroid',
       );
 
@@ -550,29 +660,51 @@ class YtdlpServiceAndroid implements YtdlpToolService {
         sponsorBlock: sponsorBlock,
         embedThumbnail: embedThumbnail,
         embedMetadata: embedMetadata,
+        audioOnly: audioOnly,
+        targetHeight: targetHeight,
+        audioQuality: audioQuality,
+        concurrentFragments:
+            concurrentFragments ?? defaultConcurrentFragments,
       );
 
       if (result['success'] != true) {
         final error = result['error'] ?? 'Unknown error';
         _logger.error(
-          'Download failed: $error',
+          'Failed to enqueue download: $error',
           component: 'YtdlpServiceAndroid',
         );
         return null;
       }
 
+      // Enqueue accepted. process_id is the handle for EventChannel events;
+      // do not treat this return as download completion.
       return result['process_id'] as String?;
     } catch (e, stackTrace) {
       _logger.error(
-        'Download failed with exception',
+        'Failed to enqueue download',
         component: 'YtdlpServiceAndroid',
         error: e,
         stackTrace: stackTrace,
       );
       return null;
     } finally {
+      // Optional caller progress subscription is only for the enqueue call;
+      // ongoing progress is consumed by the provider via downloadEvents.
       await progressSubscription?.cancel();
     }
+  }
+
+  /// Cancel every active native download (playlist bulk-cancel / app exit).
+  ///
+  /// Prefers native `cancelAll`; falls back to cancelling each provided
+  /// process id individually. Only cancels the ids the caller passes —
+  /// never unrelated downloads.
+  Future<void> cancelAllDownloads({Iterable<String>? processIds}) async {
+    await NativeYtdlpAndroid.cancelAll(processIds: processIds);
+    _logger.info(
+      'cancelAllDownloads invoked (ids=${processIds?.length ?? 'native all'})',
+      component: 'YtdlpServiceAndroid',
+    );
   }
 }
 
@@ -581,4 +713,15 @@ class YtdlpAndroidException implements Exception {
   YtdlpAndroidException(this.message);
   @override
   String toString() => 'YtdlpAndroidException: $message';
+}
+
+/// Thrown when a fetch (getVideoInfo / getPlaylistInfo) is aborted because
+/// [YtdlpServiceAndroid.cancelFetch] bumped the generation while the native
+/// call was in flight. Callers should treat this as a user cancel, not a
+/// failure.
+class YtdlpFetchCancelledException implements Exception {
+  final String message;
+  YtdlpFetchCancelledException(this.message);
+  @override
+  String toString() => 'YtdlpFetchCancelledException: $message';
 }

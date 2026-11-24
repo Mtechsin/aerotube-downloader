@@ -19,7 +19,8 @@ class AppLogo extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final settingsProvider = Provider.of<PlatformSettingsProvider?>(context);
-    final animationsActive = useAnimations && (settingsProvider?.enableAnimations ?? true);
+    final animationsActive =
+        useAnimations && (settingsProvider?.enableAnimations ?? true);
 
     Widget logoBody = Image.asset(
       'assets/images/logo.png',
@@ -38,7 +39,7 @@ class AppLogo extends StatelessWidget {
             begin: const Offset(0.96, 0.96),
             end: const Offset(1, 1),
             duration: 260.ms,
-            curve: Curves.easeOutCubic,
+            curve: Curves.linear,
           );
     }
 
@@ -71,10 +72,7 @@ class AppLogo extends StatelessWidget {
     return Center(
       child: Stack(
         alignment: Alignment.center,
-        children: [
-          if (glowWidget != null) glowWidget,
-          logoBody,
-        ],
+        children: [if (glowWidget != null) glowWidget, logoBody],
       ),
     );
   }

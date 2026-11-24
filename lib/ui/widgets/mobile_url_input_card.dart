@@ -1,3 +1,4 @@
+import 'package:material_symbols_icons/symbols.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -39,7 +40,7 @@ class _MobileUrlInputCardState extends State<MobileUrlInputCard> {
   void initState() {
     super.initState();
     widget.controller.addListener(_onControllerChanged);
-    _checkClipboard();
+    // H27: do NOT auto-read clipboard on init — only on explicit Paste tap.
   }
 
   @override
@@ -62,21 +63,45 @@ class _MobileUrlInputCardState extends State<MobileUrlInputCard> {
           text.isNotEmpty &&
           (text.startsWith('http://') || text.startsWith('https://')) &&
           Uri.tryParse(text)?.host.contains('.') == true;
-      if (mounted) {
-        setState(() {
-          _clipboardYoutubeUrl = isMediaUrl ? text : null;
-        });
+      if (!mounted) return;
+      if (!isMediaUrl) {
+        setState(() => _clipboardYoutubeUrl = null);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('No media URL found on the clipboard.'),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+        );
+        return;
       }
+      setState(() {
+        _clipboardYoutubeUrl = text;
+      });
+      // Paste immediately — the user asked for it explicitly.
+      widget.controller.text = text;
+      setState(() {});
     } catch (_) {
       // clipboard unavailable — ignore
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Could not read the clipboard.'),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+        );
+      }
     }
   }
 
   void _pasteClipboardUrl() {
-    if (_clipboardYoutubeUrl != null) {
-      widget.controller.text = _clipboardYoutubeUrl!;
-      setState(() {});
-    }
+    // H27: explicit Paste tap — re-read clipboard now (not on focus).
+    _checkClipboard();
   }
 
   @override
@@ -142,7 +167,7 @@ class _MobileUrlInputCardState extends State<MobileUrlInputCard> {
                     focusNode: _focusNode,
                     onFocusChange: (focused) {
                       setState(() => _isFocused = focused);
-                      if (focused) _checkClipboard();
+                      // H27: never auto-read clipboard on focus.
                     },
                     child: TextField(
                       controller: widget.controller,
@@ -182,7 +207,7 @@ class _MobileUrlInputCardState extends State<MobileUrlInputCard> {
                 // the slot button below is the single cancel affordance then
                 if (widget.controller.text.isNotEmpty && !widget.isLoading)
                   _iconBtn(
-                    icon: Icons.clear_rounded,
+                    icon: Symbols.clear_rounded,
                     color: theme.colorScheme.onSurface.withValues(alpha: 0.35),
                     size: 18,
                     onTap: () {
@@ -190,11 +215,18 @@ class _MobileUrlInputCardState extends State<MobileUrlInputCard> {
                       setState(() {});
                     },
                   ),
+                // Explicit Paste control — reads clipboard only on tap (H27).
+                _iconBtn(
+                  icon: Symbols.content_paste_rounded,
+                  color: theme.colorScheme.primary.withValues(alpha: 0.75),
+                  size: 20,
+                  onTap: widget.isLoading ? null : _pasteClipboardUrl,
+                ),
                 // Fetch / Cancel Button
                 _iconBtn(
                   icon: widget.isLoading
-                      ? Icons.close_rounded
-                      : Icons.arrow_forward_rounded,
+                      ? Symbols.close_rounded
+                      : Symbols.arrow_forward_rounded,
                   color: widget.isLoading
                       ? theme.colorScheme.onSurface.withValues(alpha: 0.55)
                       : widget.controller.text.isEmpty
@@ -240,7 +272,7 @@ class _MobileUrlInputCardState extends State<MobileUrlInputCard> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(
-                          Icons.content_paste_rounded,
+                          Symbols.content_paste_rounded,
                           size: 13,
                           color: theme.colorScheme.primary.withValues(
                             alpha: 0.75,
@@ -267,7 +299,7 @@ class _MobileUrlInputCardState extends State<MobileUrlInputCard> {
               .slideY(
                 begin: -0.15,
                 end: 0,
-                curve: Curves.easeOut,
+                curve: Curves.linear,
                 duration: animDuration,
               ),
 
@@ -323,7 +355,7 @@ class _MobileUrlInputCardState extends State<MobileUrlInputCard> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Icon(
-                      Icons.error_outline_rounded,
+                      Symbols.error_rounded,
                       color: theme.colorScheme.error,
                       size: 18,
                     ),
@@ -364,7 +396,10 @@ class _MobileUrlInputCardState extends State<MobileUrlInputCard> {
                                     .read<VideoProvider>()
                                     .updateYtdlpAndRetry();
                               },
-                              icon: const Icon(Icons.refresh_rounded, size: 15),
+                              icon: const Icon(
+                                Symbols.refresh_rounded,
+                                size: 15,
+                              ),
                               label: const Text(
                                 'Update & Retry',
                                 style: TextStyle(fontSize: 12),
@@ -389,7 +424,7 @@ class _MobileUrlInputCardState extends State<MobileUrlInputCard> {
               .slideY(
                 begin: -0.2,
                 end: 0,
-                curve: Curves.easeOut,
+                curve: Curves.linear,
                 duration: animDuration,
               ),
 

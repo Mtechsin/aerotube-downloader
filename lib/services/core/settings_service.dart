@@ -17,6 +17,7 @@ class SettingsService {
   static const String keyDefaultSubtitleLanguage =
       AppConstants.prefDefaultSubtitleLanguage;
   static const String keyThemeMode = AppConstants.prefThemeMode;
+  static const String keyAmoledDark = AppConstants.prefAmoledDark;
   static const String keyAccentColor = AppConstants.prefAccentColor;
   static const String keyEnableAnimations = AppConstants.prefEnableAnimations;
   static const String keyEnableCookies = AppConstants.prefEnableCookies;
@@ -35,6 +36,8 @@ class SettingsService {
   static const String keyOnboardingComplete =
       AppConstants.prefOnboardingComplete;
   static const String keyYtdlpAutoUpdated = AppConstants.prefYtdlpAutoUpdated;
+  static const String keyIsSidebarExpanded =
+      AppConstants.prefIsSidebarExpanded;
 
   late SharedPreferences _prefs;
   AppSettings _settings = AppSettings();
@@ -53,6 +56,7 @@ class SettingsService {
   bool get autoMergeStreams => _settings.autoMergeStreams;
   String get defaultSubtitleLanguage => _settings.defaultSubtitleLanguage;
   ThemeMode get themeMode => _settings.themeMode;
+  bool get amoledDark => _settings.amoledDark;
   int? get accentColorValue => _settings.accentColorValue;
   bool get enableAnimations => _settings.enableAnimations;
   bool get enableCookies => _settings.enableCookies;
@@ -66,6 +70,7 @@ class SettingsService {
   bool get enableLogging => _settings.enableLogging;
   bool get onboardingComplete => _settings.onboardingComplete;
   bool get ytdlpAutoUpdated => _settings.ytdlpAutoUpdated;
+  bool get isSidebarExpanded => _settings.isSidebarExpanded;
 
   Future<void> init() async {
     _prefs = await SharedPreferences.getInstance();
@@ -90,6 +95,7 @@ class SettingsService {
       themeMode:
           ThemeMode.values[(_readInt(keyThemeMode) ?? ThemeMode.system.index)
               .clamp(0, ThemeMode.values.length - 1)],
+      amoledDark: _readBool(keyAmoledDark) ?? false,
       accentColorValue: _readInt(keyAccentColor),
       enableAnimations: _readBool(keyEnableAnimations) ?? true,
 
@@ -105,6 +111,7 @@ class SettingsService {
       enableLogging: _readBool(keyEnableLogging) ?? true,
       onboardingComplete: _readBool(keyOnboardingComplete) ?? false,
       ytdlpAutoUpdated: _readBool(keyYtdlpAutoUpdated) ?? false,
+      isSidebarExpanded: _readBool(keyIsSidebarExpanded) ?? true,
     );
   }
 
@@ -165,6 +172,7 @@ class SettingsService {
     );
 
     await _prefs.setInt(keyThemeMode, _settings.themeMode.index);
+    await _prefs.setBool(keyAmoledDark, _settings.amoledDark);
     if (_settings.accentColorValue != null) {
       await _prefs.setInt(keyAccentColor, _settings.accentColorValue!);
     } else {
@@ -200,9 +208,15 @@ class SettingsService {
     await _prefs.setBool(keyEnableLogging, _settings.enableLogging);
     await _prefs.setBool(keyOnboardingComplete, _settings.onboardingComplete);
     await _prefs.setBool(keyYtdlpAutoUpdated, _settings.ytdlpAutoUpdated);
+    await _prefs.setBool(keyIsSidebarExpanded, _settings.isSidebarExpanded);
   }
 
   // Setters that update state and persist
+  Future<void> setSidebarExpanded(bool value) async {
+    _settings = _settings.copyWith(isSidebarExpanded: value);
+    await _prefs.setBool(keyIsSidebarExpanded, value);
+  }
+
   Future<void> setYtdlpPath(String? path) async {
     _settings = _settings.copyWith(ytdlpPath: path);
     if (path == null || path.isEmpty) {
@@ -268,6 +282,11 @@ class SettingsService {
   Future<void> setThemeMode(ThemeMode mode) async {
     _settings = _settings.copyWith(themeMode: mode);
     await _prefs.setInt(keyThemeMode, mode.index);
+  }
+
+  Future<void> setAmoledDark(bool value) async {
+    _settings = _settings.copyWith(amoledDark: value);
+    await _prefs.setBool(keyAmoledDark, value);
   }
 
   Future<void> setAccentColor(int? colorValue) async {

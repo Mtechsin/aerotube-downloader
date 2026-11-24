@@ -1,0 +1,95 @@
+00:00 +0: loading E:/youtube downloader/test/ui/desktop_design_test.dart
+00:00 +0: E:/youtube downloader/test/ui/desktop_design_test.dart: (setUpAll)
+00:00 +0: E:/youtube downloader/test/ui/desktop_design_test.dart: home dark at 1280.0
+00:01 +1: E:/youtube downloader/test/ui/navigation_shell_test.dart: Sidebar collapse and expansion width and contents animate together in both directions
+00:01 +2: E:/youtube downloader/test/ui/navigation_shell_test.dart: Sidebar collapse and expansion width and contents animate together in both directions
+00:01 +3: E:/youtube downloader/test/ui/navigation_shell_test.dart: Sidebar collapse and expansion width and contents animate together in both directions
+00:01 +4: E:/youtube downloader/test/ui/navigation_shell_test.dart: Sidebar collapse and expansion width and contents animate together in both directions
+00:01 +5: E:/youtube downloader/test/ui/navigation_shell_test.dart: Sidebar collapse and expansion width and contents animate together in both directions
+00:01 +6: E:/youtube downloader/test/ui/navigation_shell_test.dart: Sidebar collapse and expansion width and contents animate together in both directions
+00:01 +7: E:/youtube downloader/test/ui/navigation_shell_test.dart: Sidebar collapse and expansion width and contents animate together in both directions
+00:01 +8: E:/youtube downloader/test/ui/navigation_shell_test.dart: Sidebar collapse and expansion width and contents animate together in both directions
+00:01 +9: E:/youtube downloader/test/ui/components_part_c_test.dart: Phase 2 Components (Part C: AeroScaffold & UrlComposer) AeroScaffold renders body, topBar, bottomBar, and floatingTray in compact mode
+00:01 +10: E:/youtube downloader/test/ui/components_part_c_test.dart: Phase 2 Components (Part C: AeroScaffold & UrlComposer) AeroScaffold renders body, topBar, bottomBar, and floatingTray in compact mode
+00:01 +11: E:/youtube downloader/test/ui/phase8_dialogs_and_onboarding_test.dart: Phase 8: OnboardingScreen Tests renders 3 pages, Skip button, and advances to last permissions page
+00:01 +12: E:/youtube downloader/test/ui/phase8_dialogs_and_onboarding_test.dart: Phase 8: OnboardingScreen Tests renders 3 pages, Skip button, and advances to last permissions page
+00:01 +13: E:/youtube downloader/test/ui/phase8_dialogs_and_onboarding_test.dart: Phase 8: OnboardingScreen Tests renders 3 pages, Skip button, and advances to last permissions page
+00:01 +14: E:/youtube downloader/test/ui/phase8_dialogs_and_onboarding_test.dart: Phase 8: OnboardingScreen Tests renders 3 pages, Skip button, and advances to last permissions page
+00:02 +15: E:/youtube downloader/test/ui/phase8_dialogs_and_onboarding_test.dart: Phase 8: OnboardingScreen Tests renders 3 pages, Skip button, and advances to last permissions page
+00:02 +16: E:/youtube downloader/test/ui/phase8_dialogs_and_onboarding_test.dart: Phase 8: OnboardingScreen Tests renders 3 pages, Skip button, and advances to last permissions page
+00:02 +16: E:/youtube downloader/test/ui/desktop_design_test.dart: video-options dark at 1280.0
+[02:32:46] 🐛 [VideoProvider] Starting for url: https://vimeo.com/123456 (gen 1)
+[02:32:46] 🐛 [VideoProvider] Calling _ytdlpService.getVideoInfo
+[02:32:46] 🐛 [VideoProvider] Got video info: A walk through the Scottish Highlands
+00:02 +17: E:/youtube downloader/test/ui/phase8_dialogs_and_onboarding_test.dart: Phase 8: OnboardingScreen Tests renders 3 pages, Skip button, and advances to last permissions page
+00:02 +18: E:/youtube downloader/test/ui/phase8_dialogs_and_onboarding_test.dart: Phase 8: OnboardingScreen Tests renders 3 pages, Skip button, and advances to last permissions page
+00:02 +19: E:/youtube downloader/test/ui/phase8_dialogs_and_onboarding_test.dart: Phase 8: OnboardingScreen Tests renders 3 pages, Skip button, and advances to last permissions page
+00:02 +20: E:/youtube downloader/test/ui/navigation_shell_test.dart: Sidebar collapse and expansion rapid reversal and window resizing settle without overflow
+00:02 +21: E:/youtube downloader/test/ui/desktop_design_test.dart: playlist dark at 1280.0
+00:02 +22: E:/youtube downloader/test/ui/desktop_design_test.dart: playlist dark at 1280.0
+00:02 +23: E:/youtube downloader/test/ui/navigation_shell_test.dart: Sidebar collapse and expansion one download badge remains mounted and destinations work when collapsed
+00:02 +24: E:/youtube downloader/test/ui/navigation_shell_test.dart: Sidebar collapse and expansion one download badge remains mounted and destinations work when collapsed
+00:02 +25: E:/youtube downloader/test/ui/navigation_shell_test.dart: Sidebar collapse and expansion one download badge remains mounted and destinations work when collapsed
+00:02 +26: E:/youtube downloader/test/ui/navigation_shell_test.dart: Sidebar collapse and expansion one download badge remains mounted and destinations work when collapsed
+00:03 +27: E:/youtube downloader/test/ui/navigation_shell_test.dart: Sidebar collapse and expansion one download badge remains mounted and destinations work when collapsed
+00:03 +28: E:/youtube downloader/test/ui/navigation_shell_test.dart: Sidebar collapse and expansion one download badge remains mounted and destinations work when collapsed
+00:03 +29: E:/youtube downloader/test/ui/navigation_shell_test.dart: Sidebar collapse and expansion one download badge remains mounted and destinations work when collapsed
+00:03 +30: E:/youtube downloader/test/ui/navigation_shell_test.dart: Sidebar collapse and expansion one download badge remains mounted and destinations work when collapsed
+00:03 +31: E:/youtube downloader/test/ui/desktop_design_test.dart: settings dark at 960.0
+00:03 +32: E:/youtube downloader/test/ui/desktop_design_test.dart: settings dark at 960.0
+00:03 +33: E:/youtube downloader/test/ui/navigation_shell_test.dart: Sidebar collapse and expansion motion preference skips width and content animation, reduced=true
+00:03 +34: E:/youtube downloader/test/ui/desktop_design_test.dart: video-options dark at 960.0
+00:03 +35: E:/youtube downloader/test/ui/desktop_design_test.dart: video-options dark at 960.0
+[02:32:48] 🐛 [VideoProvider] Starting for url: https://vimeo.com/123456 (gen 1)
+00:03 +36: E:/youtube downloader/test/ui/desktop_design_test.dart: video-options dark at 960.0
+[02:32:48] 🐛 [VideoProvider] Calling _ytdlpService.getVideoInfo
+[02:32:48] 🐛 [VideoProvider] Got video info: A walk through the Scottish Highlands
+00:03 +37: E:/youtube downloader/test/ui/desktop_design_test.dart: video-options dark at 960.0
+00:03 +38: E:/youtube downloader/test/ui/navigation_shell_test.dart: Phase 3 Shell & Navigation Tests MiniDownloadTray renders active download item and progress
+00:03 +39: E:/youtube downloader/test/ui/desktop_design_test.dart: playlist dark at 960.0
+00:03 +40: E:/youtube downloader/test/ui/desktop_design_test.dart: home dark at 640.0
+00:03 +41: E:/youtube downloader/test/ui/desktop_design_test.dart: search dark at 640.0
+00:03 +42: E:/youtube downloader/test/ui/desktop_design_test.dart: library dark at 640.0
+00:03 +43: E:/youtube downloader/test/ui/desktop_design_test.dart: settings dark at 640.0
+00:04 +44: E:/youtube downloader/test/ui/desktop_design_test.dart: video-options dark at 640.0
+[02:32:48] 🐛 [VideoProvider] Starting for url: https://vimeo.com/123456 (gen 1)
+[02:32:48] 🐛 [VideoProvider] Calling _ytdlpService.getVideoInfo
+[02:32:48] 🐛 [VideoProvider] Got video info: A walk through the Scottish Highlands
+00:04 +45: E:/youtube downloader/test/ui/desktop_design_test.dart: playlist dark at 640.0
+00:04 +46: E:/youtube downloader/test/ui/desktop_design_test.dart: search dark at 360.0
+00:04 +47: E:/youtube downloader/test/ui/desktop_design_test.dart: settings dark at 360.0
+00:04 +48: E:/youtube downloader/test/ui/desktop_design_test.dart: search dark at 320.0
+00:04 +49: E:/youtube downloader/test/ui/desktop_design_test.dart: settings dark at 320.0
+00:04 +50: E:/youtube downloader/test/ui/desktop_design_test.dart: home light at 1280.0
+00:04 +51: E:/youtube downloader/test/ui/desktop_design_test.dart: search light at 1280.0
+00:04 +52: E:/youtube downloader/test/ui/desktop_design_test.dart: library light at 1280.0
+00:04 +53: E:/youtube downloader/test/ui/desktop_design_test.dart: settings light at 1280.0
+00:05 +54: E:/youtube downloader/test/ui/desktop_design_test.dart: video-options light at 1280.0
+[02:32:49] 🐛 [VideoProvider] Starting for url: https://vimeo.com/123456 (gen 1)
+[02:32:49] 🐛 [VideoProvider] Calling _ytdlpService.getVideoInfo
+[02:32:49] 🐛 [VideoProvider] Got video info: A walk through the Scottish Highlands
+00:05 +55: E:/youtube downloader/test/ui/desktop_design_test.dart: playlist light at 1280.0
+00:05 +56: E:/youtube downloader/test/ui/desktop_design_test.dart: home light at 960.0
+00:05 +57: E:/youtube downloader/test/ui/desktop_design_test.dart: search light at 960.0
+00:05 +58: E:/youtube downloader/test/ui/desktop_design_test.dart: library light at 960.0
+00:05 +59: E:/youtube downloader/test/ui/desktop_design_test.dart: settings light at 960.0
+00:05 +60: E:/youtube downloader/test/ui/desktop_design_test.dart: video-options light at 960.0
+[02:32:50] 🐛 [VideoProvider] Starting for url: https://vimeo.com/123456 (gen 1)
+[02:32:50] 🐛 [VideoProvider] Calling _ytdlpService.getVideoInfo
+[02:32:50] 🐛 [VideoProvider] Got video info: A walk through the Scottish Highlands
+00:05 +61: E:/youtube downloader/test/ui/desktop_design_test.dart: playlist light at 960.0
+00:05 +62: E:/youtube downloader/test/ui/desktop_design_test.dart: home light at 640.0
+00:05 +63: E:/youtube downloader/test/ui/desktop_design_test.dart: search light at 640.0
+00:06 +64: E:/youtube downloader/test/ui/desktop_design_test.dart: library light at 640.0
+00:06 +65: E:/youtube downloader/test/ui/desktop_design_test.dart: settings light at 640.0
+00:06 +66: E:/youtube downloader/test/ui/desktop_design_test.dart: video-options light at 640.0
+[02:32:51] 🐛 [VideoProvider] Starting for url: https://vimeo.com/123456 (gen 1)
+[02:32:51] 🐛 [VideoProvider] Calling _ytdlpService.getVideoInfo
+[02:32:51] 🐛 [VideoProvider] Got video info: A walk through the Scottish Highlands
+00:06 +67: E:/youtube downloader/test/ui/desktop_design_test.dart: playlist light at 640.0
+00:06 +68: E:/youtube downloader/test/ui/desktop_design_test.dart: search light at 360.0
+00:06 +69: E:/youtube downloader/test/ui/desktop_design_test.dart: settings light at 360.0
+00:06 +70: E:/youtube downloader/test/ui/desktop_design_test.dart: search light at 320.0
+00:06 +71: E:/youtube downloader/test/ui/desktop_design_test.dart: settings light at 320.0
+00:06 +72: E:/youtube downloader/test/ui/desktop_design_test.dart: (tearDownAll)
+00:06 +72: All tests passed!

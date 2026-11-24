@@ -1,191 +1,207 @@
+import 'package:material_symbols_icons/symbols.dart';
 import 'package:flutter/material.dart';
-import 'package:cached_network_image/cached_network_image.dart';
-import '../../models/playlist_info.dart';
 
+import '../../core/theme/tokens/colors.dart';
+import '../../core/theme/tokens/radius.dart';
+import '../../core/theme/tokens/spacing.dart';
+import '../../core/theme/tokens/typography.dart';
+import '../../models/playlist_info.dart';
+import '../components/components.dart';
+
+/// Table-style playlist video row conforming to AeroTube redesign spec.
+///
+/// Features:
+/// - Selection checkbox.
+/// - 96 px 16:9 [ThumbnailTile] with duration chip.
+/// - Two-line title and channel/duration metadata.
+/// - Per-row quality override popup.
+/// - [AeroCard] container without raw box shadows.
 class PlaylistVideoCard extends StatelessWidget {
   final PlaylistVideoItem video;
   final bool isSelected;
   final VoidCallback onToggleSelection;
+  final String? qualityOverride;
+  final ValueChanged<String?>? onQualityOverrideChanged;
 
   const PlaylistVideoCard({
     super.key,
     required this.video,
     required this.isSelected,
     required this.onToggleSelection,
+    this.qualityOverride,
+    this.onQualityOverrideChanged,
   });
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-
-    // Selection Style Logic (matching DownloadItemCard)
-    final borderColor = isSelected 
-        ? colorScheme.primary.withValues(alpha: 0.5) 
-        : theme.colorScheme.onSurface.withValues(alpha: 0.1);
-        
-    final backgroundColor = isSelected 
-        ? colorScheme.primary.withValues(alpha: 0.15) 
-        : theme.colorScheme.surfaceContainer;
+    final aero = context.aero;
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      child: GestureDetector(
-        onLongPress: onToggleSelection,
-        child: Container(
-          decoration: BoxDecoration(
-            color: backgroundColor,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: borderColor),
-            boxShadow: [
-              if (isSelected)
-                BoxShadow(
-                  color: colorScheme.primary.withValues(alpha: 0.2),
-                  blurRadius: 12,
-                  spreadRadius: -2,
-                ),
-            ],
-          ),
-          child: InkWell(
-            onTap: onToggleSelection,
-            borderRadius: BorderRadius.circular(20),
-            child: RepaintBoundary(
-              child: Padding(
-                padding: const EdgeInsets.all(12.0),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start, // Align to top for larger thumbnail
-                  children: [
-                  // Thumbnail (Larger & Immersive)
-                  Container(
-                    width: 180, // Increased for immersion (16:9 approx)
-                    height: 101, 
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(12),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.3),
-                          blurRadius: 8,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                      color: Colors.black26, 
+      padding: const EdgeInsets.symmetric(
+        horizontal: AeroSpace.lg,
+        vertical: AeroSpace.xs,
+      ),
+      child: AeroCard(
+        borderRadius: AeroRadius.mdBorderRadius,
+        backgroundColor: isSelected
+            ? Color.alphaBlend(aero.primarySoft, aero.surface1)
+            : aero.surface1,
+        borderColor: aero.outline,
+        padding: const EdgeInsets.all(AeroSpace.md),
+        onTap: onToggleSelection,
+        child: Row(
+          children: [
+            // Checkbox
+            Checkbox(
+              value: isSelected,
+              onChanged: (_) => onToggleSelection(),
+              activeColor: aero.primary,
+              checkColor: aero.onPrimary,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(4),
+              ),
+              side: BorderSide(color: aero.outlineStrong, width: 1.5),
+            ),
+            const SizedBox(width: AeroSpace.xs),
+
+            // A larger thumbnail makes this list easier to scan at desktop width.
+            ThumbnailTile(
+              imageUrl: video.thumbnailUrl,
+              duration: video.formattedDuration,
+              width: 112,
+              height: 63,
+              borderRadius: AeroRadius.smBorderRadius,
+            ),
+            const SizedBox(width: AeroSpace.md),
+
+            // Video Title & Channel
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    video.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: AeroText.bodySm.copyWith(
+                      fontWeight: isSelected
+                          ? FontWeight.w700
+                          : FontWeight.w600,
+                      color: aero.onSurface,
                     ),
-                    clipBehavior: Clip.antiAlias,
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        video.thumbnailUrl != null
-                            ? CachedNetworkImage(
-                                imageUrl: video.thumbnailUrl!,
-                                fit: BoxFit.cover,
-                                memCacheWidth: 360, // Optimize memory (2x width)
-                                placeholder: (context, url) => Container(
-                                  color: Colors.white.withValues(alpha: 0.05),
-                                  child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
-                                ),
-                                errorWidget: (context, url, error) => Container(
-                                  color: Colors.black26,
-                                  child: const Icon(Icons.music_note, color: Colors.white54),
-                                ),
-                              )
-                            : Container(
-                                color: Colors.black26,
-                                child: const Icon(Icons.music_note, color: Colors.white54),
-                              ),
-                        
-                        // Gradient Overlay for better text readability if needed, keeping it clean for now
-                        
-                        // Duration badge
-                        Positioned(
-                          bottom: 8,
-                          right: 8,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: Colors.black.withValues(alpha: 0.7),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: Text(
-                              video.formattedDuration,
-                              style: theme.textTheme.labelSmall?.copyWith(
-                                color: Colors.white,
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                                letterSpacing: 0.5,
-                              ),
+                  ),
+                  const SizedBox(height: 2),
+                  Row(
+                    children: [
+                      if (video.channel.isNotEmpty) ...[
+                        Flexible(
+                          child: Text(
+                            video.channel,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AeroText.caption.copyWith(
+                              color: aero.onSurfaceFaint,
                             ),
                           ),
                         ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  
-                  // Info
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const SizedBox(height: 8), // Align with top of thumbnail nicely
+                        const SizedBox(width: AeroSpace.xs),
                         Text(
-                          video.title,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                            color: isSelected ? colorScheme.primary : theme.colorScheme.onSurface,
-                            fontSize: 14,
-                            height: 1.3,
+                          '·',
+                          style: AeroText.caption.copyWith(
+                            color: aero.onSurfaceFaint,
                           ),
                         ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            CircleAvatar(
-                              radius: 10,
-                              backgroundColor: Colors.white.withValues(alpha: 0.1),
-                              child: Icon(Icons.person, size: 12, color: theme.colorScheme.onSurface.withValues(alpha: 0.7)),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded( // Use Flexible if needed, but Expanded is fine here because of maxLines
-                              child: Text(
-                                video.channel,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
+                        const SizedBox(width: AeroSpace.xs),
                       ],
-                    ),
-                  ),
-                  
-                  // Checkbox
-                  Padding(
-                    padding: const EdgeInsets.only(left: 12.0, top: 2), // Align somewhat with title
-                    child: Transform.scale(
-                      scale: 1.1,
-                      child: Checkbox(
-                        value: isSelected,
-                        onChanged: (_) => onToggleSelection(),
-                        activeColor: colorScheme.primary,
-                        checkColor: Colors.black,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
-                        side: BorderSide(color: theme.colorScheme.onSurface.withValues(alpha: 0.3), width: 1.5),
+                      Text(
+                        video.formattedDuration,
+                        style: AeroText.caption.withTabularFigures().copyWith(
+                          color: aero.onSurfaceFaint,
+                        ),
                       ),
-                    ),
+                    ],
                   ),
                 ],
               ),
             ),
-          ),
-          ),
+            const SizedBox(width: AeroSpace.sm),
+
+            // Per-row quality override chip / popup
+            _buildQualityOverrideChip(context, aero),
+          ],
         ),
       ),
+    );
+  }
+
+  Widget _buildQualityOverrideChip(BuildContext context, AeroColors aero) {
+    final label = qualityOverride ?? 'Auto';
+
+    return PopupMenuButton<String>(
+      tooltip: 'Override Quality',
+      initialValue: qualityOverride,
+      onSelected: (val) {
+        if (onQualityOverrideChanged != null) {
+          onQualityOverrideChanged!(val == 'auto' ? null : val);
+        }
+      },
+      color: aero.surface2,
+      shape: RoundedRectangleBorder(
+        borderRadius: AeroRadius.smBorderRadius,
+        side: BorderSide(color: aero.outline),
+      ),
+      itemBuilder: (context) => [
+        _menuItem('Auto (Batch)', 'auto', aero),
+        _menuItem('4K (2160p)', '2160', aero),
+        _menuItem('2K (1440p)', '1440', aero),
+        _menuItem('1080p', '1080', aero),
+        _menuItem('720p', '720', aero),
+        _menuItem('480p', '480', aero),
+        _menuItem('Audio Only', 'audio', aero),
+      ],
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: qualityOverride != null
+              ? aero.primary.withValues(alpha: 0.15)
+              : aero.surface2,
+          borderRadius: AeroRadius.smBorderRadius,
+          border: Border.all(
+            color: qualityOverride != null ? aero.primary : aero.outline,
+            width: 1.0,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              style: AeroText.caption.copyWith(
+                color: qualityOverride != null
+                    ? aero.primary
+                    : aero.onSurfaceMuted,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(width: 2),
+            Icon(
+              Symbols.arrow_drop_down_rounded,
+              size: 14,
+              color: qualityOverride != null
+                  ? aero.primary
+                  : aero.onSurfaceMuted,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  PopupMenuItem<String> _menuItem(String text, String value, AeroColors aero) {
+    return PopupMenuItem<String>(
+      value: value,
+      child: Text(text, style: AeroText.bodySm.copyWith(color: aero.onSurface)),
     );
   }
 }

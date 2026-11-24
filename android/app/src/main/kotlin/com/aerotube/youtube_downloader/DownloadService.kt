@@ -7,14 +7,41 @@ import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
-import android.os.Handler
 import android.os.IBinder
-import android.os.Looper
 import android.util.Log
 import androidx.core.app.NotificationCompat
-import com.yausername.youtubedl_android.YoutubeDL
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.math.abs
 
+/**
+ * Pure notification-throttle decision (no Android types) so JVM unit tests
+ * can cover the 1 Hz / 1-percentage-point policy without loading [DownloadService].
+ *
+ * Emit when:
+ * - this is the first sample for the download,
+ * - at least [minIntervalMs] has elapsed since the last emit (~1 Hz),
+ * - progress jumped by at least [minDelta] (1 percentage point), or
+ * - the download is complete (progress >= 1).
+ */
+internal fun shouldEmitProgressNotification(
+    lastProgress: Float?,
+    lastTimeMs: Long?,
+    progress: Float,
+    nowMs: Long,
+    minIntervalMs: Long = 1000L,
+    minDelta: Float = 0.01f,
+): Boolean {
+    if (lastProgress == null || lastTimeMs == null) return true
+    if (progress >= 1f) return true
+    if (nowMs - lastTimeMs >= minIntervalMs) return true
+    return abs(progress - lastProgress) >= minDelta
+}
+
+/**
+ * Foreground service owning notification ID 1000 and channel
+ * "download_service_channel". Registers download metadata for the
+ * notification; actual yt-dlp execution is owned by [YtDlpEngine].
+ */
 class DownloadService : Service() {
     // B26: Sole owner of foreground notification ID 1000 and channel
     // "download_service_channel" via startForeground(). Dart
@@ -26,14 +53,16 @@ class DownloadService : Service() {
 
     private lateinit var notificationManager: NotificationManager
     private val activeDownloads = ConcurrentHashMap<String, DownloadTask>()
-    private val mainHandler = Handler(Looper.getMainLooper())
+    // Per-download last emitted progress (0..1) + timestamp (ms) used to
+    // throttle updateNotification() to ~1 Hz or 1 percentage-point jumps.
+    private val lastNotify = ConcurrentHashMap<String, Pair<Float, Long>>()
     private var isForegroundStarted = false
 
     companion object {
         private const val TAG = "DownloadService"
 
-        // Live reference so MainActivity can forward high-frequency Dart progress
-        // events without spawning an Intent per tick (background-start of
+        // Live reference so MainActivity / YtDlpEngine can forward high-frequency
+        // progress without spawning an Intent per tick (background-start of
         // startForegroundService would also be restricted while app is backgrounded).
         @Volatile
         var instance: DownloadService? = null
@@ -76,7 +105,6 @@ class DownloadService : Service() {
             isForegroundStarted = true
         }
 
-        // Handle the command from the Intent
         when (intent?.action) {
             "START_DOWNLOAD" -> {
                 val downloadId = intent.getStringExtra("downloadId")
@@ -87,8 +115,11 @@ class DownloadService : Service() {
                 val userAgent = intent.getStringExtra("userAgent")
                 val title = intent.getStringExtra("title") ?: "Downloading..."
 
+                // Register metadata only. Execution is owned by YtDlpEngine,
+                // kicked from MainActivity's downloadVideo handler after this
+                // service is ensured running (FGS contract).
                 if (downloadId != null && url != null && outputPath != null) {
-                    startDownload(downloadId, url, outputPath, format, cookiesPath, userAgent, title)
+                    registerDownload(downloadId, url, outputPath, format, cookiesPath, userAgent, title)
                 }
             }
             "CANCEL_DOWNLOAD" -> {
@@ -109,7 +140,7 @@ class DownloadService : Service() {
     }
 
     override fun onBind(intent: Intent?): IBinder? {
-        return null // Not a bound service
+        return null // Started service; companion [instance] is the access path
     }
 
     override fun onDestroy() {
@@ -117,19 +148,19 @@ class DownloadService : Service() {
         Log.d(TAG, "DownloadService destroyed")
         instance = null
 
-        // B28 fix: cancel native yt-dlp work that lived in MainActivity threads.
-        // Previously we only cleared the map -> downloads kept running with no notification/tracking.
-        for ((downloadId, _) in activeDownloads) {
+        // Cancel any engine jobs still registered for tracked downloads so
+        // yt-dlp processes don't outlive the notification/tracking.
+        for (downloadId in activeDownloads.keys.toList()) {
             try {
-                YoutubeDL.getInstance().destroyProcessById(downloadId)
+                YtDlpEngine.cancel(downloadId)
                 Log.d(TAG, "Cancelled yt-dlp process $downloadId on service destroy")
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to cancel yt-dlp process $downloadId", e)
             }
         }
         activeDownloads.clear()
+        lastNotify.clear()
 
-        // Cancel notification
         notificationManager.cancel(NOTIFICATION_ID)
         isForegroundStarted = false
     }
@@ -162,9 +193,7 @@ class DownloadService : Service() {
             .build()
     }
 
-
-
-    private fun startDownload(
+    private fun registerDownload(
         downloadId: String,
         url: String,
         outputPath: String,
@@ -177,39 +206,62 @@ class DownloadService : Service() {
         updateNotification()
     }
 
-    // R4: Real progress now flows from Dart (NativeYtdlpAndroid EventChannel ->
-    // MobileDownloadProvider -> DownloadForegroundService) via MainActivity's
-    // updateNotificationProgress method handler, which calls reportProgress()
-    // on the live instance. Updates the tracked task and re-posts the
-    // foreground notification with accurate percentage progress.
+    /**
+     * Engine (and Dart compatibility path) push real progress here so the
+     * foreground notification reflects percentage without a Dart round-trip.
+     *
+     * yt-dlp stdout can tick far faster than the notification needs; throttle
+     * [updateNotification] to ~1 Hz or a 1-percentage-point jump per download.
+     * Completion is always emitted.
+     */
     fun reportProgress(downloadId: String, progress: Float, statusText: String?) {
         val task = activeDownloads[downloadId]
         if (task == null) {
             Log.d(TAG, "reportProgress: unknown downloadId $downloadId, ignoring")
             return
         }
-        task.updateProgress(progress.coerceIn(0f, 1f), statusText)
-        updateNotification()
+        val clamped = progress.coerceIn(0f, 1f)
+        task.updateProgress(clamped, statusText)
+
+        val now = System.currentTimeMillis()
+        val last = lastNotify[downloadId]
+        if (shouldEmitProgressNotification(
+                lastProgress = last?.first,
+                lastTimeMs = last?.second,
+                progress = clamped,
+                nowMs = now,
+            )
+        ) {
+            lastNotify[downloadId] = clamped to now
+            updateNotification()
+        }
     }
 
     private fun cancelDownload(downloadId: String) {
-        // Also attempt to kill underlying yt-dlp native process (B28 defense)
-        try { YoutubeDL.getInstance().destroyProcessById(downloadId) } catch (_: Exception) {}
+        try {
+            YtDlpEngine.cancel(downloadId)
+        } catch (_: Exception) {
+        }
         activeDownloads.remove(downloadId)
+        lastNotify.remove(downloadId)
+        // Force-refresh: cancel must tear the notification down even if a
+        // progress tick was just suppressed by the throttle.
         updateNotification()
     }
 
-    // R4: Dart signals a single download finished while others remain active —
-    // drop just this task so the notification reflects the remaining ones.
-    // When the map empties, updateNotification() stops foreground + self.
+    /**
+     * Drop one task when its download finished (success, error, or cancel).
+     * When the map empties, updateNotification() stops foreground + self.
+     */
     fun completeDownload(downloadId: String) {
         activeDownloads.remove(downloadId)
+        lastNotify.remove(downloadId)
+        // Force-refresh on terminal transition regardless of throttle state.
         updateNotification()
     }
 
     private fun updateNotification() {
         if (activeDownloads.isEmpty()) {
-            // Stop foreground if no active downloads
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                 stopForeground(STOP_FOREGROUND_REMOVE)
             } else {
@@ -220,7 +272,6 @@ class DownloadService : Service() {
             return
         }
 
-        // Calculate overall progress
         val totalProgress = activeDownloads.values.map { it.progress }.average().toFloat()
         val activeCount = activeDownloads.size
         val contentText = if (activeCount == 1) {
@@ -234,7 +285,7 @@ class DownloadService : Service() {
         notificationManager.notify(NOTIFICATION_ID, notification)
     }
 
-    // Inner class for tracking download metadata (execution handled by MainActivity via method channel)
+    /** Download metadata for the foreground notification. */
     inner class DownloadTask(
         val downloadId: String,
         val url: String,

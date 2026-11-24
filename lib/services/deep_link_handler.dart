@@ -14,6 +14,12 @@ class DeepLinkHandler {
   final DeepLinkService _deepLinkService = DeepLinkService();
   StreamSubscription<String>? _subscription;
   String? _lastHandledLink;
+  DateTime? _lastHandledAt;
+
+  /// H15: only ignore an identical URL received within this window
+  /// (prevents double-handling of the same launch event, without
+  /// permanently blocking a link the user opens again later).
+  static const Duration _dedupWindow = Duration(seconds: 3);
 
   void init(BuildContext context) {
     if (!PlatformUtils.isMobile || _subscription != null) return;
@@ -35,9 +41,26 @@ class DeepLinkHandler {
 
   void handleLink(BuildContext context, String link) {
     final url = _deepLinkService.normalizeMediaUrl(link);
-    if (url == null || url == _lastHandledLink) return;
+    if (url == null) return;
+    final now = DateTime.now();
+    if (url == _lastHandledLink &&
+        _lastHandledAt != null &&
+        now.difference(_lastHandledAt!) < _dedupWindow) {
+      return;
+    }
     _lastHandledLink = url;
-    if (url.contains('list=') || url.contains('/playlist')) {
+    _lastHandledAt = now;
+    // H14: treat as playlist only for a real /playlist path, or when
+    // list= is present AND v= is absent (same heuristic as mobile home).
+    // A watch URL that also carries list= is still a single video.
+    final uri = Uri.tryParse(url);
+    final path = uri?.path.toLowerCase() ?? '';
+    final isPlaylistPath = path.contains('/playlist');
+    final hasListParam =
+        uri?.queryParameters['list'] != null &&
+        (uri?.queryParameters['list'] ?? '').isNotEmpty;
+    final hasVideoParam = uri?.queryParameters.containsKey('v') == true;
+    if (isPlaylistPath || (hasListParam && !hasVideoParam)) {
       context.read<NavigationProvider>().setIndex(2); // Playlist tab
       context.read<PlaylistProvider>().fetchPlaylist(url);
     } else {

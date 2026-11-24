@@ -1,19 +1,49 @@
+import 'package:material_symbols_icons/symbols.dart';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../core/theme/app_motion.dart';
+import '../../core/theme/tokens/colors.dart';
+import '../../core/theme/tokens/radius.dart';
+import '../../core/theme/tokens/spacing.dart';
+import '../../core/theme/tokens/typography.dart';
 import '../../core/utils/platform_utils.dart';
+import '../../models/download_item.dart';
 import '../../providers/download_provider.dart';
 import '../../providers/mobile_download_provider.dart';
-import '../../providers/platform_settings_provider.dart';
 import '../../providers/navigation_provider.dart';
-import '../../models/download_item.dart';
-import '../widgets/downloads/active_downloads_tab.dart';
-import '../widgets/downloads/history_downloads_tab.dart';
-import '../widgets/animated_button.dart';
-import '../widgets/motion_effects.dart';
-import '../../core/theme/app_motion.dart';
+import '../../providers/platform_settings_provider.dart';
 import '../../services/core/file_action_service.dart';
+import '../components/aero_button.dart';
+import '../components/aero_card.dart';
+import '../components/aero_chip.dart';
+import '../components/aero_density.dart';
+import '../components/aero_dialog.dart';
+import '../components/aero_text_field.dart';
+import '../components/empty_state.dart';
+import '../components/section_header.dart';
+import '../widgets/download_item_card.dart';
 import '../widgets/error_details_dialog.dart';
+
+enum HistoryFilter {
+  all('All'),
+  video('Video'),
+  audio('Audio'),
+  failed('Failed');
+
+  final String label;
+  const HistoryFilter(this.label);
+}
+
+enum HistoryDateGroup {
+  today('Today'),
+  yesterday('Yesterday'),
+  thisWeek('This week'),
+  earlier('Earlier');
+
+  final String title;
+  const HistoryDateGroup(this.title);
+}
 
 class DownloadsScreen extends StatefulWidget {
   const DownloadsScreen({super.key});
@@ -27,23 +57,54 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final aero = context.aero;
+
+    // Counts for count badges
+    final activeCount = PlatformUtils.isMobile
+        ? context.select<MobileDownloadProvider, int>(
+            (p) => p.activeDownloadsCount,
+          )
+        : context.select<DownloadProvider, int>(
+            (p) => p.activeDownloads.length,
+          );
+
+    final historyCount = PlatformUtils.isMobile
+        ? context.select<MobileDownloadProvider, int>(
+            (p) =>
+                p.completedDownloads.length +
+                p.failedDownloads.length +
+                p.cancelledDownloads.length,
+          )
+        : context.select<DownloadProvider, int>(
+            (p) => p.historyDownloads.length,
+          );
+
     return SafeArea(
       child: Column(
         children: [
-          _buildHeader(context),
-          const SizedBox(height: 16),
-          _buildStatusIndicators(context),
-          const SizedBox(height: 16),
-          // Tab Selection
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: _buildTabSegmentedControl(),
-          ),
-          const SizedBox(height: 16),
+          _buildHeader(context, aero),
+          const SizedBox(height: AeroSpace.md),
 
-          // Content View — lists isolated via selectors so per-progress ticks rebuild only the list, not header/tabs.
-          // Single M3 expressive transition for the Active⇄History swap:
-          // fade + a slight slide along the tab order (shared-axis feel).
+          // Segmented tabs: Active | History with count badges
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: AeroSpace.lg),
+            child: PlatformUtils.isWindows
+                ? Align(
+                    alignment: Alignment.centerLeft,
+                    child: SizedBox(
+                      width: 420,
+                      child: _buildTabSegmentedControl(
+                        context,
+                        activeCount,
+                        historyCount,
+                      ),
+                    ),
+                  )
+                : _buildTabSegmentedControl(context, activeCount, historyCount),
+          ),
+          const SizedBox(height: AeroSpace.md),
+
+          // Content View with shared-axis expressive transition
           Expanded(
             child: AnimatedSwitcher(
               duration: appMotionDuration(context, AppMotion.medium),
@@ -53,7 +114,7 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                 opacity: animation,
                 child: SlideTransition(
                   position: Tween<Offset>(
-                    begin: Offset(_selectedIndex == 0 ? -0.08 : 0.08, 0),
+                    begin: Offset(_selectedIndex == 0 ? -0.06 : 0.06, 0),
                     end: Offset.zero,
                   ).animate(animation),
                   child: child,
@@ -61,13 +122,9 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
               ),
               child: KeyedSubtree(
                 key: ValueKey(_selectedIndex),
-                child: PlatformUtils.isAndroid
-                    ? (_selectedIndex == 0
-                          ? const _MobileActiveDownloadsView()
-                          : const _MobileHistoryDownloadsView())
-                    : (_selectedIndex == 0
-                          ? const ActiveDownloadsTab()
-                          : const HistoryDownloadsTab()),
+                child: _selectedIndex == 0
+                    ? const _ActiveDownloadsView()
+                    : const _HistoryDownloadsView(),
               ),
             ),
           ),
@@ -76,21 +133,79 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
     );
   }
 
-  Widget _buildHeader(BuildContext context) {
-    final theme = Theme.of(context);
+  Future<void> _openDownloadsFolder(BuildContext context) async {
+    try {
+      final settingsProvider = context.read<PlatformSettingsProvider>();
+      final outputPath =
+          settingsProvider.settings.outputPath ??
+          await settingsProvider.getDefaultOutputPath();
+
+      if (!context.mounted) return;
+
+      final dir = Directory(outputPath);
+      if (!await dir.exists()) {
+        await dir.create(recursive: true);
+      }
+
+      if (!context.mounted) return;
+
+      final opened = await FileActionService().openFolder(outputPath);
+      if (!opened && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Downloads folder: $outputPath'),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Could not open downloads folder: $e'),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+        );
+      }
+    }
+  }
+
+  Widget _buildHeader(BuildContext context, AeroColors aero) {
     return Container(
-      color: theme.scaffoldBackgroundColor,
-      padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
+      color: Colors.transparent,
+      padding: const EdgeInsets.fromLTRB(
+        AeroSpace.xl,
+        AeroSpace.lg,
+        AeroSpace.xl,
+        0,
+      ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Text(
-            'Downloads',
-            style: TextStyle(
-              color: theme.colorScheme.onSurface,
-              fontWeight: FontWeight.w800,
-              fontSize: 32.0,
-              letterSpacing: -0.5,
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Downloads',
+                  style: AeroText.headline.copyWith(
+                    color: aero.onSurface,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  'Track transfers and manage your saved media.',
+                  style: AeroText.bodySm.copyWith(color: aero.onSurfaceMuted),
+                ),
+              ],
             ),
           ),
           Row(
@@ -98,104 +213,94 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
               if (PlatformUtils.isAndroid)
                 IconButton(
                   icon: Icon(
-                    Icons.home_outlined,
+                    Symbols.home_rounded,
                     size: 22,
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.55),
+                    color: aero.onSurfaceMuted,
                   ),
                   tooltip: 'Home',
                   onPressed: () =>
                       context.read<NavigationProvider>().switchToHome(),
                 ),
-              IconButton(
-                icon: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.surfaceContainerHighest.withValues(
-                      alpha: 0.5,
+              if (PlatformUtils.isWindows)
+                AeroButton.tonal(
+                  text: 'Open folder',
+                  icon: const Icon(Symbols.folder_open_rounded),
+                  density: AeroDensity.compact,
+                  onPressed: () => _openDownloadsFolder(context),
+                )
+              else
+                IconButton(
+                  icon: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: aero.surface2,
+                      borderRadius: AeroRadius.smBorderRadius,
+                      border: Border.all(color: aero.outline),
                     ),
-                    borderRadius: BorderRadius.circular(12),
+                    child: Icon(
+                      Symbols.folder_open_rounded,
+                      color: aero.primary,
+                      size: 20,
+                    ),
                   ),
-                  child: Icon(
-                    Icons.folder_open_rounded,
-                    color: theme.colorScheme.primary,
-                    size: 22,
-                  ),
+                  onPressed: () => _openDownloadsFolder(context),
+                  tooltip: 'Open Downloads Folder',
                 ),
-                onPressed: () async {
-                  try {
-                    final settingsProvider = context
-                        .read<PlatformSettingsProvider>();
-                    final outputPath =
-                        settingsProvider.settings.outputPath ??
-                        await settingsProvider.getDefaultOutputPath();
-
-                    if (!context.mounted) return;
-
-                    final dir = Directory(outputPath);
-                    if (!await dir.exists()) {
-                      await dir.create(recursive: true);
-                    }
-
-                    if (!context.mounted) return;
-
-                    final opened = await FileActionService().openFolder(
-                      outputPath,
-                    );
-                    if (!opened && context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('Downloads folder: $outputPath'),
-                          behavior: SnackBarBehavior.floating,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                      );
-                    }
-                  } catch (e) {
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('Could not open downloads folder: $e'),
-                          behavior: SnackBarBehavior.floating,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                      );
-                    }
-                  }
-                },
-                tooltip: 'Open Downloads Folder',
-              ),
               const SizedBox(width: 8),
               PopupMenuButton<String>(
                 icon: Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: theme.colorScheme.surfaceContainerHighest.withValues(
-                      alpha: 0.5,
-                    ),
-                    borderRadius: BorderRadius.circular(12),
+                    color: aero.surface2,
+                    borderRadius: AeroRadius.smBorderRadius,
+                    border: Border.all(color: aero.outline),
                   ),
                   child: Icon(
-                    Icons.more_vert_rounded,
-                    color: theme.colorScheme.onSurfaceVariant,
-                    size: 22,
+                    Symbols.more_vert_rounded,
+                    color: aero.onSurfaceMuted,
+                    size: 20,
                   ),
                 ),
-                color: theme.colorScheme.surface,
+                color: aero.surface2,
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius: AeroRadius.mdBorderRadius,
+                  side: BorderSide(color: aero.outline),
                 ),
-                onSelected: (value) {
+                onSelected: (value) async {
                   if (value == 'clear_finished') {
+                    final confirmed = await showAeroDialog<bool>(
+                      context: context,
+                      builder: (dialogContext) => AeroDialog(
+                        titleText: 'Clear finished downloads?',
+                        content: Text(
+                          'Completed, failed, and cancelled items will be '
+                          'removed from history. Downloaded files are not deleted.',
+                          style: AeroText.body.copyWith(
+                            color: aero.onSurfaceMuted,
+                          ),
+                        ),
+                        actions: [
+                          AeroButton(
+                            variant: AeroButtonVariant.ghost,
+                            text: 'Cancel',
+                            onPressed: () =>
+                                Navigator.pop(dialogContext, false),
+                          ),
+                          AeroButton(
+                            variant: AeroButtonVariant.danger,
+                            text: 'Clear',
+                            onPressed: () => Navigator.pop(dialogContext, true),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (confirmed != true || !context.mounted) return;
                     if (PlatformUtils.isMobile) {
                       context.read<MobileDownloadProvider>().clearCompleted();
                       context.read<MobileDownloadProvider>().clearFailed();
                       context.read<MobileDownloadProvider>().clearCancelled();
                     } else {
-                      context.read<DownloadProvider>().clearCompleted();
+                      await context.read<DownloadProvider>().clearCompleted();
                     }
                   }
                 },
@@ -205,15 +310,15 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                     child: Row(
                       children: [
                         Icon(
-                          Icons.clear_all_rounded,
-                          color: theme.colorScheme.error,
+                          Symbols.clear_all_rounded,
+                          color: aero.danger,
                           size: 20,
                         ),
                         const SizedBox(width: 12),
                         Text(
                           'Clear Finished',
                           style: TextStyle(
-                            color: theme.colorScheme.onSurface,
+                            color: aero.onSurface,
                             fontWeight: FontWeight.w500,
                           ),
                         ),
@@ -229,26 +334,27 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
     );
   }
 
-  Widget _buildTabSegmentedControl() {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-    final primaryColor = theme.colorScheme.primary;
+  Widget _buildTabSegmentedControl(
+    BuildContext context,
+    int activeCount,
+    int historyCount,
+  ) {
+    final aero = context.aero;
 
-    // Single selection capsule that glides between the two segments behind
-    // the labels (M3 expressive indicator) — the labels just crossfade.
     return Container(
-      padding: const EdgeInsets.all(6),
+      padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF2C2C2E) : Colors.grey.shade200,
-        borderRadius: BorderRadius.circular(20),
+        color: aero.surface2,
+        borderRadius: AeroRadius.lgBorderRadius,
+        border: Border.all(color: aero.outline, width: 1.0),
       ),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final segmentWidth = constraints.maxWidth / 2;
+          final segmentWidth = (constraints.maxWidth - 8) / 2;
           return Stack(
             children: [
               AnimatedPositioned(
-                duration: appMotionDuration(context, AppMotion.medium),
+                duration: appMotionDuration(context, AppMotion.short),
                 curve: AppMotion.emphasized,
                 left: _selectedIndex == 0 ? 0 : segmentWidth,
                 width: segmentWidth,
@@ -256,22 +362,26 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                 bottom: 0,
                 child: Container(
                   decoration: BoxDecoration(
-                    color: primaryColor,
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: [
-                      BoxShadow(
-                        color: primaryColor.withValues(alpha: 0.3),
-                        blurRadius: 8,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
+                    color: aero.primarySoft,
+                    borderRadius: AeroRadius.mdBorderRadius,
+                    border: Border.all(color: aero.primary, width: 1.0),
                   ),
                 ),
               ),
               Row(
                 children: [
-                  _buildSegmentLabel('Active', 0, isDark),
-                  _buildSegmentLabel('History', 1, isDark),
+                  _buildSegment(
+                    context,
+                    label: 'Active',
+                    count: activeCount,
+                    index: 0,
+                  ),
+                  _buildSegment(
+                    context,
+                    label: 'History',
+                    count: historyCount,
+                    index: 1,
+                  ),
                 ],
               ),
             ],
@@ -281,241 +391,545 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
     );
   }
 
-  Widget _buildSegmentLabel(String label, int index, bool isDark) {
+  Widget _buildSegment(
+    BuildContext context, {
+    required String label,
+    required int count,
+    required int index,
+  }) {
+    final aero = context.aero;
     final isSelected = _selectedIndex == index;
+
     return Expanded(
-      child: AnimatedButton(
-        onPressed: () => setState(() => _selectedIndex = index),
+      child: InkWell(
+        borderRadius: AeroRadius.mdBorderRadius,
+        onTap: () => setState(() => _selectedIndex = index),
         child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 14),
+          padding: const EdgeInsets.symmetric(vertical: 10),
           alignment: Alignment.center,
-          child: AnimatedDefaultTextStyle(
-            duration: appMotionDuration(context, AppMotion.short),
-            style: TextStyle(
-              color: isSelected
-                  ? Colors.white
-                  : (isDark ? Colors.grey.shade400 : Colors.grey.shade700),
-              fontWeight: FontWeight.w600,
-              fontSize: 15,
-            ),
-            child: Text(label),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                label,
+                style: AeroText.body.copyWith(
+                  color: isSelected ? aero.primary : aero.onSurfaceMuted,
+                  fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
+                ),
+              ),
+              if (count > 0) ...[
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 7,
+                    vertical: 1.5,
+                  ),
+                  decoration: BoxDecoration(
+                    color: isSelected ? aero.primary : aero.surface3,
+                    borderRadius: AeroRadius.fullBorderRadius,
+                  ),
+                  child: Text(
+                    count.toString(),
+                    style: AeroText.caption.withTabularFigures().copyWith(
+                      color: isSelected ? Colors.white : aero.onSurfaceMuted,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 11,
+                    ),
+                  ),
+                ),
+              ],
+            ],
           ),
         ),
       ),
     );
   }
+}
 
-  Widget _buildStatusIndicators(BuildContext context) {
-    final primaryColor = Theme.of(context).colorScheme.primary;
+// ==========================================
+// ACTIVE DOWNLOADS VIEW
+// ==========================================
+class _ActiveDownloadsView extends StatelessWidget {
+  const _ActiveDownloadsView();
 
-    if (PlatformUtils.isMobile) {
-      final activeCount = context.select<MobileDownloadProvider, int>(
-        (p) => p.activeDownloadsCount,
-      );
-      final doneCount = context.select<MobileDownloadProvider, int>(
-        (p) => p.completedDownloads.length,
-      );
-      final failedCount = context.select<MobileDownloadProvider, int>(
-        (p) => p.failedDownloads.length,
-      );
-      return Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        child: Row(
+  @override
+  Widget build(BuildContext context) {
+    final List<DownloadItem> downloads = PlatformUtils.isMobile
+        ? context.select<MobileDownloadProvider, List<DownloadItem>>(
+            (p) => p.activeDownloads,
+          )
+        : context.select<DownloadProvider, List<DownloadItem>>(
+            (p) => p.activeDownloads,
+          );
+
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 1160),
+        child: Column(
           children: [
-            _buildMobileStatusIndicator(
-              label: 'Active',
-              count: activeCount,
-              color: primaryColor,
-            ),
-            const SizedBox(width: 12),
-            _buildMobileStatusIndicator(
-              label: 'Done',
-              count: doneCount,
-              color: Colors.green,
-            ),
-            const SizedBox(width: 12),
-            _buildMobileStatusIndicator(
-              label: 'Failed',
-              count: failedCount,
-              color: Colors.red,
+            const _OemBatteryGuidanceBanner(),
+            Expanded(
+              child: downloads.isEmpty
+                  ? EmptyState(
+                      icon: Symbols.download_rounded,
+                      title: 'No active downloads',
+                      description:
+                          'Add a video URL on Home and your transfer progress will appear here.',
+                      actionLabel: 'Go to Home',
+                      onAction: () =>
+                          context.read<NavigationProvider>().switchToHome(),
+                    )
+                  : ListView.builder(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: AeroSpace.lg,
+                        vertical: AeroSpace.sm,
+                      ),
+                      itemCount: downloads.length,
+                      itemBuilder: (context, index) {
+                        final item = downloads[index];
+                        return DownloadItemCard(
+                          key: ValueKey(item.id),
+                          item: item,
+                          onCancel: () {
+                            if (PlatformUtils.isMobile) {
+                              context
+                                  .read<MobileDownloadProvider>()
+                                  .cancelDownload(item.id);
+                            } else {
+                              context.read<DownloadProvider>().cancelDownload(
+                                item.id,
+                              );
+                            }
+                          },
+                          onPause: () {
+                            if (PlatformUtils.isMobile) {
+                              context
+                                  .read<MobileDownloadProvider>()
+                                  .pauseDownload(item.id);
+                            } else {
+                              context.read<DownloadProvider>().pauseDownload(
+                                item.id,
+                              );
+                            }
+                          },
+                          onResume: () {
+                            if (PlatformUtils.isMobile) {
+                              context
+                                  .read<MobileDownloadProvider>()
+                                  .resumeDownload(item.id);
+                            } else {
+                              context.read<DownloadProvider>().resumeDownload(
+                                item.id,
+                              );
+                            }
+                          },
+                          onRetry: () {
+                            if (PlatformUtils.isMobile) {
+                              context
+                                  .read<MobileDownloadProvider>()
+                                  .retryDownload(item.id);
+                            } else {
+                              context.read<DownloadProvider>().retryDownload(
+                                item.id,
+                              );
+                            }
+                          },
+                        );
+                      },
+                    ),
             ),
           ],
         ),
-      );
+      ),
+    );
+  }
+}
+
+// ==========================================
+// HISTORY DOWNLOADS VIEW
+// ==========================================
+class _HistoryDownloadsView extends StatefulWidget {
+  const _HistoryDownloadsView();
+
+  @override
+  State<_HistoryDownloadsView> createState() => _HistoryDownloadsViewState();
+}
+
+class _HistoryDownloadsViewState extends State<_HistoryDownloadsView> {
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
+  HistoryFilter _selectedFilter = HistoryFilter.all;
+  final Set<String> _selectedIds = <String>{};
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  HistoryDateGroup _getGroupForDate(DateTime? date) {
+    if (date == null) return HistoryDateGroup.earlier;
+    final now = DateTime.now();
+    final todayStart = DateTime(now.year, now.month, now.day);
+    final yesterdayStart = todayStart.subtract(const Duration(days: 1));
+    final weekStart = todayStart.subtract(const Duration(days: 7));
+
+    final itemDate = DateTime(date.year, date.month, date.day);
+    if (itemDate.isAtSameMomentAs(todayStart) || itemDate.isAfter(todayStart)) {
+      return HistoryDateGroup.today;
+    } else if (itemDate.isAtSameMomentAs(yesterdayStart)) {
+      return HistoryDateGroup.yesterday;
+    } else if (itemDate.isAfter(weekStart)) {
+      return HistoryDateGroup.thisWeek;
+    } else {
+      return HistoryDateGroup.earlier;
     }
+  }
 
-    final activeRunningCount = context.select<DownloadProvider, int>(
-      (p) => p.activeRunningCount,
-    );
-    final pendingCount = context.select<DownloadProvider, int>(
-      (p) => p.pendingCount,
-    );
-    final pausedCount = context.select<DownloadProvider, int>(
-      (p) => p.pausedCount,
-    );
-    final completedCount = context.select<DownloadProvider, int>(
-      (p) => p.completedCount,
-    );
+  List<DownloadItem> _applyFilters(List<DownloadItem> downloads) {
+    return downloads.where((item) {
+      // 1. Text filter
+      if (_searchQuery.isNotEmpty) {
+        final query = _searchQuery.toLowerCase();
+        final matchesTitle = item.title.toLowerCase().contains(query);
+        final matchesUrl = item.url.toLowerCase().contains(query);
+        if (!matchesTitle && !matchesUrl) return false;
+      }
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Row(
-        children: [
-          _buildStatusIndicator(
-            context,
-            label: 'Active',
-            count: activeRunningCount,
-            color: primaryColor,
-            icon: Icons.downloading_rounded,
+      // 2. Chip filter
+      switch (_selectedFilter) {
+        case HistoryFilter.all:
+          return true;
+        case HistoryFilter.video:
+          return !item.audioOnly &&
+              item.status != DownloadStatus.failed &&
+              item.status != DownloadStatus.cancelled;
+        case HistoryFilter.audio:
+          return item.audioOnly &&
+              item.status != DownloadStatus.failed &&
+              item.status != DownloadStatus.cancelled;
+        case HistoryFilter.failed:
+          return item.status == DownloadStatus.failed ||
+              item.status == DownloadStatus.cancelled;
+      }
+    }).toList();
+  }
+
+  Future<void> _handleDeleteSingle(
+    BuildContext context,
+    DownloadItem item,
+  ) async {
+    final aero = context.aero;
+    final confirmed = await showAeroDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AeroDialog(
+        titleText: 'Remove download?',
+        content: Text(
+          '"${item.title}" will be removed from history. '
+          'The downloaded file is not deleted.',
+          style: AeroText.body.copyWith(color: aero.onSurfaceMuted),
+        ),
+        actions: [
+          AeroButton(
+            variant: AeroButtonVariant.ghost,
+            text: 'Cancel',
+            onPressed: () => Navigator.pop(dialogContext, false),
           ),
-          const SizedBox(width: 12),
-          _buildStatusIndicator(
-            context,
-            label: 'Pending',
-            count: pendingCount,
-            color: Colors.orange,
-            icon: Icons.schedule_rounded,
-          ),
-          const SizedBox(width: 12),
-          _buildStatusIndicator(
-            context,
-            label: 'Paused',
-            count: pausedCount,
-            color: Colors.amber,
-            icon: Icons.pause_circle_outline_rounded,
-          ),
-          const SizedBox(width: 12),
-          _buildStatusIndicator(
-            context,
-            label: 'Done',
-            count: completedCount,
-            color: Colors.green,
-            icon: Icons.check_circle_rounded,
+          AeroButton(
+            variant: AeroButtonVariant.danger,
+            text: 'Remove',
+            onPressed: () => Navigator.pop(dialogContext, true),
           ),
         ],
       ),
     );
+    if (confirmed != true || !context.mounted) return;
+    if (PlatformUtils.isMobile) {
+      context.read<MobileDownloadProvider>().removeDownload(item.id);
+    } else {
+      context.read<DownloadProvider>().deleteFromHistory(item.id);
+    }
+    _selectedIds.remove(item.id);
   }
 
-  Widget _buildStatusIndicator(
-    BuildContext context, {
-    required String label,
-    required int count,
-    required Color color,
-    required IconData icon,
-  }) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.1),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: color.withValues(alpha: 0.2)),
+  Future<void> _handleDeleteSelected(BuildContext context) async {
+    final count = _selectedIds.length;
+    if (count == 0) return;
+
+    final aero = context.aero;
+    final confirmed = await showAeroDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AeroDialog(
+        titleText: 'Remove $count downloads?',
+        content: Text(
+          'Selected items will be removed from history. '
+          'The downloaded files will not be deleted.',
+          style: AeroText.body.copyWith(color: aero.onSurfaceMuted),
         ),
-        child: Column(
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(icon, size: 16, color: color),
-                const SizedBox(width: 4),
-                Text(
-                  count.toString(),
-                  style: TextStyle(
-                    color: color,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 20,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: TextStyle(
-                color: Colors.grey[400],
-                fontSize: 11,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ],
-        ),
+        actions: [
+          AeroButton(
+            variant: AeroButtonVariant.ghost,
+            text: 'Cancel',
+            onPressed: () => Navigator.pop(dialogContext, false),
+          ),
+          AeroButton(
+            variant: AeroButtonVariant.danger,
+            text: 'Remove',
+            onPressed: () => Navigator.pop(dialogContext, true),
+          ),
+        ],
       ),
     );
-  }
+    if (confirmed != true || !context.mounted) return;
 
-  Widget _buildMobileStatusIndicator({
-    required String label,
-    required int count,
-    required Color color,
-  }) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 16),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: color.withValues(alpha: 0.1)),
-        ),
-        child: Column(
-          children: [
-            Text(
-              count.toString(),
-              style: TextStyle(
-                color: color,
-                fontWeight: FontWeight.w800,
-                fontSize: 24,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              label.toUpperCase(),
-              style: TextStyle(
-                color: color.withValues(alpha: 0.8),
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 0.5,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
+    final ids = _selectedIds.toList();
+    if (PlatformUtils.isMobile) {
+      final provider = context.read<MobileDownloadProvider>();
+      for (final id in ids) {
+        provider.removeDownload(id);
+      }
+    } else {
+      final provider = context.read<DownloadProvider>();
+      for (final id in ids) {
+        provider.deleteFromHistory(id);
+      }
+    }
+    setState(() => _selectedIds.clear());
   }
-}
-
-/// Active tab isolated — selects only activeDownloads, rebuilds only this subtree on progress
-class _MobileActiveDownloadsView extends StatelessWidget {
-  const _MobileActiveDownloadsView();
 
   @override
   Widget build(BuildContext context) {
-    final downloads = context
-        .select<MobileDownloadProvider, List<DownloadItem>>(
-          (p) => p.activeDownloads,
-        );
-    return Column(
-      children: [
-        const _OemBatteryGuidanceBanner(),
-        Expanded(
-          child: _buildMobileListShared(
-            context,
-            downloads,
-            emptyTitle: 'No active downloads',
-            emptySubtitle: 'Paste a URL to start!',
-            emptyIcon: Icons.download_outlined,
-            onAction: (item) =>
-                context.read<MobileDownloadProvider>().cancelDownload(item.id),
-            isHistory: false,
-          ),
+    final aero = context.aero;
+
+    final List<DownloadItem> rawDownloads = PlatformUtils.isMobile
+        ? context.select<MobileDownloadProvider, List<DownloadItem>>(
+            (p) => [
+              ...p.completedDownloads,
+              ...p.failedDownloads,
+              ...p.cancelledDownloads,
+            ],
+          )
+        : context.select<DownloadProvider, List<DownloadItem>>(
+            (p) => p.historyDownloads,
+          );
+
+    final filteredDownloads = _applyFilters(rawDownloads);
+
+    // Grouping by date
+    final Map<HistoryDateGroup, List<DownloadItem>> grouped = {};
+    for (final item in filteredDownloads) {
+      final group = _getGroupForDate(item.completedDate);
+      grouped.putIfAbsent(group, () => []).add(item);
+    }
+
+    final hasActiveSelection = _selectedIds.isNotEmpty;
+    final showCheckboxes = PlatformUtils.isWindows || hasActiveSelection;
+
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 1160),
+        child: Column(
+          children: [
+            // Search and filter chips at top of History
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: AeroSpace.lg),
+              child: Column(
+                children: [
+                  AeroTextField(
+                    controller: _searchController,
+                    hintText: 'Search history...',
+                    prefixIcon: const Icon(Symbols.search_rounded, size: 20),
+                    suffixIcon: _searchQuery.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Symbols.clear_rounded, size: 18),
+                            onPressed: () {
+                              _searchController.clear();
+                              setState(() => _searchQuery = '');
+                            },
+                          )
+                        : null,
+                    onChanged: (val) => setState(() => _searchQuery = val),
+                  ),
+                  const SizedBox(height: AeroSpace.sm),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        AeroChip(
+                          text: 'All',
+                          selected: _selectedFilter == HistoryFilter.all,
+                          onTap: () => setState(
+                            () => _selectedFilter = HistoryFilter.all,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        AeroChip(
+                          text: 'Video',
+                          icon: const Icon(Symbols.videocam_rounded),
+                          selected: _selectedFilter == HistoryFilter.video,
+                          onTap: () => setState(
+                            () => _selectedFilter = HistoryFilter.video,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        AeroChip(
+                          text: 'Audio',
+                          icon: const Icon(Symbols.audiotrack_rounded),
+                          selected: _selectedFilter == HistoryFilter.audio,
+                          onTap: () => setState(
+                            () => _selectedFilter = HistoryFilter.audio,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        AeroChip(
+                          text: 'Failed',
+                          icon: const Icon(Symbols.error_rounded),
+                          selected: _selectedFilter == HistoryFilter.failed,
+                          onTap: () => setState(
+                            () => _selectedFilter = HistoryFilter.failed,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // Windows Multi-select toolbar
+            if (hasActiveSelection) ...[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  AeroSpace.lg,
+                  AeroSpace.sm,
+                  AeroSpace.lg,
+                  0,
+                ),
+                child: AeroCard(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  child: Row(
+                    children: [
+                      Text(
+                        '${_selectedIds.length} selected',
+                        style: AeroText.label.copyWith(
+                          color: aero.onSurface,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const Spacer(),
+                      AeroButton(
+                        text: 'Select all',
+                        variant: AeroButtonVariant.ghost,
+                        height: 32,
+                        onPressed: () {
+                          setState(() {
+                            _selectedIds.addAll(
+                              filteredDownloads.map((e) => e.id),
+                            );
+                          });
+                        },
+                      ),
+                      const SizedBox(width: 4),
+                      AeroButton(
+                        text: 'Delete',
+                        icon: const Icon(Symbols.delete_rounded, size: 16),
+                        variant: AeroButtonVariant.danger,
+                        height: 32,
+                        onPressed: () => _handleDeleteSelected(context),
+                      ),
+                      const SizedBox(width: 4),
+                      IconButton(
+                        icon: const Icon(Symbols.close_rounded, size: 18),
+                        tooltip: 'Cancel',
+                        onPressed: () => setState(() => _selectedIds.clear()),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+
+            const SizedBox(height: AeroSpace.sm),
+
+            // List Content or Empty State
+            Expanded(
+              child: rawDownloads.isEmpty
+                  ? EmptyState(
+                      icon: Symbols.history_rounded,
+                      title: 'Nothing here yet',
+                      description: 'Your finished downloads will appear here',
+                      actionLabel: 'Go to Home',
+                      onAction: () =>
+                          context.read<NavigationProvider>().switchToHome(),
+                    )
+                  : filteredDownloads.isEmpty
+                  ? const EmptyState(
+                      icon: Symbols.search_off_rounded,
+                      title: 'No matching downloads',
+                      description: 'Try adjusting your search or filters',
+                    )
+                  : ListView(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: AeroSpace.lg,
+                        vertical: AeroSpace.xs,
+                      ),
+                      children: [
+                        for (final group in HistoryDateGroup.values)
+                          if (grouped.containsKey(group) &&
+                              grouped[group]!.isNotEmpty) ...[
+                            SectionHeader(title: group.title),
+                            for (final item in grouped[group]!)
+                              DownloadItemCard(
+                                key: ValueKey(item.id),
+                                item: item,
+                                isHistory: true,
+                                showCheckbox: showCheckboxes,
+                                isSelected: _selectedIds.contains(item.id),
+                                onSelectChanged: (checked) {
+                                  setState(() {
+                                    if (checked == true) {
+                                      _selectedIds.add(item.id);
+                                    } else {
+                                      _selectedIds.remove(item.id);
+                                    }
+                                  });
+                                },
+                                onDelete: () =>
+                                    _handleDeleteSingle(context, item),
+                                onRetry:
+                                    (item.status == DownloadStatus.failed ||
+                                        item.status == DownloadStatus.cancelled)
+                                    ? () {
+                                        if (PlatformUtils.isMobile) {
+                                          context
+                                              .read<MobileDownloadProvider>()
+                                              .retryDownload(item.id);
+                                        } else {
+                                          context
+                                              .read<DownloadProvider>()
+                                              .retryDownload(item.id);
+                                        }
+                                      }
+                                    : null,
+                              ),
+                          ],
+                      ],
+                    ),
+            ),
+          ],
         ),
-      ],
+      ),
     );
   }
 }
 
-/// Dismissible banner shown on aggressive OEM devices (MIUI/HyperOS, ColorOS, etc.)
-/// guiding user to grant Autostart / Unrestricted battery permissions.
+// =========================================================================
+// OEM BATTERY BANNER (Android aggressive battery management)
+// =========================================================================
 class _OemBatteryGuidanceBanner extends StatefulWidget {
   const _OemBatteryGuidanceBanner();
 
@@ -539,7 +953,7 @@ class _OemBatteryGuidanceBannerState extends State<_OemBatteryGuidanceBanner> {
         settings.isAggressiveOem && !settings.isBatteryOptimizationIgnored;
     if (!showBanner) return const SizedBox.shrink();
 
-    final theme = Theme.of(context);
+    final aero = context.aero;
     final rawManufacturer = settings.deviceManufacturer ?? 'device';
     final manufacturer = rawManufacturer.isNotEmpty
         ? '${rawManufacturer[0].toUpperCase()}${rawManufacturer.substring(1)}'
@@ -549,20 +963,14 @@ class _OemBatteryGuidanceBannerState extends State<_OemBatteryGuidanceBanner> {
       margin: const EdgeInsets.fromLTRB(16, 8, 16, 4),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: theme.colorScheme.errorContainer.withValues(alpha: 0.25),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: theme.colorScheme.error.withValues(alpha: 0.3),
-        ),
+        color: aero.danger.withValues(alpha: 0.12),
+        borderRadius: AeroRadius.mdBorderRadius,
+        border: Border.all(color: aero.danger.withValues(alpha: 0.3)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Icon(
-            Icons.battery_alert_rounded,
-            color: theme.colorScheme.error,
-            size: 24,
-          ),
+          Icon(Symbols.battery_alert_rounded, color: aero.danger, size: 24),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
@@ -571,18 +979,15 @@ class _OemBatteryGuidanceBannerState extends State<_OemBatteryGuidanceBanner> {
               children: [
                 Text(
                   'Background Downloads May Pause',
-                  style: theme.textTheme.labelMedium?.copyWith(
+                  style: AeroText.label.copyWith(
                     fontWeight: FontWeight.bold,
-                    color: theme.colorScheme.onSurface,
+                    color: aero.onSurface,
                   ),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   '$manufacturer battery manager may stop background downloads. Tap to allow autostart.',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                    fontSize: 11.5,
-                  ),
+                  style: AeroText.caption.copyWith(color: aero.onSurfaceMuted),
                 ),
               ],
             ),
@@ -601,7 +1006,7 @@ class _OemBatteryGuidanceBannerState extends State<_OemBatteryGuidanceBanner> {
             ),
           ),
           IconButton(
-            icon: const Icon(Icons.close, size: 16),
+            icon: const Icon(Symbols.close_rounded, size: 16),
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
             tooltip: 'Dismiss',
@@ -613,126 +1018,9 @@ class _OemBatteryGuidanceBannerState extends State<_OemBatteryGuidanceBanner> {
   }
 }
 
-/// History tab isolated — selects only completed+failed, rebuilds only this subtree
-class _MobileHistoryDownloadsView extends StatelessWidget {
-  const _MobileHistoryDownloadsView();
-
-  @override
-  Widget build(BuildContext context) {
-    // Select counts first to minimize rebuilds when unrelated fields change;
-    // then select lists — this widget is small, so combined list rebuild is cheap
-    final completed = context
-        .select<MobileDownloadProvider, List<DownloadItem>>(
-          (p) => p.completedDownloads,
-        );
-    final failed = context.select<MobileDownloadProvider, List<DownloadItem>>(
-      (p) => p.failedDownloads,
-    );
-    final downloads = [...completed, ...failed];
-    return _buildMobileListShared(
-      context,
-      downloads,
-      emptyTitle: 'No finished downloads yet',
-      emptySubtitle: null,
-      emptyIcon: Icons.history,
-      onAction: (item) async =>
-          context.read<MobileDownloadProvider>().removeDownload(item.id),
-      isHistory: true,
-    );
-  }
-}
-
-Widget _buildMobileListShared(
-  BuildContext context,
-  List<DownloadItem> downloads, {
-  required String emptyTitle,
-  required String? emptySubtitle,
-  required IconData emptyIcon,
-  required Future<void> Function(DownloadItem item) onAction,
-  required bool isHistory,
-}) {
-  if (downloads.isEmpty) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(28),
-            decoration: BoxDecoration(
-              color: Theme.of(
-                context,
-              ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              emptyIcon,
-              size: 56,
-              color: Theme.of(
-                context,
-              ).colorScheme.primary.withValues(alpha: 0.5),
-            ),
-          ),
-          const SizedBox(height: 24),
-          Text(
-            emptyTitle,
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.bold,
-              color: Theme.of(context).colorScheme.onSurface,
-            ),
-          ),
-          if (emptySubtitle != null) ...[
-            const SizedBox(height: 8),
-            Text(
-              emptySubtitle,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  return ListView.builder(
-    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-    // ignore: deprecated_member_use
-    cacheExtent: 600,
-    itemCount: downloads.length,
-    itemBuilder: (context, index) {
-      final item = downloads[index];
-      // No per-card entrance here: the view-level shared-axis transition on
-      // the tab switch is the single motion for this screen.
-      return isHistory
-          ? CompletionPop.recent(
-              item,
-              child: _MobileDownloadItem(
-                key: ValueKey(item.id),
-                item: item,
-                onDelete: () => onAction(item),
-              ),
-            )
-          : CompletionPop(
-              completed: item.status == DownloadStatus.completed,
-              child: _MobileDownloadItem(
-                key: ValueKey(item.id),
-                item: item,
-                onCancel: () => onAction(item),
-                onPause: () {
-                  context.read<MobileDownloadProvider>().pauseDownload(item.id);
-                },
-                onResume: () {
-                  context.read<MobileDownloadProvider>().resumeDownload(
-                    item.id,
-                  );
-                },
-              ),
-            );
-    },
-  );
-}
-
-typedef _MobileDownloadItem = MobileDownloadItem;
+// =========================================================================
+// MobileDownloadItem
+// Retained for backward-compatibility with UI unit/stress tests:
 
 class MobileDownloadItem extends StatelessWidget {
   final DownloadItem item;
@@ -752,7 +1040,7 @@ class MobileDownloadItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final aero = context.aero;
     final isActive =
         item.status == DownloadStatus.downloadingVideo ||
         item.status == DownloadStatus.downloadingAudio ||
@@ -763,210 +1051,424 @@ class MobileDownloadItem extends StatelessWidget {
     final isFailed = item.status == DownloadStatus.failed;
     final isCompleted = item.status == DownloadStatus.completed;
 
-    final cardColor = theme.brightness == Brightness.dark
-        ? const Color(0xFF1C1C1E)
-        : theme.colorScheme.surface;
-
-    return AnimatedContainer(
-      duration: appMotionDuration(context, AppMotion.short),
-      curve: AppMotion.emphasized,
+    return AeroCard(
       margin: const EdgeInsets.only(bottom: 16),
-      decoration: BoxDecoration(
-        color: cardColor,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: isActive
-              ? theme.colorScheme.primary.withValues(alpha: 0.2)
-              : theme.colorScheme.outline.withValues(alpha: 0.05),
-        ),
-        boxShadow: isActive
-            ? [
-                BoxShadow(
-                  color: theme.colorScheme.primary.withValues(alpha: 0.08),
-                  blurRadius: 20,
-                  offset: const Offset(0, 4),
+      padding: const EdgeInsets.all(20),
+      onTap: isCompleted ? () => _handleOpenFile(context, item) : null,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ClipRRect(
+                borderRadius: AeroRadius.mdBorderRadius,
+                child: SizedBox(
+                  width: 86,
+                  height: 86,
+                  child: _buildThumbnail(context),
                 ),
-              ]
-            : [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.04),
-                  blurRadius: 10,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(20),
-          onTap: isCompleted ? () => _handleOpenFile(context, item) : null,
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Container(
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(16),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.2),
-                            blurRadius: 8,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(16),
-                        child: SizedBox(
-                          width: 86,
-                          height: 86,
-                          child: _buildThumbnail(context),
-                        ),
+                    Text(
+                      item.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: AeroText.titleSm.copyWith(
+                        fontWeight: FontWeight.bold,
+                        height: 1.3,
+                        color: aero.onSurface,
                       ),
                     ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            item.title,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.bold,
-                              height: 1.3,
-                              fontSize: 15,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            item.audioOnly
-                                ? 'Audio Download'
-                                : 'Video Download',
-                            style: TextStyle(
-                              color: theme.colorScheme.onSurface.withValues(
-                                alpha: 0.5,
-                              ),
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
+                    const SizedBox(height: 6),
+                    Text(
+                      item.audioOnly ? 'Audio Download' : 'Video Download',
+                      style: TextStyle(
+                        color: aero.onSurfaceMuted,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    if (onCancel != null)
-                      IconButton(
-                        icon: Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: theme.colorScheme.surfaceContainerHighest
-                                .withValues(alpha: 0.4),
-                            shape: BoxShape.circle,
-                          ),
-                          child: Icon(
-                            Icons.close,
-                            size: 16,
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                        onPressed: onCancel,
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
-                      ),
-                    if (onDelete != null)
-                      IconButton(
-                        icon: Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: theme.colorScheme.surfaceContainerHighest
-                                .withValues(alpha: 0.4),
-                            shape: BoxShape.circle,
-                          ),
-                          child: Icon(
-                            Icons.delete_outline,
-                            size: 16,
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                        onPressed: onDelete,
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
-                      ),
                   ],
                 ),
-
-                if (isActive || isPaused) ...[
-                  const SizedBox(height: 20),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: TweenAnimationBuilder<double>(
-                      key: ValueKey('progress-${item.id}'),
-                      duration: appMotionDuration(
-                        context,
-                        const Duration(milliseconds: 320),
-                      ),
-                      curve: AppMotion.decelerate,
-                      tween: Tween<double>(begin: 0, end: item.progress),
-                      builder: (context, value, _) {
-                        return LinearProgressIndicator(
-                          value: value > 0 ? value : null,
-                          backgroundColor:
-                              theme.colorScheme.surfaceContainerHighest,
-                          valueColor: AlwaysStoppedAnimation(
-                            isPaused
-                                ? Colors.amber
-                                : (item.status == DownloadStatus.merging
-                                      ? Colors.orange
-                                      : theme.colorScheme.primary),
-                          ),
-                          minHeight: 6,
-                        );
-                      },
+              ),
+              const SizedBox(width: 8),
+              if (onCancel != null)
+                IconButton(
+                  icon: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: aero.surface3,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      Symbols.close_rounded,
+                      size: 16,
+                      color: aero.onSurfaceMuted,
                     ),
                   ),
-                  const SizedBox(height: 16),
-                  Row(
+                  onPressed: onCancel,
+                  padding: const EdgeInsets.all(6),
+                  constraints: const BoxConstraints(
+                    minWidth: 44,
+                    minHeight: 44,
+                  ),
+                ),
+              if (onDelete != null)
+                IconButton(
+                  icon: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: aero.surface3,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      Symbols.delete_rounded,
+                      size: 16,
+                      color: aero.onSurfaceMuted,
+                    ),
+                  ),
+                  onPressed: onDelete,
+                  padding: const EdgeInsets.all(6),
+                  constraints: const BoxConstraints(
+                    minWidth: 44,
+                    minHeight: 44,
+                  ),
+                ),
+            ],
+          ),
+
+          if (isActive || isPaused) ...[
+            const SizedBox(height: 20),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: TweenAnimationBuilder<double>(
+                key: ValueKey('progress-${item.id}'),
+                duration: appMotionDuration(
+                  context,
+                  const Duration(milliseconds: 320),
+                ),
+                curve: AppMotion.decelerate,
+                tween: Tween<double>(begin: 0, end: item.progress),
+                builder: (context, value, _) {
+                  return LinearProgressIndicator(
+                    value: value > 0 ? value : null,
+                    backgroundColor: aero.surface3,
+                    valueColor: AlwaysStoppedAnimation(
+                      isPaused
+                          ? aero.warning
+                          : (item.status == DownloadStatus.merging
+                                ? Colors.orange
+                                : aero.primary),
+                    ),
+                    minHeight: 6,
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              '${(item.progress * 100).toStringAsFixed(1)}% ${item.totalBytes != null ? 'of ${_formatSize(item.totalBytes!)}' : ''}',
-                              style: TextStyle(
-                                color: theme.colorScheme.onSurface,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 14,
-                              ),
+                      Text(
+                        () {
+                          final statusText = item.statusText;
+                          final phaseLabel =
+                              item.status == DownloadStatus.merging ||
+                              (statusText != null &&
+                                  (statusText.contains('audio') ||
+                                      statusText.contains('Merg') ||
+                                      statusText.contains('Convert') ||
+                                      statusText.contains('Finaliz')));
+                          if (phaseLabel) {
+                            return statusText ??
+                                (item.audioOnly
+                                    ? 'Converting audio...'
+                                    : 'Merging video + audio...');
+                          }
+                          final sizePart = item.totalBytes != null
+                              ? ' of ${_formatSize(item.totalBytes!)}'
+                              : '';
+                          return '${(item.progress * 100).toStringAsFixed(1)}%$sizePart';
+                        }(),
+                        style: TextStyle(
+                          color: item.status == DownloadStatus.merging
+                              ? Colors.orange
+                              : aero.onSurface,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      AnimatedSwitcher(
+                        duration: appMotionDuration(context, AppMotion.short),
+                        child: Text(
+                          isPaused
+                              ? (item.statusText ?? 'Paused')
+                              : item.status == DownloadStatus.merging
+                              ? (item.statusText ?? 'Merging...')
+                              : (item.speed > 0
+                                    ? '${item.formattedSpeed}${item.eta > 0 ? ' • ETA ${item.formattedEta}' : ''}'
+                                    : (item.statusText ?? 'Processing...')),
+                          key: ValueKey(
+                            isPaused
+                                ? 'paused-${item.statusText}'
+                                : '${item.speed}-${item.eta}-${item.statusText}',
+                          ),
+                          style: TextStyle(
+                            color: isPaused
+                                ? aero.warning
+                                : aero.onSurfaceMuted,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (isActive || isPaused)
+                  InkWell(
+                    onTap: isPaused ? (onResume ?? () {}) : (onPause ?? () {}),
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 10,
+                      ),
+                      decoration: BoxDecoration(
+                        color: (isPaused ? aero.warning : aero.primary)
+                            .withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: (isPaused ? aero.warning : aero.primary)
+                              .withValues(alpha: 0.2),
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            isPaused
+                                ? Symbols.play_arrow_rounded
+                                : Symbols.pause_rounded,
+                            size: 18,
+                            color: isPaused ? aero.warning : aero.primary,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            isPaused ? 'Resume' : 'Pause',
+                            style: TextStyle(
+                              color: isPaused ? aero.warning : aero.primary,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 13,
                             ),
-                            const SizedBox(height: 4),
-                            AnimatedSwitcher(
-                              duration: appMotionDuration(
-                                context,
-                                AppMotion.short,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ],
+
+          if (isCompleted || isFailed) ...[
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                _buildStatusBadge(context),
+                if (isCompleted) ...[
+                  const SizedBox(width: 8),
+                  Text(
+                    _formatSize(item.totalBytes ?? 0),
+                    style: TextStyle(
+                      color: aero.onSurfaceMuted,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+                const Spacer(),
+                if (isCompleted) ...[
+                  IconButton(
+                    icon: Icon(
+                      Symbols.play_arrow_rounded,
+                      color: aero.primary,
+                      size: 22,
+                    ),
+                    tooltip: 'Open',
+                    onPressed: () => _handleOpenFile(context, item),
+                    constraints: const BoxConstraints(
+                      minWidth: 44,
+                      minHeight: 44,
+                    ),
+                    padding: const EdgeInsets.all(6),
+                  ),
+                  const SizedBox(width: 2),
+                  IconButton(
+                    icon: Icon(
+                      Symbols.share_rounded,
+                      color: aero.onSurfaceMuted,
+                      size: 18,
+                    ),
+                    tooltip: 'Share',
+                    onPressed: () => _handleShareFile(context, item),
+                    constraints: const BoxConstraints(
+                      minWidth: 44,
+                      minHeight: 44,
+                    ),
+                    padding: const EdgeInsets.all(6),
+                  ),
+                  const SizedBox(width: 2),
+                  IconButton(
+                    icon: Icon(
+                      Symbols.folder_open_rounded,
+                      color: aero.onSurfaceMuted,
+                      size: 19,
+                    ),
+                    tooltip: 'Show in folder',
+                    onPressed: () => _handleOpenFolder(context, item),
+                    constraints: const BoxConstraints(
+                      minWidth: 44,
+                      minHeight: 44,
+                    ),
+                    padding: const EdgeInsets.all(6),
+                  ),
+                  const SizedBox(width: 2),
+                  PopupMenuButton<String>(
+                    tooltip: 'More actions',
+                    icon: Icon(
+                      Symbols.more_vert_rounded,
+                      color: aero.onSurfaceMuted,
+                      size: 19,
+                    ),
+                    padding: const EdgeInsets.all(6),
+                    constraints: const BoxConstraints(
+                      minWidth: 44,
+                      minHeight: 44,
+                    ),
+                    onSelected: (value) {
+                      switch (value) {
+                        case 'open':
+                          _handleOpenFile(context, item);
+                          break;
+                        case 'open_with':
+                          _handleOpenFile(context, item, useChooser: true);
+                          break;
+                        case 'share':
+                          _handleShareFile(context, item);
+                          break;
+                        case 'show_folder':
+                          _handleOpenFolder(context, item);
+                          break;
+                        case 'delete':
+                          onDelete?.call();
+                          break;
+                      }
+                    },
+                    itemBuilder: (BuildContext context) => [
+                      const PopupMenuItem(
+                        value: 'open',
+                        child: Row(
+                          children: [
+                            Icon(Symbols.play_arrow_rounded, size: 20),
+                            SizedBox(width: 12),
+                            Text('Open'),
+                          ],
+                        ),
+                      ),
+                      const PopupMenuItem(
+                        value: 'open_with',
+                        child: Row(
+                          children: [
+                            Icon(Symbols.open_in_new_rounded, size: 20),
+                            SizedBox(width: 12),
+                            Text('Open with...'),
+                          ],
+                        ),
+                      ),
+                      const PopupMenuItem(
+                        value: 'share',
+                        child: Row(
+                          children: [
+                            Icon(Symbols.share_rounded, size: 20),
+                            SizedBox(width: 12),
+                            Text('Share'),
+                          ],
+                        ),
+                      ),
+                      const PopupMenuItem(
+                        value: 'show_folder',
+                        child: Row(
+                          children: [
+                            Icon(Symbols.folder_open_rounded, size: 20),
+                            SizedBox(width: 12),
+                            Text('Show in folder'),
+                          ],
+                        ),
+                      ),
+                      if (onDelete != null)
+                        PopupMenuItem(
+                          value: 'delete',
+                          child: Row(
+                            children: [
+                              Icon(
+                                Symbols.delete_rounded,
+                                size: 20,
+                                color: aero.danger,
                               ),
+                              const SizedBox(width: 12),
+                              Text(
+                                'Delete',
+                                style: TextStyle(color: aero.danger),
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
+                if (isFailed && item.error != null)
+                  Expanded(
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(6),
+                      onTap: () {
+                        ErrorDetailsDialog.show(
+                          context,
+                          error: item.error!,
+                          customTitle: 'Download Failed',
+                        );
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            Icon(
+                              Symbols.info_rounded,
+                              size: 14,
+                              color: aero.danger,
+                            ),
+                            const SizedBox(width: 4),
+                            Flexible(
                               child: Text(
-                                isPaused
-                                    ? (item.statusText ?? 'Paused')
-                                    : (item.speed > 0
-                                          ? '${item.formattedSpeed} • ${item.eta > 0 ? 'ETA ${item.formattedEta}' : ''}'
-                                          : (item.statusText ??
-                                                'Processing...')),
-                                key: ValueKey(
-                                  isPaused
-                                      ? 'paused-${item.statusText}'
-                                      : '${item.speed}-${item.eta}-${item.statusText}',
-                                ),
+                                item.error!,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                textAlign: TextAlign.right,
                                 style: TextStyle(
-                                  color: isPaused
-                                      ? Colors.amber
-                                      : theme.colorScheme.onSurfaceVariant,
+                                  color: aero.danger,
                                   fontSize: 13,
                                   fontWeight: FontWeight.w600,
                                 ),
@@ -975,262 +1477,12 @@ class MobileDownloadItem extends StatelessWidget {
                           ],
                         ),
                       ),
-                      if (isActive || isPaused)
-                        InkWell(
-                          onTap: isPaused
-                              ? (onResume ?? () {})
-                              : (onPause ?? () {}),
-                          borderRadius: BorderRadius.circular(12),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 14,
-                              vertical: 10,
-                            ),
-                            decoration: BoxDecoration(
-                              color:
-                                  (isPaused
-                                          ? Colors.amber
-                                          : theme.colorScheme.primary)
-                                      .withValues(alpha: 0.1),
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color:
-                                    (isPaused
-                                            ? Colors.amber
-                                            : theme.colorScheme.primary)
-                                        .withValues(alpha: 0.2),
-                              ),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  isPaused
-                                      ? Icons.play_arrow_rounded
-                                      : Icons.pause_rounded,
-                                  size: 18,
-                                  color: isPaused
-                                      ? Colors.amber
-                                      : theme.colorScheme.primary,
-                                ),
-                                const SizedBox(width: 6),
-                                Text(
-                                  isPaused ? 'Resume' : 'Pause',
-                                  style: TextStyle(
-                                    color: isPaused
-                                        ? Colors.amber
-                                        : theme.colorScheme.primary,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 13,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                    ],
+                    ),
                   ),
-                ],
-
-                if (isCompleted || isFailed) ...[
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      _buildStatusBadge(context),
-                      if (isCompleted) ...[
-                        const SizedBox(width: 8),
-                        Text(
-                          _formatSize(item.totalBytes ?? 0),
-                          style: TextStyle(
-                            color: theme.colorScheme.onSurfaceVariant,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                      const Spacer(),
-                      if (isCompleted) ...[
-                        IconButton(
-                          icon: Icon(
-                            Icons.play_arrow_rounded,
-                            color: theme.colorScheme.primary,
-                            size: 22,
-                          ),
-                          tooltip: 'Open',
-                          onPressed: () => _handleOpenFile(context, item),
-                          constraints: const BoxConstraints(),
-                          padding: const EdgeInsets.all(6),
-                        ),
-                        const SizedBox(width: 2),
-                        IconButton(
-                          icon: Icon(
-                            Icons.share_rounded,
-                            color: theme.colorScheme.onSurfaceVariant,
-                            size: 18,
-                          ),
-                          tooltip: 'Share',
-                          onPressed: () => _handleShareFile(context, item),
-                          constraints: const BoxConstraints(),
-                          padding: const EdgeInsets.all(6),
-                        ),
-                        const SizedBox(width: 2),
-                        IconButton(
-                          icon: Icon(
-                            Icons.folder_open_rounded,
-                            color: theme.colorScheme.onSurfaceVariant,
-                            size: 19,
-                          ),
-                          tooltip: 'Show in folder',
-                          onPressed: () => _handleOpenFolder(context, item),
-                          constraints: const BoxConstraints(),
-                          padding: const EdgeInsets.all(6),
-                        ),
-                        const SizedBox(width: 2),
-                        PopupMenuButton<String>(
-                          tooltip: 'More actions',
-                          icon: Icon(
-                            Icons.more_vert_rounded,
-                            color: theme.colorScheme.onSurfaceVariant,
-                            size: 19,
-                          ),
-                          padding: const EdgeInsets.all(6),
-                          constraints: const BoxConstraints(),
-                          onSelected: (value) {
-                            switch (value) {
-                              case 'open':
-                                _handleOpenFile(context, item);
-                                break;
-                              case 'open_with':
-                                _handleOpenFile(
-                                  context,
-                                  item,
-                                  useChooser: true,
-                                );
-                                break;
-                              case 'share':
-                                _handleShareFile(context, item);
-                                break;
-                              case 'show_folder':
-                                _handleOpenFolder(context, item);
-                                break;
-                              case 'delete':
-                                onDelete?.call();
-                                break;
-                            }
-                          },
-                          itemBuilder: (BuildContext context) => [
-                            const PopupMenuItem(
-                              value: 'open',
-                              child: Row(
-                                children: [
-                                  Icon(Icons.play_arrow_rounded, size: 20),
-                                  SizedBox(width: 12),
-                                  Text('Open'),
-                                ],
-                              ),
-                            ),
-                            const PopupMenuItem(
-                              value: 'open_with',
-                              child: Row(
-                                children: [
-                                  Icon(Icons.open_in_new_rounded, size: 20),
-                                  SizedBox(width: 12),
-                                  Text('Open with...'),
-                                ],
-                              ),
-                            ),
-                            const PopupMenuItem(
-                              value: 'share',
-                              child: Row(
-                                children: [
-                                  Icon(Icons.share_rounded, size: 20),
-                                  SizedBox(width: 12),
-                                  Text('Share'),
-                                ],
-                              ),
-                            ),
-                            const PopupMenuItem(
-                              value: 'show_folder',
-                              child: Row(
-                                children: [
-                                  Icon(Icons.folder_open_rounded, size: 20),
-                                  SizedBox(width: 12),
-                                  Text('Show in folder'),
-                                ],
-                              ),
-                            ),
-                            if (onDelete != null)
-                              const PopupMenuItem(
-                                value: 'delete',
-                                child: Row(
-                                  children: [
-                                    Icon(
-                                      Icons.delete_outline,
-                                      size: 20,
-                                      color: Colors.red,
-                                    ),
-                                    SizedBox(width: 12),
-                                    Text(
-                                      'Delete',
-                                      style: TextStyle(color: Colors.red),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                          ],
-                        ),
-                      ],
-                      if (isFailed && item.error != null)
-                        Expanded(
-                          child: InkWell(
-                            borderRadius: BorderRadius.circular(6),
-                            onTap: () {
-                              ErrorDetailsDialog.show(
-                                context,
-                                error: item.error!,
-                                customTitle: 'Download Failed',
-                              );
-                            },
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 6,
-                                vertical: 2,
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                mainAxisAlignment: MainAxisAlignment.end,
-                                children: [
-                                  Icon(
-                                    Icons.info_outline_rounded,
-                                    size: 14,
-                                    color: theme.colorScheme.error,
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Flexible(
-                                    child: Text(
-                                      item.error!,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      textAlign: TextAlign.right,
-                                      style: TextStyle(
-                                        color: theme.colorScheme.error,
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ],
               ],
             ),
-          ),
-        ),
+          ],
+        ],
       ),
     );
   }
@@ -1300,7 +1552,7 @@ class MobileDownloadItem extends StatelessWidget {
   }
 
   Widget _buildThumbnail(BuildContext context) {
-    final theme = Theme.of(context);
+    final aero = context.aero;
     final localPath = item.thumbnailPath;
 
     if (localPath != null && item.thumbnailExists) {
@@ -1308,7 +1560,7 @@ class MobileDownloadItem extends StatelessWidget {
         File(localPath),
         fit: BoxFit.cover,
         cacheWidth: 256,
-        errorBuilder: (_, __, ___) => _buildThumbnailFallback(theme),
+        errorBuilder: (_, __, ___) => _buildThumbnailFallback(aero),
       );
     }
 
@@ -1317,26 +1569,26 @@ class MobileDownloadItem extends StatelessWidget {
         item.thumbnailUrl!,
         fit: BoxFit.cover,
         cacheWidth: 256,
-        errorBuilder: (_, __, ___) => _buildThumbnailFallback(theme),
+        errorBuilder: (_, __, ___) => _buildThumbnailFallback(aero),
       );
     }
 
-    return _buildThumbnailFallback(theme);
+    return _buildThumbnailFallback(aero);
   }
 
-  Widget _buildThumbnailFallback(ThemeData theme) {
+  Widget _buildThumbnailFallback(AeroColors aero) {
     return Container(
-      color: theme.colorScheme.surfaceContainerHighest,
+      color: aero.surface3,
       child: Icon(
-        item.audioOnly ? Icons.music_note_rounded : Icons.movie_rounded,
-        color: theme.colorScheme.onSurfaceVariant,
+        item.audioOnly ? Symbols.music_note_rounded : Symbols.movie_rounded,
+        color: aero.onSurfaceMuted,
         size: 32,
       ),
     );
   }
 
   Widget _buildStatusBadge(BuildContext context) {
-    final theme = Theme.of(context);
+    final aero = context.aero;
 
     Color color;
     String text;
@@ -1344,49 +1596,49 @@ class MobileDownloadItem extends StatelessWidget {
 
     switch (item.status) {
       case DownloadStatus.pending:
-        color = theme.colorScheme.outline;
+        color = aero.onSurfaceMuted;
         text = 'Pending';
-        icon = Icons.schedule_rounded;
+        icon = Symbols.schedule_rounded;
         break;
       case DownloadStatus.queued:
         color = Colors.orange;
         text = 'Queued';
-        icon = Icons.queue_rounded;
+        icon = Symbols.queue_rounded;
         break;
       case DownloadStatus.downloadingVideo:
-        color = theme.colorScheme.primary;
+        color = aero.primary;
         text = 'Video';
-        icon = Icons.videocam_rounded;
+        icon = Symbols.videocam_rounded;
         break;
       case DownloadStatus.downloadingAudio:
-        color = Colors.amber;
+        color = aero.warning;
         text = 'Audio';
-        icon = Icons.music_note_rounded;
+        icon = Symbols.music_note_rounded;
         break;
       case DownloadStatus.merging:
         color = Colors.orange;
         text = 'Merging';
-        icon = Icons.merge_rounded;
+        icon = Symbols.merge_rounded;
         break;
       case DownloadStatus.completed:
-        color = Colors.green;
+        color = aero.success;
         text = 'Done';
-        icon = Icons.check_circle_rounded;
+        icon = Symbols.check_circle_rounded;
         break;
       case DownloadStatus.failed:
-        color = theme.colorScheme.error;
+        color = aero.danger;
         text = 'Failed';
-        icon = Icons.error_rounded;
+        icon = Symbols.error_rounded;
         break;
       case DownloadStatus.cancelled:
-        color = theme.colorScheme.outline;
+        color = aero.onSurfaceMuted;
         text = 'Cancelled';
-        icon = Icons.cancel_rounded;
+        icon = Symbols.cancel_rounded;
         break;
       case DownloadStatus.paused:
-        color = Colors.amber;
+        color = aero.warning;
         text = 'Paused';
-        icon = Icons.pause_circle_outline_rounded;
+        icon = Symbols.pause_circle_rounded;
         break;
     }
 

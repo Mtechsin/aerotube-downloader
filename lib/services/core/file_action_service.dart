@@ -42,7 +42,7 @@ class FileActionService {
   /// Opens a downloaded file using the default media application or chooser.
   ///
   /// On Android, uses FileProvider and Intent.ACTION_VIEW with MIME resolution.
-  /// On Windows, executes default shell command via cmd /c start.
+  /// On Windows, launches via explorer.exe (avoids cmd /c start injection).
   Future<bool> openFile(String filePath, {bool useChooser = false}) async {
     _lastError = null;
 
@@ -87,8 +87,11 @@ class FileActionService {
       }
     } else if (PlatformUtils.isWindows) {
       try {
-        final res = await Process.run('cmd', ['/c', 'start', '""', filePath]);
-        if (res.exitCode == 0) {
+        // M24: avoid `cmd /c start` (injection-prone with untrusted paths).
+        // explorer.exe opens the file with the default association.
+        // Explorer often returns exit code 1 even on a successful handoff.
+        final res = await Process.run('explorer.exe', [filePath]);
+        if (res.exitCode == 0 || res.exitCode == 1) {
           return true;
         } else {
           _lastError = 'Could not open file (exit code: ${res.exitCode}).';

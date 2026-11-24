@@ -1,3 +1,4 @@
+import 'package:material_symbols_icons/symbols.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
@@ -9,20 +10,39 @@ import '../../core/utils/platform_utils.dart';
 
 /// Floating widget that shows download progress and user logs
 class FloatingProgressOverlay extends StatelessWidget {
-  const FloatingProgressOverlay({super.key});
+  final bool showDownloadProgress;
+
+  const FloatingProgressOverlay({super.key, this.showDownloadProgress = true});
 
   @override
   Widget build(BuildContext context) {
+    final mq = MediaQuery.of(context);
+    // Keep toasts clear of the page title / app chrome: sit below a safe top
+    // inset, hug the right edge, and never span the full window width.
+    final topInset = mq.padding.top + 64;
+    final maxLogWidth = (mq.size.width * 0.42).clamp(280.0, 440.0);
+
     return Stack(
       children: [
-        // User logs (top-right)
-        Positioned(top: 20, right: 20, child: _UserLogsWidget()),
+        // User logs (top-right, width-capped so they never cover the title)
+        Positioned(
+          top: topInset,
+          right: 16,
+          width: maxLogWidth,
+          child: _UserLogsWidget(maxWidth: maxLogWidth),
+        ),
 
-        // Download progress (bottom-right)
-        Positioned(bottom: 20, right: 20, child: _DownloadProgressWidget()),
+        // Download progress (bottom-right on desktop only; mobile uses MiniDownloadTray)
+        if (!PlatformUtils.isMobile && showDownloadProgress)
+          Positioned(bottom: 20, right: 20, child: _DownloadProgressWidget()),
 
         // Tool update progress (bottom-left, shows during updates)
-        Positioned(bottom: 20, left: 20, child: _ToolUpdateProgressWidget()),
+        Positioned(
+          bottom: PlatformUtils.isMobile ? mq.padding.bottom + 72 : 20,
+          left: 16,
+          right: PlatformUtils.isMobile ? 16 : null,
+          child: _ToolUpdateProgressWidget(),
+        ),
       ],
     );
   }
@@ -30,6 +50,9 @@ class FloatingProgressOverlay extends StatelessWidget {
 
 /// User-facing logs widget (temporary notifications)
 class _UserLogsWidget extends StatelessWidget {
+  final double maxWidth;
+  const _UserLogsWidget({this.maxWidth = 400});
+
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<List<UserLogEntry>>(
@@ -41,7 +64,8 @@ class _UserLogsWidget extends StatelessWidget {
         if (logs.isEmpty) return const SizedBox.shrink();
 
         return Column(
-          crossAxisAlignment: CrossAxisAlignment.end,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
           children: logs.map((log) => _buildLogCard(context, log)).toList(),
         );
       },
@@ -56,13 +80,13 @@ class _UserLogsWidget extends StatelessWidget {
 
     if (log.isError) {
       backgroundColor = theme.colorScheme.error.withValues(alpha: 0.9);
-      icon = Icons.error_rounded;
+      icon = Symbols.error_rounded;
     } else if (log.isWarning) {
       backgroundColor = Colors.orange.withValues(alpha: 0.9);
-      icon = Icons.warning_rounded;
+      icon = Symbols.warning_rounded;
     } else {
       backgroundColor = theme.colorScheme.primary.withValues(alpha: 0.9);
-      icon = Icons.info_rounded;
+      icon = Symbols.info_rounded;
     }
 
     return Padding(
@@ -71,6 +95,7 @@ class _UserLogsWidget extends StatelessWidget {
           Material(
                 color: Colors.transparent,
                 child: Container(
+                  width: maxWidth,
                   padding: const EdgeInsets.symmetric(
                     horizontal: 16,
                     vertical: 12,
@@ -87,13 +112,14 @@ class _UserLogsWidget extends StatelessWidget {
                     ],
                   ),
                   child: Row(
-                    mainAxisSize: MainAxisSize.min,
                     children: [
                       Icon(icon, color: Colors.white, size: 20),
                       const SizedBox(width: 12),
-                      Flexible(
+                      Expanded(
                         child: Text(
                           log.message,
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 13,
@@ -105,7 +131,7 @@ class _UserLogsWidget extends StatelessWidget {
                       GestureDetector(
                         onTap: () => LoggingService().dismissUserLog(log.id),
                         child: const Icon(
-                          Icons.close_rounded,
+                          Symbols.close_rounded,
                           color: Colors.white70,
                           size: 18,
                         ),
@@ -115,7 +141,7 @@ class _UserLogsWidget extends StatelessWidget {
                 ),
               )
               .animate()
-              .slideX(begin: 1, end: 0, duration: 300.ms, curve: Curves.easeOut)
+              .slideX(begin: 1, end: 0, duration: 300.ms, curve: Curves.linear)
               .fadeIn(duration: 200.ms),
     );
   }
@@ -287,7 +313,9 @@ class _MobileDownloadCard extends StatelessWidget {
                     Text(
                       '+${activeCount - 3} more',
                       style: TextStyle(
-                        color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                        color: theme.colorScheme.onSurface.withValues(
+                          alpha: 0.5,
+                        ),
                         fontSize: 11,
                         fontStyle: FontStyle.italic,
                       ),
@@ -298,7 +326,7 @@ class _MobileDownloadCard extends StatelessWidget {
           ),
         )
         .animate()
-        .slideY(begin: 1, end: 0, duration: 400.ms, curve: Curves.easeOut)
+        .slideY(begin: 1, end: 0, duration: 400.ms, curve: Curves.linear)
         .fadeIn(duration: 300.ms);
   }
 }
@@ -343,7 +371,9 @@ class _DesktopDownloadCard extends StatelessWidget {
                     Text(
                       '+${activeCount - 3} more',
                       style: TextStyle(
-                        color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                        color: theme.colorScheme.onSurface.withValues(
+                          alpha: 0.5,
+                        ),
                         fontSize: 11,
                         fontStyle: FontStyle.italic,
                       ),
@@ -354,7 +384,7 @@ class _DesktopDownloadCard extends StatelessWidget {
           ),
         )
         .animate()
-        .slideY(begin: 1, end: 0, duration: 400.ms, curve: Curves.easeOut)
+        .slideY(begin: 1, end: 0, duration: 400.ms, curve: Curves.linear)
         .fadeIn(duration: 300.ms);
   }
 }
@@ -369,7 +399,7 @@ class _DownloadHeader extends StatelessWidget {
     return Row(
       children: [
         Icon(
-          Icons.download_rounded,
+          Symbols.download_rounded,
           color: theme.colorScheme.primary,
           size: 20,
         ),
@@ -415,7 +445,9 @@ class _MobileDownloadRow extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                snap.title.length > 30 ? '${snap.title.substring(0, 30)}...' : snap.title,
+                snap.title.length > 30
+                    ? '${snap.title.substring(0, 30)}...'
+                    : snap.title,
                 style: TextStyle(
                   color: theme.colorScheme.onSurface.withValues(alpha: 0.8),
                   fontSize: 12,
@@ -429,8 +461,12 @@ class _MobileDownloadRow extends StatelessWidget {
                   borderRadius: BorderRadius.circular(4),
                   child: LinearProgressIndicator(
                     value: snap.progress,
-                    backgroundColor: theme.colorScheme.onSurface.withValues(alpha: 0.1),
-                    valueColor: AlwaysStoppedAnimation<Color>(theme.colorScheme.primary),
+                    backgroundColor: theme.colorScheme.onSurface.withValues(
+                      alpha: 0.1,
+                    ),
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      theme.colorScheme.primary,
+                    ),
                     minHeight: 6,
                   ),
                 ),
@@ -481,7 +517,9 @@ class _DesktopDownloadRow extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                snap.title.length > 30 ? '${snap.title.substring(0, 30)}...' : snap.title,
+                snap.title.length > 30
+                    ? '${snap.title.substring(0, 30)}...'
+                    : snap.title,
                 style: TextStyle(
                   color: theme.colorScheme.onSurface.withValues(alpha: 0.8),
                   fontSize: 12,
@@ -495,8 +533,12 @@ class _DesktopDownloadRow extends StatelessWidget {
                   borderRadius: BorderRadius.circular(4),
                   child: LinearProgressIndicator(
                     value: snap.progress,
-                    backgroundColor: theme.colorScheme.onSurface.withValues(alpha: 0.1),
-                    valueColor: AlwaysStoppedAnimation<Color>(theme.colorScheme.primary),
+                    backgroundColor: theme.colorScheme.onSurface.withValues(
+                      alpha: 0.1,
+                    ),
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      theme.colorScheme.primary,
+                    ),
                     minHeight: 6,
                   ),
                 ),
@@ -538,9 +580,35 @@ class _ToolUpdateProgressWidget extends StatelessWidget {
       },
       shouldRebuild: (prev, next) => prev != next,
       builder: (context, snap, _) {
-        if (!snap.isYtdlpBusy && !snap.isFfmpegBusy) return const SizedBox.shrink();
+        if (!snap.isYtdlpBusy && !snap.isFfmpegBusy) {
+          return const SizedBox.shrink();
+        }
 
         final theme = Theme.of(context);
+
+        if (PlatformUtils.isMobile) {
+          return Material(
+            color: theme.colorScheme.surfaceContainerHigh,
+            borderRadius: BorderRadius.circular(12),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    snap.statusMessage ?? 'Updating ${snap.toolName}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.labelMedium,
+                  ),
+                  const SizedBox(height: 6),
+                  _ToolProgressSection(compact: true),
+                ],
+              ),
+            ),
+          );
+        }
 
         return RepaintBoundary(
               child: Material(
@@ -597,7 +665,9 @@ class _ToolUpdateProgressWidget extends StatelessWidget {
                         Text(
                           snap.statusMessage!,
                           style: TextStyle(
-                            color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+                            color: theme.colorScheme.onSurface.withValues(
+                              alpha: 0.7,
+                            ),
                             fontSize: 11,
                           ),
                         ),
@@ -610,7 +680,7 @@ class _ToolUpdateProgressWidget extends StatelessWidget {
               ),
             )
             .animate()
-            .slideY(begin: 1, end: 0, duration: 400.ms, curve: Curves.easeOut)
+            .slideY(begin: 1, end: 0, duration: 400.ms, curve: Curves.linear)
             .fadeIn(duration: 300.ms);
       },
     );
@@ -618,6 +688,9 @@ class _ToolUpdateProgressWidget extends StatelessWidget {
 }
 
 class _ToolProgressSection extends StatelessWidget {
+  final bool compact;
+  const _ToolProgressSection({this.compact = false});
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -636,15 +709,17 @@ class _ToolProgressSection extends StatelessWidget {
                 borderRadius: BorderRadius.circular(4),
                 child: LinearProgressIndicator(
                   value: progress > 0 ? progress : null,
-                  backgroundColor: theme.colorScheme.onSurface.withValues(alpha: 0.1),
+                  backgroundColor: theme.colorScheme.onSurface.withValues(
+                    alpha: 0.1,
+                  ),
                   valueColor: AlwaysStoppedAnimation<Color>(
                     theme.colorScheme.secondary,
                   ),
-                  minHeight: 6,
+                  minHeight: compact ? 4 : 6,
                 ),
               ),
             ),
-            if (progress > 0)
+            if (progress > 0 && !compact)
               Padding(
                 padding: const EdgeInsets.only(top: 4),
                 child: Text(
@@ -705,7 +780,7 @@ class CompactDownloadProgress extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 Icon(
-                  Icons.download_rounded,
+                  Symbols.download_rounded,
                   color: theme.colorScheme.primary,
                   size: 16,
                 ),
@@ -718,8 +793,11 @@ class CompactDownloadProgress extends StatelessWidget {
                         borderRadius: BorderRadius.circular(2),
                         child: LinearProgressIndicator(
                           value: snap.progress,
-                          backgroundColor: theme.colorScheme.onSurface.withValues(alpha: 0.1),
-                          valueColor: AlwaysStoppedAnimation<Color>(theme.colorScheme.primary),
+                          backgroundColor: theme.colorScheme.onSurface
+                              .withValues(alpha: 0.1),
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            theme.colorScheme.primary,
+                          ),
                           minHeight: 4,
                         ),
                       ),
@@ -743,7 +821,9 @@ class CompactDownloadProgress extends StatelessWidget {
                     child: Text(
                       'No active downloads',
                       style: TextStyle(
-                        color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                        color: theme.colorScheme.onSurface.withValues(
+                          alpha: 0.5,
+                        ),
                         fontSize: 11,
                       ),
                       overflow: TextOverflow.ellipsis,

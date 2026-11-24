@@ -1,25 +1,58 @@
-import 'package:flutter/foundation.dart';
+import 'package:material_symbols_icons/symbols.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:provider/provider.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:package_info_plus/package_info_plus.dart';
-import '../../providers/platform_settings_provider.dart';
-import '../../providers/update_provider.dart';
-import '../../providers/tool_update_provider.dart';
-import '../../providers/navigation_provider.dart';
+import 'package:provider/provider.dart';
+
+import '../../core/theme/tokens/colors.dart';
+import '../../core/theme/tokens/radius.dart';
+import '../../core/theme/tokens/spacing.dart';
+import '../../core/theme/tokens/typography.dart';
+import '../../core/utils/error_helper.dart';
 import '../../core/utils/platform_utils.dart';
+import '../../providers/download_provider.dart';
+import '../../providers/mobile_download_provider.dart';
+import '../../providers/navigation_provider.dart';
+import '../../providers/platform_settings_provider.dart';
+import '../../providers/tool_update_provider.dart';
+import '../../providers/update_provider.dart';
 import '../../services/core/android_storage_service.dart';
 import '../../services/core/logging_service.dart';
-import '../../core/utils/error_helper.dart';
-import '../widgets/error_details_dialog.dart';
-import '../widgets/update_dialog.dart';
-import '../widgets/logs_viewer.dart';
-import '../widgets/bug_report_dialog.dart';
-import '../widgets/floating_progress_overlay.dart';
+import '../components/aero_button.dart';
+import '../components/aero_chip.dart';
+import '../components/aero_density.dart';
+import '../components/aero_dialog.dart';
+import '../components/aero_snack.dart';
+import '../components/aero_text_field.dart';
+import '../components/component_gallery_screen.dart';
+import '../components/empty_state.dart';
+import '../components/section_header.dart';
+import '../components/settings_row.dart';
+import '../components/status_pill.dart';
 import '../widgets/app_logo.dart';
+import '../widgets/bug_report_dialog.dart';
+import '../widgets/error_details_dialog.dart';
+import '../widgets/floating_progress_overlay.dart';
+import '../widgets/logs_viewer.dart';
+import '../widgets/update_dialog.dart';
 
+/// Redesigned AeroTube Settings Screen following Section 7.5 of the Redesign Spec.
+///
+/// Features:
+/// - Max width 720 px on Windows (centered)
+/// - Search field at top of Settings for quick filtering across all settings
+/// - Groups with [SectionHeader]:
+///   1. Tools (yt-dlp and FFmpeg versions, updates, and advanced options)
+///   2. Account
+///   3. Downloads (folder, quality, concurrency, naming, subtitles, storage permission)
+///   4. Appearance (theme, animations toggle, density)
+///   5. Notifications & Background (notifications, SponsorBlock, unrestricted battery, OEM autostart, archive)
+///   6. Advanced (logs viewer, export logs, bug report, Component Gallery entry, logging toggle)
+///   7. About (App logo, app version, updater)
+/// - Destructive actions (Log out, Clear history) styled as danger ghost buttons confirming via [AeroDialog]
+/// - All tiles styled using [SettingsRow] and Aero design tokens
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
 
@@ -27,8 +60,11 @@ class SettingsScreen extends StatefulWidget {
   State<SettingsScreen> createState() => _SettingsScreenState();
 }
 
-class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObserver {
+class _SettingsScreenState extends State<SettingsScreen>
+    with WidgetsBindingObserver {
   String _appVersion = '';
+  final TextEditingController _searchController = TextEditingController();
+  String _searchFilter = '';
 
   @override
   void initState() {
@@ -47,12 +83,12 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _searchController.dispose();
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Re-check battery optimization when the user returns from the system dialog.
     if (state == AppLifecycleState.resumed && mounted) {
       final provider = context.read<PlatformSettingsProvider>();
       if (provider.isAndroid) {
@@ -73,248 +109,859 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
   @override
   Widget build(BuildContext context) {
     final settingsProvider = context.watch<PlatformSettingsProvider>();
+    final updateProvider = context.watch<UpdateProvider>();
+    final isDesktop = !PlatformUtils.isMobile;
+
+    final contentList = _buildFilteredSections(
+      context,
+      settingsProvider,
+      updateProvider,
+    );
+
+    Widget body = CustomScrollView(
+      slivers: [
+        SliverPadding(
+          padding: EdgeInsets.symmetric(
+            horizontal: isDesktop ? AeroSpace.xxl : AeroSpace.lg,
+            vertical: AeroSpace.lg,
+          ),
+          sliver: SliverList(
+            delegate: SliverChildListDelegate([
+              _buildHeader(context),
+              const SizedBox(height: AeroSpace.lg),
+              _buildSearchField(context),
+              ...contentList,
+              const SizedBox(height: AeroSpace.xxl * 2),
+            ]),
+          ),
+        ),
+      ],
+    );
+
+    if (isDesktop) {
+      body = Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 860),
+          child: body,
+        ),
+      );
+    }
 
     return SafeArea(
       child: Stack(
         children: [
-          CustomScrollView(
-            slivers: [
-              SliverAppBar(
-                floating: true,
-                snap: true,
-                title: const Text('Settings'),
-                centerTitle: true,
-                backgroundColor: Colors.transparent,
-                surfaceTintColor: Colors.transparent,
-                actions: [
-                  if (PlatformUtils.isAndroid)
-                    IconButton(
-                      icon: const Icon(Icons.home_outlined),
-                      tooltip: 'Home',
-                      onPressed: () =>
-                          context.read<NavigationProvider>().switchToHome(),
-                    ),
-                ],
-              ),
-              SliverPadding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 24,
-                  vertical: 16,
-                ),
-                sliver: SliverList(
-                  delegate: SliverChildListDelegate([
-                    _buildSectionHeader('TOOLS MANAGEMENT'),
-                    const SizedBox(height: 16),
-                    _buildToolsSection(context, settingsProvider),
-
-                    const SizedBox(height: 32),
-                    _buildSectionHeader('DOWNLOAD PREFERENCES'),
-                    const SizedBox(height: 16),
-                    _buildDownloadSection(context, settingsProvider),
-
-                    const SizedBox(height: 32),
-                    _buildSectionHeader('APPEARANCE'),
-                    const SizedBox(height: 16),
-                    _buildAppearanceSection(context, settingsProvider),
-
-                    const SizedBox(height: 32),
-                    _buildSectionHeader('AUTHENTICATION & COOKIES'),
-                    const SizedBox(height: 16),
-                    _buildAuthSection(context, settingsProvider),
-
-                    const SizedBox(height: 32),
-                    _buildSectionHeader('ADVANCED'),
-                    const SizedBox(height: 16),
-                    _buildAdvancedSection(context, settingsProvider),
-
-                    const SizedBox(height: 32),
-                    _buildSectionHeader('LOGS & DEBUGGING'),
-                    const SizedBox(height: 16),
-                    _buildLogsSection(context),
-
-                    const SizedBox(height: 32),
-                    _buildSectionHeader('APP UPDATES'),
-                    const SizedBox(height: 16),
-                    _buildUpdateSection(context),
-
-                    const SizedBox(height: 48),
-                    _buildAboutSection(context, settingsProvider),
-                    const SizedBox(height: 48),
-                  ]),
-                ),
-              ),
-            ],
+          body,
+          const RepaintBoundary(
+            child: FloatingProgressOverlay(showDownloadProgress: false),
           ),
-          // Floating progress overlay — PF8: RepaintBoundary to isolate repaints
-          const RepaintBoundary(child: FloatingProgressOverlay()),
         ],
       ),
     );
   }
 
-  Widget _buildSectionHeader(String title) {
+  Widget _buildHeader(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(left: 4),
-      child: Text(
-        title,
-        style: TextStyle(
-          color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.8),
-          fontSize: 12,
-          fontWeight: FontWeight.bold,
-          letterSpacing: 1.5,
-        ),
-      ),
-    );
-  }
-
-  // --- Section Container ---
-  Widget _buildSettingsSection({required List<Widget> children}) {
-    final theme = Theme.of(context);
-    return Container(
-      decoration: BoxDecoration(
-        color: theme.cardTheme.color ?? theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: theme.colorScheme.onSurface.withValues(alpha: 0.1),
-        ),
-      ),
-      child: Column(children: children),
-    );
-  }
-
-  // --- Modern Tile ---
-  Widget _buildSettingsTile({
-    required String title,
-    String? subtitle,
-    required IconData icon,
-    Widget? trailing,
-    VoidCallback? onTap,
-    Color? iconColor,
-    bool showDivider = true,
-  }) {
-    final theme = Theme.of(context);
-
-    return Column(
-      children: [
-        Material(
-          color: Colors.transparent,
-          child: InkWell(
-            onTap: onTap,
-            splashColor: Colors.transparent,
-            highlightColor: theme.colorScheme.onSurface.withValues(alpha: 0.05),
-            borderRadius: BorderRadius.circular(12),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-              child: Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: (iconColor ?? theme.colorScheme.primary)
-                          .withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Icon(
-                      icon,
-                      size: 20,
-                      color: iconColor ?? theme.colorScheme.primary,
-                    ),
+      padding: const EdgeInsets.only(top: AeroSpace.xs, bottom: AeroSpace.xs),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Settings',
+                  style: AeroText.headline.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: context.aero.onSurface,
                   ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          title,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w600,
-                            fontSize: 14,
-                          ),
-                        ),
-                        if (subtitle != null) ...[
-                          const SizedBox(height: 2),
-                          Text(
-                            subtitle,
-                            style: TextStyle(
-                              color: theme.colorScheme.onSurface.withValues(
-                                alpha: 0.5,
-                              ),
-                              fontSize: 12,
-                            ),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ],
-                      ],
-                    ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Personalize downloads, appearance, and tools',
+                  style: AeroText.bodySm.copyWith(
+                    color: context.aero.onSurfaceMuted,
                   ),
-                  if (trailing != null) ...[
-                    const SizedBox(width: 12),
-                    trailing,
-                  ],
-                ],
-              ),
+                ),
+              ],
             ),
           ),
-        ),
-        if (showDivider)
-          Divider(
-            height: 1,
-            indent: 64,
-            color: theme.colorScheme.onSurface.withValues(alpha: 0.05),
-          ),
-      ],
-    );
-  }
-
-  // --- Modern Toggle Tile ---
-  Widget _buildToggleTile({
-    required String title,
-    String? subtitle,
-    required IconData icon,
-    required bool value,
-    required ValueChanged<bool> onChanged,
-    bool showDivider = true,
-  }) {
-    final theme = Theme.of(context);
-
-    return _buildSettingsTile(
-      title: title,
-      subtitle: subtitle,
-      icon: icon,
-      showDivider: showDivider,
-      onTap: () => onChanged(!value),
-      trailing: Switch(
-        value: value,
-        onChanged: onChanged,
-        activeThumbColor: theme.colorScheme.primary,
+          if (PlatformUtils.isAndroid)
+            IconButton(
+              icon: Icon(
+                Symbols.home_rounded,
+                size: 22,
+                color: context.aero.onSurfaceMuted,
+              ),
+              tooltip: 'Home',
+              onPressed: () =>
+                  context.read<NavigationProvider>().switchToHome(),
+            ),
+        ],
       ),
     );
   }
 
-  // --- Tools Section ---
-  Widget _buildToolsSection(
+  Widget _buildSearchField(BuildContext context) {
+    return ValueListenableBuilder<TextEditingValue>(
+      valueListenable: _searchController,
+      builder: (context, value, _) {
+        return AeroTextField(
+          controller: _searchController,
+          hintText: 'Search settings…',
+          prefixIcon: const Icon(Symbols.search_rounded),
+          suffixIcon: value.text.isNotEmpty
+              ? IconButton(
+                  icon: const Icon(Symbols.close_rounded, size: 18),
+                  tooltip: 'Clear',
+                  onPressed: () {
+                    _searchController.clear();
+                    setState(() => _searchFilter = '');
+                  },
+                )
+              : null,
+          onChanged: (text) => setState(() => _searchFilter = text.trim()),
+        );
+      },
+    );
+  }
+
+  List<Widget> _buildFilteredSections(
+    BuildContext context,
+    PlatformSettingsProvider settingsProvider,
+    UpdateProvider updateProvider,
+  ) {
+    final q = _searchFilter.toLowerCase();
+
+    final accountItems = _getAccountItems(context, settingsProvider);
+    final downloadsItems = _getDownloadsItems(context, settingsProvider);
+    final appearanceItems = _getAppearanceItems(context, settingsProvider);
+    final toolsItems = _getToolsItems(context, settingsProvider);
+    final backgroundItems = _getBackgroundItems(context, settingsProvider);
+    final advancedItems = _getAdvancedItems(context, settingsProvider);
+    final aboutItems = _getAboutItems(
+      context,
+      settingsProvider,
+      updateProvider,
+    );
+
+    final filteredAccount = accountItems.where((i) => i.matches(q)).toList();
+    final filteredDownloads = downloadsItems
+        .where((i) => i.matches(q))
+        .toList();
+    final filteredAppearance = appearanceItems
+        .where((i) => i.matches(q))
+        .toList();
+    final filteredTools = toolsItems.where((i) => i.matches(q)).toList();
+    final filteredBackground = backgroundItems
+        .where((i) => i.matches(q))
+        .toList();
+    final filteredAdvanced = advancedItems.where((i) => i.matches(q)).toList();
+    final filteredAbout = aboutItems.where((i) => i.matches(q)).toList();
+
+    final hasAnyMatch =
+        filteredAccount.isNotEmpty ||
+        filteredDownloads.isNotEmpty ||
+        filteredAppearance.isNotEmpty ||
+        filteredTools.isNotEmpty ||
+        filteredBackground.isNotEmpty ||
+        filteredAdvanced.isNotEmpty ||
+        filteredAbout.isNotEmpty;
+
+    if (!hasAnyMatch && q.isNotEmpty) {
+      return [
+        Padding(
+          padding: const EdgeInsets.only(top: AeroSpace.xxl),
+          child: EmptyState(
+            icon: Symbols.search_off_rounded,
+            title: 'No Settings Found',
+            description: 'No settings match "$_searchFilter"',
+            actionLabel: 'Clear Filter',
+            onAction: () {
+              _searchController.clear();
+              setState(() => _searchFilter = '');
+            },
+          ),
+        ),
+      ];
+    }
+
+    final List<Widget> sections = [];
+
+    if (filteredTools.isNotEmpty) {
+      sections.add(const SectionHeader(title: 'Tools'));
+      sections.add(
+        _buildSettingsSection(
+          context,
+          filteredTools.map((i) => i.widget).toList(),
+        ),
+      );
+    }
+
+    if (filteredAccount.isNotEmpty) {
+      sections.add(const SectionHeader(title: 'Account'));
+      sections.add(
+        _buildSettingsSection(
+          context,
+          filteredAccount.map((i) => i.widget).toList(),
+        ),
+      );
+    }
+
+    if (filteredDownloads.isNotEmpty) {
+      sections.add(const SectionHeader(title: 'Downloads'));
+      sections.add(
+        _buildSettingsSection(
+          context,
+          filteredDownloads.map((i) => i.widget).toList(),
+        ),
+      );
+    }
+
+    if (filteredAppearance.isNotEmpty) {
+      sections.add(const SectionHeader(title: 'Appearance'));
+      sections.add(
+        _buildSettingsSection(
+          context,
+          filteredAppearance.map((i) => i.widget).toList(),
+        ),
+      );
+    }
+
+    if (filteredBackground.isNotEmpty) {
+      sections.add(const SectionHeader(title: 'Notifications & Background'));
+      sections.add(
+        _buildSettingsSection(
+          context,
+          filteredBackground.map((i) => i.widget).toList(),
+        ),
+      );
+    }
+
+    if (filteredAdvanced.isNotEmpty) {
+      sections.add(const SectionHeader(title: 'Advanced'));
+      sections.add(
+        _buildSettingsSection(
+          context,
+          filteredAdvanced.map((i) => i.widget).toList(),
+        ),
+      );
+    }
+
+    if (filteredAbout.isNotEmpty) {
+      sections.add(const SectionHeader(title: 'About'));
+      sections.add(
+        _buildSettingsSection(
+          context,
+          filteredAbout.map((i) => i.widget).toList(),
+        ),
+      );
+      sections.add(const SizedBox(height: AeroSpace.xl));
+      sections.add(_buildAboutFooter(context));
+    }
+
+    return sections;
+  }
+
+  Widget _buildSettingsSection(BuildContext context, List<Widget> children) {
+    final colors = context.aero;
+    final List<Widget> withDividers = [];
+
+    for (int i = 0; i < children.length; i++) {
+      withDividers.add(children[i]);
+      if (i < children.length - 1) {
+        withDividers.add(
+          Divider(height: 1, thickness: 1, indent: 56, color: colors.outline),
+        );
+      }
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: colors.surface1,
+        borderRadius: AeroRadius.lgBorderRadius,
+        border: Border.all(color: colors.outline, width: 1.0),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: withDividers,
+      ),
+    );
+  }
+
+  // =========================================================================
+  // SECTION ITEMS
+  // =========================================================================
+
+  List<_SettingEntry> _getAccountItems(
     BuildContext context,
     PlatformSettingsProvider provider,
   ) {
-    return Consumer<ToolUpdateProvider>(
-      builder: (context, toolProvider, child) {
-        final ytdlpState = toolProvider.ytdlpState;
-        final ffmpegState = toolProvider.ffmpegState;
+    final isSignedIn = provider.isYouTubeLoggedIn;
+    final cookiesReady = provider.isCookieActive;
+    final statusLabel = isSignedIn
+        ? 'Signed in'
+        : cookiesReady
+        ? 'Cookies ready'
+        : 'Guest';
+    final statusSubtitle = isSignedIn
+        ? provider.enableCookies
+              ? 'YouTube session ready'
+              : 'Signed in · cookies are off'
+        : cookiesReady
+        ? 'Cookie source ready'
+        : 'Optional for members-only videos';
 
-        return _buildSettingsSection(
-          children: [
-            _buildToolTile(
+    return [
+      _SettingEntry(
+        title: 'Account Status',
+        subtitle: statusSubtitle,
+        keywords: ['status', 'google', 'profile', 'auth', 'signed in', 'guest'],
+        widget: SettingsRow(
+          title: 'Account Status',
+          subtitle: statusSubtitle,
+          icon: isSignedIn || cookiesReady
+              ? Symbols.lock_open_rounded
+              : Symbols.lock_rounded,
+          iconColor: isSignedIn || cookiesReady ? Colors.green : null,
+          trailing: StatusPill(
+            label: statusLabel,
+            type: isSignedIn || cookiesReady
+                ? StatusPillType.success
+                : StatusPillType.neutral,
+          ),
+        ),
+      ),
+      _SettingEntry(
+        title: 'Sign in with YouTube',
+        subtitle: 'Access members-only videos',
+        keywords: ['login', 'sign in', 'authenticate', 'webview', 'channel'],
+        widget: SettingsRow(
+          title: 'Sign in with YouTube',
+          subtitle: 'Access members-only videos',
+          icon: Symbols.login_rounded,
+          onTap: () async {
+            final result = await Navigator.pushNamed(context, '/youtube_login');
+            if (result == true) {
+              await provider.onYouTubeLoginComplete();
+            }
+          },
+        ),
+      ),
+      if (!provider.isAndroid)
+        _SettingEntry(
+          title: 'Browser Cookies',
+          subtitle: _getBrowserLabel(provider.settings.cookieBrowser),
+          keywords: [
+            'chrome',
+            'firefox',
+            'edge',
+            'brave',
+            'cookies',
+            'browser',
+          ],
+          widget: SettingsRow(
+            title: 'Browser Cookies',
+            subtitle: _getBrowserLabel(provider.settings.cookieBrowser),
+            icon: Symbols.cookie_rounded,
+            onTap: () => _showBrowserSheet(context, provider),
+          ),
+        ),
+      _SettingEntry(
+        title: 'Enable Cookies File',
+        subtitle: 'Import Netscape format cookies.txt',
+        keywords: ['cookies.txt', 'netscape', 'cookie', 'file'],
+        widget: SettingsRow(
+          title: 'Enable Cookies File',
+          subtitle: 'Import Netscape format cookies.txt',
+          icon: Symbols.file_copy_rounded,
+          trailing: Switch.adaptive(
+            value: provider.enableCookies,
+            activeThumbColor: context.aero.primary,
+            activeTrackColor: context.aero.primarySoft,
+            onChanged: provider.setEnableCookies,
+          ),
+          onTap: () => provider.setEnableCookies(!provider.enableCookies),
+        ),
+      ),
+      if (provider.enableCookies)
+        _SettingEntry(
+          title: 'Import cookies.txt',
+          subtitle: provider.cookieFileName ?? 'No file selected',
+          keywords: ['upload', 'cookies.txt', 'netscape', 'import'],
+          widget: SettingsRow(
+            title: 'Import cookies.txt',
+            subtitle: provider.cookieFileName ?? 'No file selected',
+            icon: Symbols.upload_file_rounded,
+            onTap: () async {
+              final result = await FilePicker.platform.pickFiles(
+                type: FileType.custom,
+                allowedExtensions: ['txt'],
+              );
+              if (result != null && result.files.single.path != null) {
+                provider.setCookiePath(result.files.single.path);
+              }
+            },
+          ),
+        ),
+      if (isSignedIn)
+        _SettingEntry(
+          title: 'Log out of YouTube',
+          subtitle: 'Disconnect YouTube account and remove active session',
+          keywords: ['logout', 'sign out', 'disconnect', 'leave', 'remove'],
+          widget: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AeroSpace.lg,
+              vertical: AeroSpace.md,
+            ),
+            child: Row(
+              children: [
+                AeroButton.danger(
+                  text: 'Log out of YouTube',
+                  icon: const Icon(Symbols.logout_rounded, size: 16),
+                  density: AeroDensity.compact,
+                  onPressed: () => _confirmLogout(context, provider),
+                ),
+              ],
+            ),
+          ),
+        ),
+    ];
+  }
+
+  List<_SettingEntry> _getDownloadsItems(
+    BuildContext context,
+    PlatformSettingsProvider provider,
+  ) {
+    return [
+      _SettingEntry(
+        title: 'Download Location',
+        subtitle: provider.outputPath ?? 'Default folder',
+        keywords: ['folder', 'directory', 'path', 'save', 'storage', 'output'],
+        widget: SettingsRow(
+          title: 'Download Location',
+          subtitle: provider.outputPath ?? 'Default folder',
+          icon: Symbols.folder_rounded,
+          onTap: () async {
+            final result = await FilePicker.platform.getDirectoryPath();
+            if (result == null || !context.mounted) return;
+
+            if (provider.isAndroid) {
+              final validation = await AndroidStorageService()
+                  .validateCustomDirectory(result);
+              if (!context.mounted) return;
+              if (!validation.ok) {
+                AeroSnack.warning(
+                  context,
+                  message: validation.reason ?? 'Folder not usable.',
+                );
+                return;
+              }
+            }
+
+            await provider.setOutputPath(result);
+            if (context.mounted) {
+              AeroSnack.success(context, message: 'Download folder updated');
+            }
+          },
+        ),
+      ),
+      if (provider.isAndroid)
+        _SettingEntry(
+          title: 'Storage Access',
+          subtitle: 'Manage public storage write permissions',
+          keywords: ['permission', 'storage', 'sd card', 'android', 'access'],
+          widget: _AndroidStoragePermissionTile(provider: provider),
+        ),
+      _SettingEntry(
+        title: 'Default Quality',
+        subtitle: provider.defaultQuality,
+        keywords: [
+          'resolution',
+          '1080p',
+          '4k',
+          '720p',
+          'audio',
+          'format',
+          'quality',
+        ],
+        widget: SettingsRow(
+          title: 'Default Quality',
+          subtitle: provider.defaultQuality,
+          icon: Symbols.high_quality_rounded,
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                provider.defaultQuality,
+                style: AeroText.bodySm.copyWith(
+                  color: context.aero.onSurfaceMuted,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(width: 4),
+              Icon(
+                Symbols.chevron_right_rounded,
+                size: 20,
+                color: context.aero.onSurfaceMuted,
+              ),
+            ],
+          ),
+          onTap: () => _showQualitySheet(context, provider),
+        ),
+      ),
+      _SettingEntry(
+        title: 'Default Subtitle Language',
+        subtitle: _subtitleLanguageLabel(provider.defaultSubtitleLanguage),
+        keywords: [
+          'subtitles',
+          'captions',
+          'language',
+          'english',
+          'auto',
+          'subs',
+        ],
+        widget: SettingsRow(
+          title: 'Default Subtitle Language',
+          subtitle: _subtitleLanguageLabel(provider.defaultSubtitleLanguage),
+          icon: Symbols.subtitles_rounded,
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                _subtitleLanguageLabel(provider.defaultSubtitleLanguage),
+                style: AeroText.bodySm.copyWith(
+                  color: context.aero.onSurfaceMuted,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(width: 4),
+              Icon(
+                Symbols.chevron_right_rounded,
+                size: 20,
+                color: context.aero.onSurfaceMuted,
+              ),
+            ],
+          ),
+          onTap: () => _showDefaultSubtitleLanguageSheet(context, provider),
+        ),
+      ),
+      _SettingEntry(
+        title: 'Concurrent Downloads',
+        subtitle: 'Max parallel background downloads',
+        keywords: [
+          'concurrency',
+          'parallel',
+          'threads',
+          'simultaneous',
+          'speed',
+          'limit',
+        ],
+        widget: const _ConcurrentDownloadsControl(),
+      ),
+      _SettingEntry(
+        title: 'File Naming Pattern',
+        subtitle: '%(title)s [%(resolution)s].%(ext)s',
+        keywords: [
+          'naming',
+          'filename',
+          'format',
+          'template',
+          'pattern',
+          'title',
+        ],
+        widget: SettingsRow(
+          title: 'File Naming Pattern',
+          subtitle: '%(title)s [%(resolution)s].%(ext)s',
+          icon: Symbols.badge_rounded,
+          trailing: StatusPill(label: 'Standard', type: StatusPillType.neutral),
+        ),
+      ),
+      _SettingEntry(
+        title: 'Embed Thumbnail',
+        subtitle: 'Add video thumbnail as cover artwork',
+        keywords: ['cover', 'album art', 'image', 'picture', 'thumbnail'],
+        widget: SettingsRow(
+          title: 'Embed Thumbnail',
+          subtitle: 'Add video thumbnail as cover artwork',
+          icon: Symbols.image_rounded,
+          trailing: Switch.adaptive(
+            value: provider.embedThumbnail,
+            activeThumbColor: context.aero.primary,
+            activeTrackColor: context.aero.primarySoft,
+            onChanged: provider.setEmbedThumbnail,
+          ),
+          onTap: () => provider.setEmbedThumbnail(!provider.embedThumbnail),
+        ),
+      ),
+      _SettingEntry(
+        title: 'Embed Metadata',
+        subtitle: 'Include video details and tags in file metadata',
+        keywords: ['tags', 'artist', 'description', 'info', 'metadata'],
+        widget: SettingsRow(
+          title: 'Embed Metadata',
+          subtitle: 'Include video details and tags in file metadata',
+          icon: Symbols.info_rounded,
+          trailing: Switch.adaptive(
+            value: provider.embedMetadata,
+            activeThumbColor: context.aero.primary,
+            activeTrackColor: context.aero.primarySoft,
+            onChanged: provider.setEmbedMetadata,
+          ),
+          onTap: () => provider.setEmbedMetadata(!provider.embedMetadata),
+        ),
+      ),
+      _SettingEntry(
+        title: 'Clear Download History',
+        subtitle: 'Remove completed history items without deleting files',
+        keywords: ['delete', 'remove', 'history', 'clean', 'clear'],
+        widget: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: AeroSpace.lg,
+            vertical: AeroSpace.md,
+          ),
+          child: Row(
+            children: [
+              AeroButton.danger(
+                text: 'Clear download history',
+                icon: const Icon(Symbols.delete_rounded, size: 16),
+                density: AeroDensity.compact,
+                onPressed: () => _confirmClearHistory(context),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ];
+  }
+
+  List<_SettingEntry> _getAppearanceItems(
+    BuildContext context,
+    PlatformSettingsProvider provider,
+  ) {
+    return [
+      _SettingEntry(
+        title: 'Theme Mode',
+        subtitle: 'System, Light, Dark, or pure-black AMOLED theme',
+        keywords: [
+          'dark',
+          'light',
+          'oled',
+          'amoled',
+          'black',
+          'battery',
+          'system',
+          'mode',
+          'color',
+          'theme',
+        ],
+        widget: _buildThemeSegmented(context, provider),
+      ),
+      _SettingEntry(
+        title: 'Enable Animations',
+        subtitle: 'Linear transitions and loading animations',
+        keywords: [
+          'motion',
+          'motion',
+          'transitions',
+          'reduce motion',
+          'animation',
+        ],
+        widget: SettingsRow(
+          title: 'Enable Animations',
+          subtitle: 'Linear transitions and loading animations',
+          icon: Symbols.animation_rounded,
+          trailing: Switch.adaptive(
+            value: provider.enableAnimations,
+            activeThumbColor: context.aero.primary,
+            activeTrackColor: context.aero.primarySoft,
+            onChanged: provider.setEnableAnimations,
+          ),
+          onTap: () => provider.setEnableAnimations(!provider.enableAnimations),
+        ),
+      ),
+      _SettingEntry(
+        title: 'Interface Density',
+        subtitle: PlatformUtils.isMobile
+            ? 'Comfortable (Optimized for touch)'
+            : 'Compact (Optimized for pointer & keyboard)',
+        keywords: [
+          'density',
+          'compact',
+          'comfortable',
+          'touch',
+          'scale',
+          'size',
+        ],
+        widget: SettingsRow(
+          title: 'Interface Density',
+          subtitle: PlatformUtils.isMobile
+              ? 'Comfortable (Optimized for touch)'
+              : 'Compact (Optimized for pointer & keyboard)',
+          icon: Symbols.density_medium_rounded,
+          trailing: StatusPill.info(
+            label: PlatformUtils.isMobile ? 'Comfortable' : 'Compact',
+          ),
+        ),
+      ),
+    ];
+  }
+
+  Widget _buildThemeSegmented(
+    BuildContext context,
+    PlatformSettingsProvider provider,
+  ) {
+    final current = provider.themeMode;
+    final amoledSelected = provider.amoledDark && current == ThemeMode.dark;
+
+    final chips = <Widget>[
+      AeroChip(
+        text: 'Auto',
+        icon: const Icon(Symbols.auto_mode_rounded),
+        selected: current == ThemeMode.system,
+        onTap: () {
+          provider.setAmoledDark(false);
+          provider.setThemeMode(ThemeMode.system);
+        },
+      ),
+      AeroChip(
+        text: 'Light',
+        icon: const Icon(Symbols.light_mode_rounded),
+        selected: current == ThemeMode.light,
+        onTap: () {
+          provider.setAmoledDark(false);
+          provider.setThemeMode(ThemeMode.light);
+        },
+      ),
+      AeroChip(
+        text: 'Dark',
+        icon: const Icon(Symbols.dark_mode_rounded),
+        selected: current == ThemeMode.dark && !amoledSelected,
+        onTap: () {
+          provider.setAmoledDark(false);
+          provider.setThemeMode(ThemeMode.dark);
+        },
+      ),
+      AeroChip(
+        text: 'AMOLED',
+        icon: const Icon(Symbols.contrast_rounded),
+        selected: amoledSelected,
+        onTap: () {
+          provider.setThemeMode(ThemeMode.dark);
+          provider.setAmoledDark(true);
+        },
+      ),
+    ];
+
+    final String description;
+    if (amoledSelected) {
+      description =
+          'Pure black background — saves battery on OLED/AMOLED screens.';
+    } else if (current == ThemeMode.system) {
+      description = 'Follows your device theme setting.';
+    } else if (current == ThemeMode.light) {
+      description = 'Always uses the light palette.';
+    } else {
+      description = 'Deep navy greys that are easier on the eyes at night.';
+    }
+
+    return Padding(
+      padding: const EdgeInsets.all(AeroSpace.md),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: context.aero.surface2,
+                  borderRadius: AeroRadius.smBorderRadius,
+                  border: Border.all(color: context.aero.outline, width: 1.0),
+                ),
+                alignment: Alignment.center,
+                child: Icon(
+                  Symbols.palette_rounded,
+                  size: 20,
+                  color: context.aero.onSurface,
+                ),
+              ),
+              const SizedBox(width: AeroSpace.md),
+              Text(
+                'Theme Mode',
+                style: AeroText.body.copyWith(fontWeight: FontWeight.w600),
+              ),
+            ],
+          ),
+          const SizedBox(height: AeroSpace.md),
+          // Narrow phones can't fit four chips side by side; wrap to two rows
+          // instead of clipping.
+          LayoutBuilder(
+            builder: (context, constraints) {
+              if (constraints.maxWidth < 440) {
+                return Wrap(
+                  spacing: AeroSpace.sm,
+                  runSpacing: AeroSpace.sm,
+                  children: chips,
+                );
+              }
+              return Row(
+                children: [
+                  for (var i = 0; i < chips.length; i++) ...[
+                    if (i > 0) const SizedBox(width: AeroSpace.sm),
+                    Expanded(child: chips[i]),
+                  ],
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: AeroSpace.sm),
+          Text(
+            description,
+            style: AeroText.caption.copyWith(
+              color: context.aero.onSurfaceMuted,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<_SettingEntry> _getToolsItems(
+    BuildContext context,
+    PlatformSettingsProvider provider,
+  ) {
+    return [
+      _SettingEntry(
+        title: 'yt-dlp',
+        subtitle: 'Core video download engine',
+        keywords: [
+          'ytdlp',
+          'binary',
+          'version',
+          'update',
+          'downloader',
+          'core',
+        ],
+        widget: Consumer<ToolUpdateProvider>(
+          builder: (context, toolProvider, _) {
+            final state = toolProvider.ytdlpState;
+            return _buildToolRow(
               context,
-              title: 'yt-dlp',
-              icon: Icons.terminal_rounded,
-              state: ytdlpState,
-              onCheckUpdate: () => toolProvider.checkYtdlpForUpdate(force: true),
-              onUpdate: ytdlpState.hasUpdate
+              toolName: 'yt-dlp',
+              icon: Symbols.terminal_rounded,
+              state: state,
+              version: provider.ytdlpVersion,
+              onCheckUpdate: () =>
+                  toolProvider.checkYtdlpForUpdate(force: true),
+              onUpdate: state.hasUpdate
                   ? () => toolProvider.updateYtdlp()
                   : null,
-              onCancel: ytdlpState.isBusy
+              onCancel: state.isBusy
                   ? () => toolProvider.cancelYtdlpUpdate()
                   : null,
               onInstall: () => toolProvider.installYtdlp(),
@@ -324,17 +971,37 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
                 toolProvider,
                 'yt-dlp',
               ),
-            ),
-            _buildToolTile(
+            );
+          },
+        ),
+      ),
+      _SettingEntry(
+        title: 'FFmpeg',
+        subtitle: 'Media stream merge and format conversion engine',
+        keywords: [
+          'ffmpeg',
+          'binary',
+          'version',
+          'update',
+          'muxer',
+          'audio',
+          'convert',
+        ],
+        widget: Consumer<ToolUpdateProvider>(
+          builder: (context, toolProvider, _) {
+            final state = toolProvider.ffmpegState;
+            return _buildToolRow(
               context,
-              title: 'FFmpeg',
-              icon: Icons.video_settings_rounded,
-              state: ffmpegState,
-              onCheckUpdate: () => toolProvider.checkFfmpegForUpdate(force: true),
-              onUpdate: ffmpegState.hasUpdate
+              toolName: 'FFmpeg',
+              icon: Symbols.video_settings_rounded,
+              state: state,
+              version: provider.ffmpegVersion,
+              onCheckUpdate: () =>
+                  toolProvider.checkFfmpegForUpdate(force: true),
+              onUpdate: state.hasUpdate
                   ? () => toolProvider.updateFfmpeg()
                   : null,
-              onCancel: ffmpegState.isBusy
+              onCancel: state.isBusy
                   ? () => toolProvider.cancelFfmpegUpdate()
                   : null,
               onInstall: () => toolProvider.installFfmpeg(),
@@ -344,485 +1011,330 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
                 toolProvider,
                 'FFmpeg',
               ),
-              isOptional: true,
-              showDivider: false,
-            ),
-          ],
-        );
-      },
-    );
+            );
+          },
+        ),
+      ),
+    ];
   }
 
-  Widget _buildToolTile(
+  Widget _buildToolRow(
     BuildContext context, {
-    required String title,
+    required String toolName,
     required IconData icon,
     required ToolUpdateState state,
+    required String? version,
     required VoidCallback onCheckUpdate,
     VoidCallback? onUpdate,
+    VoidCallback? onCancel,
     required VoidCallback onInstall,
     required VoidCallback onAdvanced,
-    VoidCallback? onCancel,
-    bool isOptional = false,
-    bool showDivider = true,
   }) {
-    final theme = Theme.of(context);
-
     String subtitle;
-    Color iconColor;
-    Widget? trailing;
+    StatusPill pill;
 
-    VoidCallback? tileTap;
-    if (state.status == ToolUpdateStatus.error) {
-      final rawError =
-          state.errorMessage ??
-          state.statusMessage ??
-          'Operation failed. Tap to inspect.';
-      final parsed = ErrorHelper.parse(rawError);
-      subtitle = '${parsed.friendlyMessage} (Tap for info)';
-      iconColor = Colors.red;
-      tileTap = () => ErrorDetailsDialog.show(
-        context,
-        error: parsed,
-        customTitle: '$title Error',
-        onRetry: onCheckUpdate,
+    if (state.isBusy) {
+      subtitle = state.statusMessage ?? 'Operation in progress…';
+      pill = const StatusPill(
+        label: 'Updating…',
+        type: StatusPillType.info,
+        showSpinner: true,
       );
-      trailing = Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          IconButton(
-            icon: Icon(
-              Icons.info_outline_rounded,
-              size: 20,
-              color: theme.colorScheme.error,
-            ),
-            tooltip: 'View Error Details',
-            onPressed: tileTap,
-            visualDensity: VisualDensity.compact,
-          ),
-          const SizedBox(width: 4),
-          _buildSmallButton('Retry', onCheckUpdate),
-          const SizedBox(width: 8),
-          _buildAdvancedButton(onAdvanced),
-        ],
-      );
-    } else if (state.isBusy) {
-      subtitle = state.statusMessage ?? 'Working...';
-      iconColor = theme.colorScheme.primary;
-      trailing = Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          SizedBox(
-            width: 20,
-            height: 20,
-            child: CircularProgressIndicator(
-              strokeWidth: 2,
-              value: state.progress > 0 ? state.progress : null,
-              color: theme.colorScheme.primary,
-            ),
-          ),
-          if (onCancel != null) ...[
-            const SizedBox(width: 8),
-            IconButton(
-              onPressed: onCancel,
-              icon: Icon(Icons.close_rounded, size: 20, color: Colors.red),
-              visualDensity: VisualDensity.compact,
-              tooltip: 'Cancel',
-            ),
-          ],
-        ],
+    } else if (state.status == ToolUpdateStatus.error) {
+      subtitle = 'Error encountered. Tap to inspect.';
+      pill = StatusPill.danger(
+        label: 'Error',
+        onTap: () {
+          final parsed = ErrorHelper.parse(state.errorMessage ?? 'Tool error');
+          ErrorDetailsDialog.show(
+            context,
+            error: parsed,
+            customTitle: '$toolName Error',
+            onRetry: onCheckUpdate,
+          );
+        },
       );
     } else if (state.hasUpdate) {
-      subtitle = 'Update available: ${state.latestVersion}';
-      iconColor = Colors.orange;
-      trailing = Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            decoration: BoxDecoration(
-              color: Colors.orange.withValues(alpha: 0.2),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.circle, size: 8, color: Colors.orange),
-                const SizedBox(width: 4),
-                Text(
-                  'Update',
-                  style: TextStyle(
-                    color: Colors.orange,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 12,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 8),
-          _buildSmallButton('Update', onUpdate!),
-          const SizedBox(width: 8),
-          _buildAdvancedButton(onAdvanced),
-        ],
+      subtitle = PlatformUtils.isMobile
+          ? 'v${state.latestVersion} available'
+          : 'New release available: v${state.latestVersion}';
+      pill = StatusPill.warning(label: 'Update v${state.latestVersion}');
+    } else if (state.currentVersion != null || version != null) {
+      final v = state.currentVersion ?? version;
+      subtitle = 'Installed: v$v';
+      pill = StatusPill.success(label: 'v$v');
+    } else {
+      subtitle = 'Not installed or not detected';
+      pill = const StatusPill.warning(label: 'Not installed');
+    }
+
+    Widget actionButton;
+    if (state.isBusy) {
+      actionButton = AeroButton.tonal(
+        text: 'Cancel',
+        height: 32,
+        density: AeroDensity.compact,
+        onPressed: onCancel,
       );
-    } else if (state.isAvailable) {
-      // Tool is available - show version and status
-      if (state.status == ToolUpdateStatus.upToDate) {
-        subtitle = 'Up to date (v${state.currentVersion})';
-      } else if (state.currentVersion != null) {
-        // Tool is installed but update status not checked yet
-        subtitle = 'Installed (v${state.currentVersion})';
-      } else {
-        // Fallback if version is somehow null
-        subtitle = 'Installed';
-      }
-      iconColor = Colors.green;
-      trailing = Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _buildSmallButton('Check', onCheckUpdate),
-          const SizedBox(width: 8),
-          _buildAdvancedButton(onAdvanced),
-        ],
+    } else if (state.hasUpdate) {
+      actionButton = AeroButton.primary(
+        text: 'Update',
+        height: 32,
+        density: AeroDensity.compact,
+        onPressed: onUpdate,
+      );
+    } else if (!state.isAvailable) {
+      actionButton = AeroButton.primary(
+        text: 'Install',
+        height: 32,
+        density: AeroDensity.compact,
+        onPressed: onInstall,
       );
     } else {
-      subtitle = isOptional ? 'Not found (Optional)' : 'Not found';
-      iconColor = isOptional ? Colors.grey : Colors.red;
-      trailing = Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (isOptional)
-            Text(
-              'Optional',
-              style: TextStyle(
-                color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
-                fontSize: 12,
-              ),
-            ),
-          const SizedBox(width: 8),
-          _buildSmallButton('Install', onInstall, filled: !isOptional),
-          const SizedBox(width: 8),
-          _buildAdvancedButton(onAdvanced),
-        ],
+      actionButton = AeroButton.tonal(
+        text: 'Check',
+        height: 32,
+        density: AeroDensity.compact,
+        isLoading: state.status == ToolUpdateStatus.checking,
+        onPressed: onCheckUpdate,
       );
     }
 
-    return _buildSettingsTile(
-      title: title,
+    return SettingsRow(
+      title: toolName,
       subtitle: subtitle,
       icon: icon,
-      iconColor: iconColor,
-      trailing: trailing,
-      onTap: tileTap,
-      showDivider: showDivider,
-    );
-  }
-
-  // --- Logs Section ---
-  Widget _buildLogsSection(BuildContext context) {
-    return _buildSettingsSection(
-      children: [
-        _buildSettingsTile(
-          title: 'Report a Bug',
-          subtitle: 'Build a report (copy / save / file on GitHub)',
-          icon: Icons.pest_control_rounded,
-          iconColor: Theme.of(context).colorScheme.primary,
-          trailing: Icon(
-            Icons.chevron_right_rounded,
-            color: Theme.of(
-              context,
-            ).colorScheme.onSurface.withValues(alpha: 0.5),
-          ),
-          onTap: () => BugReportDialog.show(context),
-        ),
-        _buildSettingsTile(
-          title: 'Export Logs',
-          subtitle: 'Save app.log to a folder you choose',
-          icon: Icons.file_download_rounded,
-          trailing: Icon(
-            Icons.chevron_right_rounded,
-            color: Theme.of(
-              context,
-            ).colorScheme.onSurface.withValues(alpha: 0.5),
-          ),
-          onTap: () => _exportLogs(context),
-        ),
-        RecentLogsPreview(onViewAll: () => _showLogsViewer(context)),
-        _buildSettingsTile(
-          title: 'View Logs',
-          subtitle: 'Developer logs and debugging info',
-          icon: Icons.receipt_long_rounded,
-          trailing: Icon(
-            Icons.chevron_right_rounded,
-            color: Theme.of(
-              context,
-            ).colorScheme.onSurface.withValues(alpha: 0.5),
-          ),
-          onTap: () => _showLogsViewer(context),
-        ),
-        _buildSettingsTile(
-          title: 'Download Progress',
-          subtitle: 'Show floating progress indicator',
-          icon: Icons.download_rounded,
-          showDivider: false,
-          trailing: const CompactDownloadProgress(showWhenEmpty: true),
-        ),
-      ],
-    );
-  }
-
-  Future<void> _exportLogs(BuildContext context) async {
-    final messenger = ScaffoldMessenger.of(context);
-    final service = LoggingService();
-    final isMobile =
-        defaultTargetPlatform == TargetPlatform.android ||
-        defaultTargetPlatform == TargetPlatform.iOS ||
-        defaultTargetPlatform == TargetPlatform.fuchsia;
-
-    try {
-      final pickedPath = await FilePicker.platform.getDirectoryPath(
-        dialogTitle: 'Select a folder to export logs',
-      );
-
-      if (pickedPath == null) return;
-
-      // Fail fast on SD-card / unwritable picks: FilePicker returns a raw
-      // path with no persistable SAF grant, so yt-dlp-style raw writes would
-      // fail later. Validate before attempting the export.
-      if (PlatformUtils.isAndroid) {
-        final validation =
-            await AndroidStorageService().validateCustomDirectory(pickedPath);
-        if (!validation.ok) {
-          if (!mounted) return;
-          messenger.showSnackBar(
-            SnackBar(content: Text(validation.reason ?? 'Folder not usable.')),
-          );
-          return;
-        }
-      }
-
-      final exportedPath = await service.exportLogsToFile(pickedPath);
-      if (!mounted) return;
-
-      messenger.showSnackBar(
-        SnackBar(content: Text('Logs exported to $exportedPath')),
-      );
-    } catch (e) {
-      if (!isMobile) {
-        if (!mounted) return;
-        messenger.showSnackBar(
-          SnackBar(content: Text('Failed to export logs: $e')),
-        );
-        return;
-      }
-
-      try {
-        final copiedText = service.exportLogs();
-        if (copiedText.trim().isEmpty) {
-          throw StateError('No log entries are available to copy.');
-        }
-
-        await Clipboard.setData(ClipboardData(text: copiedText));
-        if (!mounted) return;
-
-        messenger.showSnackBar(
-          const SnackBar(content: Text('Logs copied to clipboard')),
-        );
-      } catch (clipboardError) {
-        if (!mounted) return;
-        messenger.showSnackBar(
-          SnackBar(content: Text('Failed to export logs: $clipboardError')),
-        );
-      }
-    }
-  }
-
-  void _showLogsViewer(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        height: MediaQuery.of(context).size.height * 0.7,
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surface,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-        ),
-        child: const LogsViewer(),
-      ),
-    );
-  }
-
-  Widget _buildAdvancedButton(VoidCallback onTap) {
-    return IconButton(
-      onPressed: onTap,
-      visualDensity: VisualDensity.compact,
-      icon: Icon(
-        Icons.tune_rounded,
-        size: 20,
-        color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.6),
-      ),
-      tooltip: 'Advanced Settings',
-    );
-  }
-
-  Widget _buildSmallButton(
-    String label,
-    VoidCallback onPressed, {
-    bool filled = false,
-  }) {
-    final theme = Theme.of(context);
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onPressed,
-        splashColor: Colors.transparent,
-        highlightColor: theme.colorScheme.primary.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(20),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-          decoration: BoxDecoration(
-            color: filled
-                ? theme.colorScheme.primary
-                : theme.colorScheme.primary.withValues(alpha: 0.15),
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: Text(
-            label,
-            style: TextStyle(
-              color: filled ? Colors.black : theme.colorScheme.primary,
-              fontWeight: FontWeight.bold,
-              fontSize: 12,
+      padding: PlatformUtils.isMobile
+          ? const EdgeInsets.symmetric(horizontal: 12, vertical: 12)
+          : null,
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (!PlatformUtils.isMobile) ...[
+            pill,
+            const SizedBox(width: AeroSpace.sm),
+            actionButton,
+          ] else
+            IconButton.filledTonal(
+              tooltip: state.isBusy
+                  ? 'Cancel $toolName update'
+                  : state.hasUpdate
+                  ? 'Update $toolName'
+                  : !state.isAvailable
+                  ? 'Install $toolName'
+                  : 'Check $toolName for updates',
+              onPressed: state.isBusy
+                  ? onCancel
+                  : state.hasUpdate
+                  ? onUpdate
+                  : !state.isAvailable
+                  ? onInstall
+                  : onCheckUpdate,
+              icon: Icon(
+                state.isBusy
+                    ? Symbols.close_rounded
+                    : state.hasUpdate
+                    ? Symbols.system_update_alt_rounded
+                    : !state.isAvailable
+                    ? Symbols.download_rounded
+                    : Symbols.refresh_rounded,
+                size: 20,
+              ),
             ),
+          const SizedBox(width: AeroSpace.xs),
+          IconButton(
+            icon: const Icon(Symbols.more_vert_rounded, size: 18),
+            tooltip: 'Advanced Settings',
+            onPressed: onAdvanced,
           ),
-        ),
+        ],
       ),
     );
   }
 
-  Widget _buildStatusChip(String label, {required Color color}) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: color.withValues(alpha: 0.25)),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: color,
-          fontWeight: FontWeight.w700,
-          fontSize: 11,
-          letterSpacing: 0.2,
+  List<_SettingEntry> _getBackgroundItems(
+    BuildContext context,
+    PlatformSettingsProvider provider,
+  ) {
+    return [
+      _SettingEntry(
+        title: 'Download Notifications',
+        subtitle: 'Show system alerts on download progress and completion',
+        keywords: ['alerts', 'push', 'notifications', 'tray', 'background'],
+        widget: SettingsRow(
+          title: 'Download Notifications',
+          subtitle: 'Show system alerts on download progress and completion',
+          icon: Symbols.notifications_rounded,
+          trailing: Switch.adaptive(
+            value: provider.enableNotifications,
+            activeThumbColor: context.aero.primary,
+            activeTrackColor: context.aero.primarySoft,
+            onChanged: provider.setEnableNotifications,
+          ),
+          onTap: () =>
+              provider.setEnableNotifications(!provider.enableNotifications),
         ),
       ),
-    );
+      _SettingEntry(
+        title: 'SponsorBlock',
+        subtitle:
+            'Automatically skip sponsored segments and non-music sections',
+        keywords: [
+          'skip',
+          'sponsors',
+          'segments',
+          'intro',
+          'outro',
+          'sponsorblock',
+        ],
+        widget: SettingsRow(
+          title: 'SponsorBlock',
+          subtitle:
+              'Automatically skip sponsored segments and non-music sections',
+          icon: Symbols.skip_next_rounded,
+          trailing: Switch.adaptive(
+            value: provider.sponsorBlockEnabled,
+            activeThumbColor: context.aero.primary,
+            activeTrackColor: context.aero.primarySoft,
+            onChanged: provider.setSponsorBlockEnabled,
+          ),
+          onTap: () =>
+              provider.setSponsorBlockEnabled(!provider.sponsorBlockEnabled),
+        ),
+      ),
+      if (provider.isAndroid)
+        _SettingEntry(
+          title: 'Unrestricted Battery',
+          subtitle: provider.isBatteryOptimizationIgnored
+              ? 'Allowed — downloads continue when the screen is locked'
+              : 'Restricted — system may suspend downloads when screen turns off',
+          keywords: ['battery', 'unrestricted', 'doze', 'pause', 'screen off'],
+          widget: _buildBatteryOptimizationTile(provider),
+        ),
+      if (provider.isAndroid && provider.isAggressiveOem)
+        _SettingEntry(
+          title: 'OEM Autostart Settings',
+          subtitle: 'Configure device-specific background whitelist',
+          keywords: [
+            'autostart',
+            'xiaomi',
+            'samsung',
+            'oppo',
+            'vivo',
+            'huawei',
+          ],
+          widget: SettingsRow(
+            title: '${provider.deviceManufacturer ?? "OEM"} Autostart Settings',
+            subtitle: 'Configure device-specific background whitelist',
+            icon: Symbols.power_settings_new_rounded,
+            trailing: const Icon(Symbols.open_in_new_rounded, size: 18),
+            onTap: () => provider.openOemAutostartSettings(),
+          ),
+        ),
+      _SettingEntry(
+        title: 'Download Archive',
+        subtitle: 'Track downloaded video IDs to avoid duplicate downloads',
+        keywords: [
+          'archive',
+          'duplicate',
+          'history',
+          're-download',
+          'skip existing',
+        ],
+        widget: SettingsRow(
+          title: 'Download Archive',
+          subtitle: 'Track downloaded video IDs to avoid duplicate downloads',
+          icon: Symbols.history_rounded,
+          trailing: Switch.adaptive(
+            value: provider.useDownloadArchive,
+            activeThumbColor: context.aero.primary,
+            activeTrackColor: context.aero.primarySoft,
+            onChanged: provider.setUseDownloadArchive,
+          ),
+          onTap: () =>
+              provider.setUseDownloadArchive(!provider.useDownloadArchive),
+        ),
+      ),
+    ];
   }
 
   Widget _buildBatteryOptimizationTile(PlatformSettingsProvider provider) {
-    final theme = Theme.of(context);
     final isExempt = provider.isBatteryOptimizationIgnored;
     final isChecking = provider.isCheckingBatteryOptimization;
-    final color = isExempt ? Colors.green : Colors.orange;
 
-    return _buildSettingsTile(
+    return SettingsRow(
       title: 'Unrestricted Battery',
       subtitle: isExempt
-          ? 'Allowed — downloads keep running when the screen is off'
-          : 'Restricted — Android may pause downloads when the screen is off. Tap to allow.',
+          ? 'Allowed — downloads continue when the screen is locked'
+          : 'Restricted — system may suspend downloads when screen turns off. Tap to allow.',
       icon: isExempt
-          ? Icons.battery_charging_full_rounded
-          : Icons.battery_alert_rounded,
-      iconColor: color,
+          ? Symbols.battery_charging_full_rounded
+          : Symbols.battery_alert_rounded,
+      iconColor: isExempt ? Colors.green : Colors.orange,
       trailing: isChecking
-          ? SizedBox(
-              width: 20,
-              height: 20,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                color: theme.colorScheme.primary,
-              ),
+          ? const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
             )
-          : _buildStatusChip(isExempt ? 'ALLOWED' : 'RESTRICTED', color: color),
+          : StatusPill(
+              label: isExempt ? 'Allowed' : 'Restricted',
+              type: isExempt ? StatusPillType.success : StatusPillType.warning,
+            ),
       onTap: isChecking
           ? null
           : () async {
-              final messenger = ScaffoldMessenger.of(context);
-              // Blocks until the user responds to the system dialog (or
-              // returns from the fallback battery settings page).
-              final granted =
-                  await provider.requestBatteryOptimizationExemption();
+              final granted = await provider
+                  .requestBatteryOptimizationExemption();
               if (!mounted) return;
-
               if (granted) {
-                messenger.showSnackBar(
-                  SnackBar(
-                    content: const Text(
-                      'Unrestricted battery allowed — downloads will keep running in the background.',
-                    ),
-                    behavior: SnackBarBehavior.floating,
-                  ),
+                AeroSnack.success(
+                  context,
+                  message: 'Unrestricted battery allowed',
                 );
               } else {
                 _showBatteryHelpDialog(provider);
               }
             },
-      showDivider: true,
     );
   }
 
-  Widget _buildOemAutostartTile(PlatformSettingsProvider provider) {
-    final rawManufacturer = provider.deviceManufacturer ?? 'Device';
-    final manufacturer = rawManufacturer.isNotEmpty
-        ? '${rawManufacturer[0].toUpperCase()}${rawManufacturer.substring(1)}'
-        : 'OEM';
-
-    return _buildSettingsTile(
-      title: '$manufacturer Autostart Settings',
-      subtitle:
-          'Open $manufacturer settings to permit autostart and unrestricted background execution',
-      icon: Icons.power_settings_new_rounded,
-      iconColor: Colors.blueAccent,
-      trailing: const Icon(Icons.open_in_new_rounded, size: 20),
-      onTap: () async {
-        await provider.openOemAutostartSettings();
-      },
-      showDivider: true,
-    );
-  }
-
-  /// Shown when the exemption request came back without a grant — either the
-  /// user denied the prompt, or their device (Samsung/Xiaomi/...) skipped the
-  /// prompt and sent them to the settings list instead. Offers a one-tap jump
-  /// to the battery-optimization list page.
   void _showBatteryHelpDialog(PlatformSettingsProvider provider) {
-    showDialog<void>(
+    showAeroDialog<void>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        icon: Icon(
-          Icons.battery_alert_rounded,
-          color: Theme.of(dialogContext).colorScheme.error,
+      builder: (dialogContext) => AeroDialog(
+        leading: Container(
+          width: 36,
+          height: 36,
+          decoration: BoxDecoration(
+            color: dialogContext.aero.danger.withValues(alpha: 0.15),
+            borderRadius: AeroRadius.smBorderRadius,
+          ),
+          alignment: Alignment.center,
+          child: Icon(
+            Symbols.battery_alert_rounded,
+            color: dialogContext.aero.danger,
+            size: 20,
+          ),
         ),
-        title: const Text('Downloads may pause'),
-        content: const Text(
-          'Your device didn\'t grant unrestricted battery. Some phones '
-          '(Samsung, Xiaomi, etc.) hide the usual prompt.\n\n'
-          'To fix it, find this app in the battery optimization list and '
-          'set it to "Don\'t optimize" / "Unrestricted".',
+        titleText: 'Downloads May Pause',
+        content: Text(
+          'Your device did not grant unrestricted battery. To fix background paused downloads, locate AeroTube in your system battery optimization settings and choose "Unrestricted".',
+          style: AeroText.bodySm.copyWith(
+            color: dialogContext.aero.onSurfaceMuted,
+          ),
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Later'),
+          AeroButton.ghost(
+            text: 'Later',
+            density: AeroDensity.compact,
+            onPressed: () => Navigator.pop(dialogContext),
           ),
-          FilledButton.icon(
-            icon: const Icon(Icons.settings_rounded, size: 18),
-            label: const Text('Open battery settings'),
+          AeroButton.primary(
+            text: 'Open Battery Settings',
+            density: AeroDensity.compact,
             onPressed: () {
-              Navigator.of(dialogContext).pop();
+              Navigator.pop(dialogContext);
               provider.openBatteryOptimizationSettings();
             },
           ),
@@ -831,139 +1343,326 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
     );
   }
 
-  // --- Download Preferences Section ---
-  Widget _buildDownloadSection(
+  List<_SettingEntry> _getAdvancedItems(
     BuildContext context,
     PlatformSettingsProvider provider,
   ) {
-    final theme = Theme.of(context);
-    return _buildSettingsSection(
-      children: [
-        _buildSettingsTile(
-          title: 'Default Quality',
-          subtitle: provider.defaultQuality,
-          icon: Icons.high_quality_rounded,
-          trailing: Icon(
-            Icons.chevron_right_rounded,
-            color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+    return [
+      _SettingEntry(
+        title: 'Component Gallery',
+        subtitle: 'Interactive catalog of all Aero design system widgets',
+        keywords: ['components', 'gallery', 'design', 'tokens', 'debug', 'ui'],
+        widget: SettingsRow(
+          title: 'Component Gallery',
+          subtitle: 'Interactive catalog of all Aero design system widgets',
+          icon: Symbols.widgets_rounded,
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const ComponentGalleryScreen()),
           ),
-          onTap: () => _showQualitySheet(context, provider),
         ),
-        _buildSettingsTile(
-          title: 'Default Subtitle Language',
-          subtitle: _subtitleLanguageLabel(provider.defaultSubtitleLanguage),
-          icon: Icons.subtitles_rounded,
-          trailing: Icon(
-            Icons.chevron_right_rounded,
-            color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+      ),
+      _SettingEntry(
+        title: 'View Logs',
+        subtitle: 'Developer debugging logs and runtime events',
+        keywords: ['logs', 'view', 'console', 'debug', 'errors', 'terminal'],
+        widget: SettingsRow(
+          title: 'View Logs',
+          subtitle: 'Developer debugging logs and runtime events',
+          icon: Symbols.receipt_long_rounded,
+          onTap: () => _showLogsViewer(context),
+        ),
+      ),
+      _SettingEntry(
+        title: 'Export Logs',
+        subtitle: 'Save or copy app.log for troubleshooting',
+        keywords: ['export', 'save logs', 'copy', 'file', 'share'],
+        widget: SettingsRow(
+          title: 'Export Logs',
+          subtitle: 'Save or copy app.log for troubleshooting',
+          icon: Symbols.file_download_rounded,
+          onTap: () => _exportLogs(context),
+        ),
+      ),
+      _SettingEntry(
+        title: 'Report a Bug',
+        subtitle: 'Compile diagnostic report to file on GitHub',
+        keywords: ['bug', 'report', 'issue', 'github', 'crash', 'problem'],
+        widget: SettingsRow(
+          title: 'Report a Bug',
+          subtitle: 'Compile diagnostic report to file on GitHub',
+          icon: Symbols.pest_control_rounded,
+          onTap: () => BugReportDialog.show(context),
+        ),
+      ),
+      _SettingEntry(
+        title: 'Enable Logging',
+        subtitle: 'Write debug information to file',
+        keywords: ['logging', 'debug', 'trace', 'file'],
+        widget: SettingsRow(
+          title: 'Enable Logging',
+          subtitle: 'Write debug information to file',
+          icon: Symbols.bug_report_rounded,
+          trailing: Switch.adaptive(
+            value: provider.enableLogging,
+            activeThumbColor: context.aero.primary,
+            activeTrackColor: context.aero.primarySoft,
+            onChanged: provider.setEnableLogging,
           ),
-          onTap: () => _showDefaultSubtitleLanguageSheet(context, provider),
+          onTap: () => provider.setEnableLogging(!provider.enableLogging),
         ),
-        _buildSettingsTile(
-          title: 'Download Location',
-          subtitle: provider.outputPath ?? 'Not set',
-          icon: Icons.folder_rounded,
-          trailing: Icon(
-            Icons.chevron_right_rounded,
-            color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+      ),
+    ];
+  }
+
+  List<_SettingEntry> _getAboutItems(
+    BuildContext context,
+    PlatformSettingsProvider provider,
+    UpdateProvider updateProvider,
+  ) {
+    return [
+      _SettingEntry(
+        title: 'Check for Updates',
+        subtitle: updateProvider.hasUpdate
+            ? 'Version ${updateProvider.updateInfo?.version} available'
+            : 'Check for new AeroTube releases',
+        keywords: ['update', 'version', 'github', 'download', 'upgrade'],
+        widget: SettingsRow(
+          title: 'Check for Updates',
+          subtitle: updateProvider.hasUpdate
+              ? 'Version ${updateProvider.updateInfo?.version} available'
+              : 'Check for new AeroTube releases',
+          icon: Symbols.system_update_rounded,
+          trailing: updateProvider.isChecking
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : updateProvider.hasUpdate
+              ? const StatusPill.warning(label: 'Update Available')
+              : const Icon(Symbols.chevron_right_rounded, size: 20),
+          onTap: updateProvider.isChecking
+              ? null
+              : () async {
+                  await updateProvider.checkForUpdates(force: true);
+                  if (!context.mounted) return;
+                  if (updateProvider.status == UpdateStatus.available ||
+                      updateProvider.status == UpdateStatus.upToDate ||
+                      updateProvider.status == UpdateStatus.error) {
+                    showAeroDialog(
+                      context: context,
+                      barrierDismissible: false,
+                      builder: (_) => const UpdateDialog(),
+                    );
+                  }
+                },
+        ),
+      ),
+      _SettingEntry(
+        title: 'Auto-check for Updates',
+        subtitle: 'Check automatically at app launch',
+        keywords: ['auto check', 'startup', 'updates', 'automatic'],
+        widget: SettingsRow(
+          title: 'Auto-check for Updates',
+          subtitle: 'Check automatically at app launch',
+          icon: Symbols.update_rounded,
+          trailing: Switch.adaptive(
+            value: updateProvider.autoCheckEnabled,
+            activeThumbColor: context.aero.primary,
+            activeTrackColor: context.aero.primarySoft,
+            onChanged: (val) => updateProvider.setAutoCheckEnabled(val),
           ),
-          onTap: () async {
-            final result = await FilePicker.platform.getDirectoryPath();
-            if (result == null) return;
-            if (!context.mounted) return;
-            // FilePicker gives a raw path with no persistable SAF grant.
-            // Validate writability now (blocks SD-card trap) instead of
-            // saving a folder that will fail writes later.
-            if (provider.isAndroid) {
-              final validation = await AndroidStorageService()
-                  .validateCustomDirectory(result);
-              if (!context.mounted) return;
-              if (!validation.ok) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(validation.reason ?? 'Folder not usable.'),
-                    behavior: SnackBarBehavior.floating,
-                  ),
-                );
-                return;
-              }
-            }
-            await provider.setOutputPath(result);
-            if (!context.mounted) return;
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Download location set to $result'),
-                behavior: SnackBarBehavior.floating,
-              ),
-            );
-          },
+          onTap: () => updateProvider.setAutoCheckEnabled(
+            !updateProvider.autoCheckEnabled,
+          ),
         ),
-        if (provider.isAndroid)
-          _AndroidStoragePermissionTile(provider: provider),
-        const _ConcurrentDownloadsControl(),
-        _buildToggleTile(
-          title: 'Embed Thumbnail',
-          subtitle: 'Add thumbnail to downloaded files',
-          icon: Icons.image_rounded,
-          value: provider.embedThumbnail,
-          onChanged: provider.setEmbedThumbnail,
-        ),
-        _buildToggleTile(
-          title: 'Embed Metadata',
-          subtitle: 'Include video info in file metadata',
-          icon: Icons.info_outline_rounded,
-          value: provider.embedMetadata,
-          onChanged: provider.setEmbedMetadata,
-          showDivider: false,
-        ),
-      ],
+      ),
+    ];
+  }
+
+  Widget _buildAboutFooter(BuildContext context) {
+    final colors = context.aero;
+
+    return Center(
+      child: Column(
+        children: [
+          const AppLogo(size: 72, showGlow: true),
+          const SizedBox(height: AeroSpace.md),
+          Text(
+            'AeroTube v$_appVersion',
+            style: AeroText.bodySm.copyWith(
+              color: colors.onSurfaceMuted,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: AeroSpace.xs),
+          Text(
+            'Clean, focused media downloader',
+            style: AeroText.caption.copyWith(color: colors.onSurfaceFaint),
+          ),
+        ],
+      ).animate().fadeIn(duration: 300.ms),
     );
+  }
+
+  // =========================================================================
+  // MODAL SHEETS & ACTIONS
+  // =========================================================================
+
+  Future<void> _confirmLogout(
+    BuildContext context,
+    PlatformSettingsProvider provider,
+  ) async {
+    final confirmed = await showAeroDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AeroDialog(
+        leading: Container(
+          width: 36,
+          height: 36,
+          decoration: BoxDecoration(
+            color: dialogContext.aero.danger.withValues(alpha: 0.15),
+            borderRadius: AeroRadius.smBorderRadius,
+          ),
+          alignment: Alignment.center,
+          child: Icon(
+            Symbols.logout_rounded,
+            color: dialogContext.aero.danger,
+            size: 20,
+          ),
+        ),
+        titleText: 'Log out of YouTube?',
+        content: Text(
+          'You will need to sign in again to download members-only or age-restricted videos.',
+          style: AeroText.bodySm.copyWith(
+            color: dialogContext.aero.onSurfaceMuted,
+          ),
+        ),
+        actions: [
+          AeroButton.ghost(
+            text: 'Cancel',
+            density: AeroDensity.compact,
+            onPressed: () => Navigator.pop(dialogContext, false),
+          ),
+          AeroButton.danger(
+            text: 'Log out',
+            density: AeroDensity.compact,
+            onPressed: () => Navigator.pop(dialogContext, true),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      await provider.logoutFromYouTube();
+      await provider.setCookieBrowser(null);
+      if (context.mounted) {
+        AeroSnack.info(context, message: 'Logged out of YouTube');
+      }
+    }
+  }
+
+  Future<void> _confirmClearHistory(BuildContext context) async {
+    final confirmed = await showAeroDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AeroDialog(
+        leading: Container(
+          width: 36,
+          height: 36,
+          decoration: BoxDecoration(
+            color: dialogContext.aero.danger.withValues(alpha: 0.15),
+            borderRadius: AeroRadius.smBorderRadius,
+          ),
+          alignment: Alignment.center,
+          child: Icon(
+            Symbols.delete_rounded,
+            color: dialogContext.aero.danger,
+            size: 20,
+          ),
+        ),
+        titleText: 'Clear Download History?',
+        content: Text(
+          'This will remove all downloaded entries from your history list. Files on disk will remain untouched.',
+          style: AeroText.bodySm.copyWith(
+            color: dialogContext.aero.onSurfaceMuted,
+          ),
+        ),
+        actions: [
+          AeroButton.ghost(
+            text: 'Cancel',
+            density: AeroDensity.compact,
+            onPressed: () => Navigator.pop(dialogContext, false),
+          ),
+          AeroButton.danger(
+            text: 'Clear history',
+            density: AeroDensity.compact,
+            onPressed: () => Navigator.pop(dialogContext, true),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && context.mounted) {
+      if (PlatformUtils.isMobile) {
+        context.read<MobileDownloadProvider>().clearCompleted();
+        context.read<MobileDownloadProvider>().clearFailed();
+        context.read<MobileDownloadProvider>().clearCancelled();
+      } else {
+        await context.read<DownloadProvider>().clearHistory();
+      }
+      if (context.mounted) {
+        AeroSnack.success(context, message: 'Download history cleared');
+      }
+    }
   }
 
   void _showQualitySheet(
     BuildContext context,
     PlatformSettingsProvider provider,
   ) {
-    final qualities = ['Best', '4K', '1080p', '720p', '480p', 'Audio Only'];
+    const qualities = ['Best', '4K', '1080p', '720p', '480p', 'Audio Only'];
 
-    showModalBottomSheet(
+    showAeroSheet(
       context: context,
-      backgroundColor: Colors.transparent,
-      builder: (context) => _buildBottomSheet(
-        title: 'Select Quality',
-        children: qualities
-            .map(
-              (q) => _buildSheetOption(
-                label: q,
-                isSelected: provider.defaultQuality == q,
-                icon: _getQualityIcon(q),
-                onTap: () {
-                  provider.setDefaultQuality(q);
-                  Navigator.pop(context);
-                },
-              ),
-            )
-            .toList(),
-      ),
+      titleText: 'Default Download Quality',
+      builder: (sheetContext) {
+        final colors = sheetContext.aero;
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: qualities.map((q) {
+            final isSelected = provider.defaultQuality == q;
+            return SettingsRow(
+              title: q,
+              icon: _getQualityIcon(q),
+              trailing: isSelected
+                  ? Icon(Symbols.check_rounded, color: colors.primary, size: 20)
+                  : null,
+              onTap: () {
+                provider.setDefaultQuality(q);
+                Navigator.pop(sheetContext);
+              },
+            );
+          }).toList(),
+        );
+      },
     );
   }
 
   IconData _getQualityIcon(String quality) {
     switch (quality) {
       case 'Best':
-        return Icons.auto_awesome_rounded;
+        return Symbols.auto_awesome_rounded;
       case '4K':
-        return Icons.four_k_rounded;
+        return Symbols.four_k_rounded;
       case '1080p':
-        return Icons.hd_rounded;
+        return Symbols.hd_rounded;
       case '720p':
-        return Icons.sd_rounded;
       case '480p':
-        return Icons.sd_rounded;
+        return Symbols.sd_rounded;
       case 'Audio Only':
-        return Icons.audiotrack_rounded;
+        return Symbols.audiotrack_rounded;
       default:
-        return Icons.high_quality_rounded;
+        return Symbols.high_quality_rounded;
     }
   }
 
@@ -972,7 +1671,7 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
     PlatformSettingsProvider provider,
   ) {
     const subtitleLanguages = <Map<String, String>>[
-      {'code': 'auto', 'label': 'Auto (video default)'},
+      {'code': 'auto', 'label': 'Auto (Video Default)'},
       {'code': 'en', 'label': 'English'},
       {'code': 'ar', 'label': 'Arabic'},
       {'code': 'es', 'label': 'Spanish'},
@@ -988,34 +1687,38 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
       {'code': 'zh', 'label': 'Chinese'},
     ];
 
-    showModalBottomSheet(
+    showAeroSheet(
       context: context,
-      backgroundColor: Colors.transparent,
-      builder: (context) => _buildBottomSheet(
-        title: 'Default Subtitle Language',
-        children: subtitleLanguages
-            .map(
-              (lang) => _buildSheetOption(
-                label: lang['label']!,
-                subtitle: lang['code'] == 'auto'
-                    ? 'Pick first available subtitle automatically'
-                    : 'Code: ${lang['code']}',
-                isSelected: provider.defaultSubtitleLanguage == lang['code'],
-                icon: _getSubtitleLanguageIcon(lang['code']!),
-                onTap: () {
-                  provider.setDefaultSubtitleLanguage(lang['code']!);
-                  Navigator.pop(context);
-                },
-              ),
-            )
-            .toList(),
-      ),
+      titleText: 'Default Subtitle Language',
+      builder: (sheetContext) {
+        final colors = sheetContext.aero;
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: subtitleLanguages.map((lang) {
+            final isSelected = provider.defaultSubtitleLanguage == lang['code'];
+            return SettingsRow(
+              title: lang['label']!,
+              subtitle: lang['code'] == 'auto'
+                  ? 'Pick first available subtitle stream automatically'
+                  : 'Language code: ${lang['code']}',
+              icon: _getSubtitleLanguageIcon(lang['code']!),
+              trailing: isSelected
+                  ? Icon(Symbols.check_rounded, color: colors.primary, size: 20)
+                  : null,
+              onTap: () {
+                provider.setDefaultSubtitleLanguage(lang['code']!);
+                Navigator.pop(sheetContext);
+              },
+            );
+          }).toList(),
+        );
+      },
     );
   }
 
   String _subtitleLanguageLabel(String code) {
     const labels = <String, String>{
-      'auto': 'Auto (video default)',
+      'auto': 'Auto (Video Default)',
       'en': 'English',
       'ar': 'Arabic',
       'es': 'Spanish',
@@ -1034,236 +1737,40 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
   }
 
   IconData _getSubtitleLanguageIcon(String code) {
-    if (code == 'auto') return Icons.auto_awesome_rounded;
-    if (code == 'ar') return Icons.language_rounded;
-    return Icons.translate_rounded;
+    if (code == 'auto') return Symbols.auto_awesome_rounded;
+    if (code == 'ar') return Symbols.language_rounded;
+    return Symbols.translate_rounded;
   }
 
-  // --- Appearance Section ---
-  Widget _buildAppearanceSection(
+  void _showBrowserSheet(
     BuildContext context,
     PlatformSettingsProvider provider,
   ) {
-    return _buildSettingsSection(
-      children: [
-        Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: Theme.of(
-                        context,
-                      ).colorScheme.primary.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Icon(
-                      Icons.palette_rounded,
-                      size: 20,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  const Text(
-                    'Theme Mode',
-                    style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              _buildThemeChips(provider),
-            ],
-          ),
-        ),
-        Divider(
-          height: 1,
-          color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.05),
-        ),
-        _buildToggleTile(
-          title: 'Enable Animations',
-          subtitle: 'Show UI animations and page transitions',
-          icon: Icons.animation_rounded,
-          value: provider.enableAnimations,
-          onChanged: provider.setEnableAnimations,
-          showDivider: false,
-        ),
-      ],
-    );
-  }
+    const browsers = ['chrome', 'firefox', 'edge', 'opera', 'brave', 'vivaldi'];
 
-  Widget _buildThemeChips(PlatformSettingsProvider provider) {
-    return Row(
-      children: [
-        _buildThemeChip(
-          label: 'Auto',
-          icon: Icons.auto_mode_rounded,
-          isSelected: provider.themeMode == ThemeMode.system,
-          onTap: () => provider.setThemeMode(ThemeMode.system),
-        ),
-        const SizedBox(width: 8),
-        _buildThemeChip(
-          label: 'Light',
-          icon: Icons.light_mode_rounded,
-          isSelected: provider.themeMode == ThemeMode.light,
-          onTap: () => provider.setThemeMode(ThemeMode.light),
-        ),
-        const SizedBox(width: 8),
-        _buildThemeChip(
-          label: 'Dark',
-          icon: Icons.dark_mode_rounded,
-          isSelected: provider.themeMode == ThemeMode.dark,
-          onTap: () => provider.setThemeMode(ThemeMode.dark),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildThemeChip({
-    required String label,
-    required IconData icon,
-    required bool isSelected,
-    required VoidCallback onTap,
-  }) {
-    final theme = Theme.of(context);
-
-    return Expanded(
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          splashColor: Colors.transparent,
-          highlightColor: Colors.transparent,
-          borderRadius: BorderRadius.circular(12),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-            decoration: BoxDecoration(
-              color: isSelected
-                  ? theme.colorScheme.primary
-                  : theme.colorScheme.onSurface.withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: isSelected
-                    ? theme.colorScheme.primary
-                    : theme.colorScheme.onSurface.withValues(alpha: 0.1),
-              ),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  icon,
-                  size: 18,
-                  color: isSelected
-                      ? theme.colorScheme.onPrimary
-                      : theme.colorScheme.onSurface.withValues(alpha: 0.7),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  label,
-                  style: TextStyle(
-                    color: isSelected
-                        ? theme.colorScheme.onPrimary
-                        : theme.colorScheme.onSurface,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 13,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  // --- Auth Section ---
-  Widget _buildAuthSection(
-    BuildContext context,
-    PlatformSettingsProvider provider,
-  ) {
-    final isAuthData = provider.isCookieActive;
-    final theme = Theme.of(context);
-
-    return _buildSettingsSection(
-      children: [
-        _buildSettingsTile(
-          title: 'Current Status',
-          subtitle: provider.cookieStatus,
-          icon: isAuthData
-              ? Icons.lock_open_rounded
-              : Icons.lock_outline_rounded,
-          iconColor: isAuthData ? Colors.green : Colors.grey,
-          trailing: isAuthData
-              ? _buildSmallButton('Logout', () async {
-                  await provider.logoutFromYouTube();
-                  await provider.setCookieBrowser(null);
-                })
-              : null,
-        ),
-        _buildSettingsTile(
-          title: 'Login to YouTube',
-          subtitle: 'Open secure browser to sign in',
-          icon: Icons.login_rounded,
-          iconColor: Colors.blueAccent,
-          trailing: Icon(
-            Icons.chevron_right_rounded,
-            color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
-          ),
-          onTap: () async {
-            final result = await Navigator.pushNamed(context, '/youtube_login');
-            if (result == true) {
-              await provider.onYouTubeLoginComplete();
-            }
-          },
-        ),
-        // Browser cookie extraction (--cookies-from-browser) is a desktop-only
-        // yt-dlp feature; on Android it silently fails. Hide the tile there.
-        if (!provider.isAndroid)
-          _buildSettingsTile(
-            title: 'Use Browser Cookies',
-            subtitle: _getBrowserLabel(provider.settings.cookieBrowser),
-            icon: Icons.cookie_rounded,
-            trailing: Icon(
-              Icons.chevron_right_rounded,
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
-            ),
-            onTap: () => _showBrowserSheet(context, provider),
-          ),
-        _buildToggleTile(
-          title: 'Enable Cookies File',
-          subtitle: 'Import Netscape format cookies.txt',
-          icon: Icons.file_copy_outlined,
-          value: provider.enableCookies,
-          onChanged: provider.setEnableCookies,
-          showDivider: provider.enableCookies,
-        ),
-        if (provider.enableCookies)
-          _buildSettingsTile(
-            title: 'Import cookies.txt',
-            subtitle: provider.cookieFileName ?? 'No file selected',
-            icon: Icons.upload_file_rounded,
-            trailing: Icon(
-              Icons.chevron_right_rounded,
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
-            ),
-            showDivider: false,
-            onTap: () async {
-              final result = await FilePicker.platform.pickFiles(
-                type: FileType.custom,
-                allowedExtensions: ['txt'],
-              );
-
-              if (result != null) {
-                provider.setCookiePath(result.files.single.path);
-              }
-            },
-          ),
-      ],
+    showAeroSheet(
+      context: context,
+      titleText: 'Select Browser for Cookies',
+      builder: (sheetContext) {
+        final colors = sheetContext.aero;
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: browsers.map((b) {
+            final isSelected = provider.settings.cookieBrowser == b;
+            return SettingsRow(
+              title: b[0].toUpperCase() + b.substring(1),
+              icon: _getBrowserIcon(b),
+              trailing: isSelected
+                  ? Icon(Symbols.check_rounded, color: colors.primary, size: 20)
+                  : null,
+              onTap: () {
+                provider.setCookieBrowser(b);
+                Navigator.pop(sheetContext);
+              },
+            );
+          }).toList(),
+        );
+      },
     );
   }
 
@@ -1272,7 +1779,25 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
     return browser[0].toUpperCase() + browser.substring(1);
   }
 
-  // --- Tool Advanced Sheet ---
+  IconData _getBrowserIcon(String browser) {
+    switch (browser.toLowerCase()) {
+      case 'chrome':
+        return Symbols.public_rounded;
+      case 'firefox':
+        return Symbols.local_fire_department_rounded;
+      case 'edge':
+        return Symbols.open_in_browser_rounded;
+      case 'opera':
+        return Symbols.circle_rounded;
+      case 'brave':
+        return Symbols.shield_rounded;
+      case 'vivaldi':
+        return Symbols.apps_rounded;
+      default:
+        return Symbols.web_rounded;
+    }
+  }
+
   void _showToolAdvancedSheet(
     BuildContext context,
     PlatformSettingsProvider provider,
@@ -1284,441 +1809,100 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
         ? provider.activeYtdlpPath
         : (provider.activeFfmpegPath ?? 'System PATH');
 
-    // Use version from ToolUpdateProvider state (updated during check)
     final toolState = isYtdlp
         ? toolProvider.ytdlpState
         : toolProvider.ffmpegState;
     final currentVersion = toolState.currentVersion;
     final latestVersion = toolState.latestVersion;
 
-    showModalBottomSheet(
+    showAeroSheet(
       context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => _buildBottomSheet(
-        title: '$toolName Advanced Settings',
-        children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildInfoRow('Current Path', currentPath),
-                const SizedBox(height: 12),
-                _buildInfoRow('Installed Version', currentVersion ?? 'Unknown'),
-                if (latestVersion != null) ...[
-                  const SizedBox(height: 12),
-                  _buildInfoRow('Latest Version', latestVersion),
+      titleText: '$toolName Configuration',
+      builder: (sheetContext) {
+        final colors = sheetContext.aero;
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(AeroSpace.md),
+              decoration: BoxDecoration(
+                color: colors.surface2,
+                borderRadius: AeroRadius.mdBorderRadius,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Installed Path:',
+                    style: AeroText.caption.copyWith(
+                      color: colors.onSurfaceMuted,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    currentPath,
+                    style: AeroText.bodySm.copyWith(fontFamily: 'monospace'),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Version: ${currentVersion ?? "Unknown"} (Latest: ${latestVersion ?? "Unknown"})',
+                    style: AeroText.caption.copyWith(
+                      color: colors.onSurfaceMuted,
+                    ),
+                  ),
                 ],
-              ],
+              ),
             ),
-          ),
-          const Divider(height: 1, indent: 24, endIndent: 24),
-          _buildSheetOption(
-            label: 'Download / Re-install',
-            subtitle: isYtdlp
-                ? 'Download latest binary to app folder'
-                : 'Download FFmpeg (Windows Only)',
-            isSelected: false,
-            icon: Icons.download_for_offline_rounded,
-            onTap: () {
-              Navigator.pop(context);
-              if (isYtdlp) {
-                toolProvider.installYtdlp();
-              } else {
-                toolProvider.installFfmpeg();
-              }
-            },
-          ),
-          if (PlatformUtils.isWindows)
-            _buildSheetOption(
-              label: 'Select Custom Binary',
-              subtitle: 'Choose an existing .exe file',
-              isSelected: false,
-              icon: Icons.file_open_rounded,
-              onTap: () async {
-                Navigator.pop(context);
-                final result = await FilePicker.platform.pickFiles(
-                  type: FileType.custom,
-                  allowedExtensions: ['exe'],
-                );
-                if (result != null && result.files.single.path != null) {
-                  if (isYtdlp) {
-                    await provider.setYtdlpPath(result.files.single.path);
-                  } else {
-                    await provider.setFfmpegPath(result.files.single.path);
-                  }
-                  await toolProvider.refreshAvailability();
+            const SizedBox(height: AeroSpace.md),
+            SettingsRow(
+              title: 'Download / Reinstall',
+              subtitle: 'Download latest official release binary',
+              icon: Symbols.download_for_offline_rounded,
+              onTap: () {
+                Navigator.pop(sheetContext);
+                if (isYtdlp) {
+                  toolProvider.installYtdlp();
+                } else {
+                  toolProvider.installFfmpeg();
                 }
               },
             ),
-          _buildSheetOption(
-            label: 'Reset to Managed',
-            subtitle: 'Use app-managed or system version',
-            isSelected: false,
-            icon: Icons.restart_alt_rounded,
-            onTap: () async {
-              Navigator.pop(context);
-              if (isYtdlp) {
-                await provider.setYtdlpPath(null);
-              } else {
-                await provider.setFfmpegPath(null);
-              }
-              await toolProvider.refreshAvailability();
-            },
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildInfoRow(String label, String value) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            color: Theme.of(
-              context,
-            ).colorScheme.onSurface.withValues(alpha: 0.5),
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 13,
-            fontFamily: 'monospace',
-            color: Theme.of(context).colorScheme.onSurface,
-          ),
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-        ),
-      ],
-    );
-  }
-
-  void _showBrowserSheet(
-    BuildContext context,
-    PlatformSettingsProvider provider,
-  ) {
-    final browsers = ['chrome', 'firefox', 'edge', 'opera', 'brave', 'vivaldi'];
-
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (context) => _buildBottomSheet(
-        title: 'Select Browser',
-        children: browsers
-            .map(
-              (b) => _buildSheetOption(
-                label: b[0].toUpperCase() + b.substring(1),
-                isSelected: provider.settings.cookieBrowser == b,
-                icon: _getBrowserIcon(b),
-                onTap: () {
-                  provider.setCookieBrowser(b);
-                  Navigator.pop(context);
+            if (PlatformUtils.isWindows)
+              SettingsRow(
+                title: 'Select Custom Binary',
+                subtitle: 'Choose custom executable path (.exe)',
+                icon: Symbols.file_open_rounded,
+                onTap: () async {
+                  Navigator.pop(sheetContext);
+                  final result = await FilePicker.platform.pickFiles(
+                    type: FileType.custom,
+                    allowedExtensions: ['exe'],
+                  );
+                  if (result != null && result.files.single.path != null) {
+                    if (isYtdlp) {
+                      await provider.setYtdlpPath(result.files.single.path);
+                    } else {
+                      await provider.setFfmpegPath(result.files.single.path);
+                    }
+                    await toolProvider.refreshAvailability();
+                  }
                 },
               ),
-            )
-            .toList(),
-      ),
-    );
-  }
-
-  IconData _getBrowserIcon(String browser) {
-    switch (browser.toLowerCase()) {
-      case 'chrome':
-        return Icons.public_rounded;
-      case 'firefox':
-        return Icons.local_fire_department_rounded;
-      case 'edge':
-        return Icons.open_in_browser_rounded;
-      case 'opera':
-        return Icons.circle_outlined;
-      case 'brave':
-        return Icons.shield_rounded;
-      case 'vivaldi':
-        return Icons.apps_rounded;
-      default:
-        return Icons.web_rounded;
-    }
-  }
-
-  // --- Bottom Sheet Builder ---
-  Widget _buildBottomSheet({
-    required String title,
-    required List<Widget> children,
-  }) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-        border: Border(
-          top: BorderSide(
-            color: Theme.of(
-              context,
-            ).colorScheme.onSurface.withValues(alpha: 0.1),
-          ),
-          left: BorderSide(
-            color: Theme.of(
-              context,
-            ).colorScheme.onSurface.withValues(alpha: 0.1),
-          ),
-          right: BorderSide(
-            color: Theme.of(
-              context,
-            ).colorScheme.onSurface.withValues(alpha: 0.1),
-          ),
-        ),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Handle bar
-          Container(
-            margin: const EdgeInsets.symmetric(vertical: 12),
-            width: 40,
-            height: 4,
-            decoration: BoxDecoration(
-              color: Theme.of(
-                context,
-              ).colorScheme.onSurface.withValues(alpha: 0.3),
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ),
-          // Title
-          Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: Text(
-              title,
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-          ),
-          // Options
-          Flexible(
-            child: SingleChildScrollView(
-              child: Column(mainAxisSize: MainAxisSize.min, children: children),
-            ),
-          ),
-          const SizedBox(height: 24),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSheetOption({
-    required String label,
-    String? subtitle,
-    required bool isSelected,
-    required IconData icon,
-    required VoidCallback onTap,
-  }) {
-    final theme = Theme.of(context);
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        splashColor: Colors.transparent,
-        highlightColor: theme.colorScheme.primary.withValues(alpha: 0.1),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-          child: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: isSelected
-                      ? theme.colorScheme.primary.withValues(alpha: 0.2)
-                      : theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(
-                  icon,
-                  size: 20,
-                  color: isSelected
-                      ? theme.colorScheme.primary
-                      : theme.colorScheme.onSurface.withValues(alpha: 0.7),
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      label,
-                      style: TextStyle(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 14,
-                        color: isSelected
-                            ? theme.colorScheme.primary
-                            : theme.colorScheme.onSurface,
-                      ),
-                    ),
-                    if (subtitle != null) ...[
-                      const SizedBox(height: 2),
-                      Text(
-                        subtitle,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: theme.colorScheme.onSurface.withValues(alpha: 0.55),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                width: 22,
-                height: 22,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: isSelected
-                      ? theme.colorScheme.primary
-                      : Colors.transparent,
-                  border: Border.all(
-                    color: isSelected
-                        ? theme.colorScheme.primary
-                        : Colors.white.withValues(alpha: 0.3),
-                    width: 2,
-                  ),
-                ),
-                child: isSelected
-                    ? const Icon(Icons.check, size: 14, color: Colors.black)
-                    : null,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  // --- Advanced Section ---
-  Widget _buildAdvancedSection(
-    BuildContext context,
-    PlatformSettingsProvider provider,
-  ) {
-    final children = <Widget>[
-      _buildToggleTile(
-        title: 'Notifications',
-        subtitle: 'Show download notifications',
-        icon: Icons.notifications_rounded,
-        value: provider.enableNotifications,
-        onChanged: provider.setEnableNotifications,
-      ),
-      _buildToggleTile(
-        title: 'SponsorBlock',
-        subtitle: 'Skip sponsored segments automatically',
-        icon: Icons.skip_next_rounded,
-        value: provider.sponsorBlockEnabled,
-        onChanged: provider.setSponsorBlockEnabled,
-      ),
-      if (provider.isAndroid) _buildBatteryOptimizationTile(provider),
-      if (provider.isAndroid && provider.isAggressiveOem)
-        _buildOemAutostartTile(provider),
-      _buildToggleTile(
-        title: 'Download Archive',
-        subtitle: 'Avoid re-downloading videos',
-        icon: Icons.history_rounded,
-        value: provider.useDownloadArchive,
-        onChanged: provider.setUseDownloadArchive,
-      ),
-      _buildToggleTile(
-        title: 'Enable Logging',
-        subtitle: 'Record debug information to log file',
-        icon: Icons.bug_report_rounded,
-        value: provider.enableLogging,
-        onChanged: provider.setEnableLogging,
-        showDivider: false,
-      ),
-    ];
-
-    return _buildSettingsSection(children: children);
-  }
-
-  Widget _buildUpdateSection(BuildContext context) {
-    return Consumer<UpdateProvider>(
-      builder: (context, updateProvider, child) {
-        return _buildSettingsSection(
-          children: [
-            _buildSettingsTile(
-              title: 'Check for Updates',
-              subtitle: updateProvider.hasUpdate
-                  ? 'Version ${updateProvider.updateInfo?.version} available'
-                  : 'Check for the latest version',
-              icon: Icons.system_update_rounded,
-              iconColor: updateProvider.hasUpdate ? Colors.orange : null,
-              trailing: updateProvider.isChecking
-                  ? SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                    )
-                  : updateProvider.hasUpdate
-                  ? Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.orange.withValues(alpha: 0.2),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.circle, size: 8, color: Colors.orange),
-                          const SizedBox(width: 4),
-                          Text(
-                            'New',
-                            style: TextStyle(
-                              color: Colors.orange,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ],
-                      ),
-                    )
-                  : Icon(
-                      Icons.chevron_right_rounded,
-                      color: Theme.of(
-                        context,
-                      ).colorScheme.onSurface.withValues(alpha: 0.5),
-                    ),
-              onTap: updateProvider.isChecking
-                  ? null
-                  : () async {
-                      // Manual check always hits GitHub (force = true).
-                      await updateProvider.checkForUpdates(force: true);
-                      if (!context.mounted) return;
-                      // Show the dialog for both update-available and
-                      // up-to-date so the user always gets feedback.
-                      if (updateProvider.status == UpdateStatus.available ||
-                          updateProvider.status == UpdateStatus.upToDate ||
-                          updateProvider.status == UpdateStatus.error) {
-                        showUpdateDialogWrapper(context);
-                      }
-                    },
-            ),
-            _buildToggleTile(
-              title: 'Auto-check for Updates',
-              subtitle: 'Check automatically on startup',
-              icon: Icons.update_rounded,
-              value: updateProvider.autoCheckEnabled,
-              onChanged: (value) => updateProvider.setAutoCheckEnabled(value),
-              showDivider: false,
+            SettingsRow(
+              title: 'Reset to Managed',
+              subtitle: 'Restore application default managed binary',
+              icon: Symbols.restart_alt_rounded,
+              onTap: () async {
+                Navigator.pop(sheetContext);
+                if (isYtdlp) {
+                  await provider.setYtdlpPath(null);
+                } else {
+                  await provider.setFfmpegPath(null);
+                }
+                await toolProvider.refreshAvailability();
+              },
             ),
           ],
         );
@@ -1726,60 +1910,111 @@ class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObse
     );
   }
 
-  void showUpdateDialogWrapper(BuildContext context) {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => const UpdateDialog(),
-    );
+  Future<void> _exportLogs(BuildContext context) async {
+    final service = LoggingService();
+
+    try {
+      final pickedPath = await FilePicker.platform.getDirectoryPath(
+        dialogTitle: 'Select folder to export logs',
+      );
+
+      if (pickedPath == null || !context.mounted) return;
+
+      if (PlatformUtils.isAndroid) {
+        final validation = await AndroidStorageService()
+            .validateCustomDirectory(pickedPath);
+        if (!context.mounted) return;
+        if (!validation.ok) {
+          AeroSnack.warning(
+            context,
+            message: validation.reason ?? 'Folder not usable.',
+          );
+          return;
+        }
+      }
+
+      final exportedPath = await service.exportLogsToFile(pickedPath);
+      if (context.mounted) {
+        AeroSnack.success(context, message: 'Logs saved to $exportedPath');
+      }
+    } catch (e) {
+      if (PlatformUtils.isMobile) {
+        try {
+          final copiedText = service.exportLogs();
+          if (copiedText.trim().isNotEmpty) {
+            await Clipboard.setData(ClipboardData(text: copiedText));
+            if (context.mounted) {
+              AeroSnack.info(context, message: 'Logs copied to clipboard');
+            }
+            return;
+          }
+        } catch (_) {}
+      }
+      if (context.mounted) {
+        AeroSnack.error(context, message: 'Failed to export logs: $e');
+      }
+    }
   }
 
-  Widget _buildAboutSection(
-    BuildContext context,
-    PlatformSettingsProvider provider,
-  ) {
-    final theme = Theme.of(context);
-    return Center(
-      child: Column(
-        children: [
-          const AppLogo(size: 80, showGlow: true),
-          const SizedBox(height: 16),
-          Text(
-            'AeroTube v$_appVersion',
-            style: TextStyle(
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
-              fontSize: 13,
-            ),
+  void _showLogsViewer(BuildContext context) {
+    final windowHeight = MediaQuery.sizeOf(context).height;
+    final desktopPanelHeight = (windowHeight - 180)
+        .clamp(220.0, 640.0)
+        .toDouble();
+
+    if (PlatformUtils.isDesktop) {
+      showAeroDialog<void>(
+        context: context,
+        builder: (_) => AeroDialog(
+          maxWidth: 920,
+          titleText: 'Runtime Logs',
+          showCloseButton: true,
+          content: SizedBox(
+            height: desktopPanelHeight,
+            child: const LogsViewer(showTitle: false),
           ),
-          const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                'Made with ',
-                style: TextStyle(
-                  color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
-                  fontSize: 12,
-                ),
-              ),
-              const Text('❤️', style: TextStyle(fontSize: 12)),
-              Text(
-                ' by Agent',
-                style: TextStyle(
-                  color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
-                  fontSize: 12,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ).animate().fadeIn(delay: 200.ms),
+        ),
+      );
+      return;
+    }
+
+    showAeroSheet<void>(
+      context: context,
+      titleText: 'Runtime Logs',
+      builder: (sheetContext) => SizedBox(
+        height: MediaQuery.sizeOf(sheetContext).height * 0.72,
+        child: const LogsViewer(showTitle: false),
+      ),
     );
   }
 }
 
-/// Shows current public-Downloads access and lets the user grant it
-/// (system dialog or All-files-access settings, depending on Android version).
+class _SettingEntry {
+  final String title;
+  final String? subtitle;
+  final List<String> keywords;
+  final Widget widget;
+
+  _SettingEntry({
+    required this.title,
+    this.subtitle,
+    this.keywords = const [],
+    required this.widget,
+  });
+
+  bool matches(String query) {
+    if (query.isEmpty) return true;
+    final q = query.toLowerCase();
+    if (title.toLowerCase().contains(q)) return true;
+    if (subtitle != null && subtitle!.toLowerCase().contains(q)) return true;
+    for (final kw in keywords) {
+      if (kw.toLowerCase().contains(q)) return true;
+    }
+    return false;
+  }
+}
+
+/// Storage permission tile for Android
 class _AndroidStoragePermissionTile extends StatefulWidget {
   const _AndroidStoragePermissionTile({required this.provider});
 
@@ -1842,12 +2077,10 @@ class _AndroidStoragePermissionTileState
       await storage.requestStoragePermission();
       if (!mounted) return;
       final granted = await storage.hasStoragePermission();
-      // If still blocked, open All-files-access settings as a fallback.
       if (!granted) {
         await storage.openManageStorageSettings();
       }
       await _refresh();
-      // After a successful grant, switch downloads back to public Downloads.
       if (mounted && _granted) {
         try {
           final preferred = await storage.getPreferredDownloadDirectory();
@@ -1857,6 +2090,7 @@ class _AndroidStoragePermissionTileState
         } catch (_) {}
       }
     } catch (_) {
+    } finally {
       if (mounted) {
         setState(() => _requesting = false);
       }
@@ -1865,77 +2099,36 @@ class _AndroidStoragePermissionTileState
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final title = _granted ? 'Storage Access' : 'Grant Storage Access';
     final subtitle = _checking
-        ? 'Checking…'
+        ? 'Checking permission…'
         : _granted
-            ? 'Public Downloads folder is writable'
-            : 'Allow All files access so downloads save to Downloads/AeroTube';
+        ? 'Public Downloads folder is writable'
+        : 'Allow All files access so downloads save to Downloads/AeroTube';
 
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: _requesting ? null : _request,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          child: Row(
-            children: [
-              Icon(
-                _granted
-                    ? Icons.sd_storage_rounded
-                    : Icons.warning_amber_rounded,
-                color: _granted
-                    ? theme.colorScheme.primary
-                    : Colors.amber.shade700,
-                size: 22,
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: theme.colorScheme.onSurface,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      subtitle,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: theme.colorScheme.onSurface
-                            .withValues(alpha: 0.55),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              if (_requesting || _checking)
-                const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              else
-                Icon(
-                  Icons.chevron_right_rounded,
-                  color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
-                ),
-            ],
-          ),
-        ),
-      ),
+    return SettingsRow(
+      title: title,
+      subtitle: subtitle,
+      icon: _granted
+          ? Symbols.sd_storage_rounded
+          : Symbols.warning_amber_rounded,
+      iconColor: _granted ? context.aero.primary : Colors.amber.shade700,
+      trailing: (_requesting || _checking)
+          ? const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : StatusPill(
+              label: _granted ? 'Granted' : 'Action Required',
+              type: _granted ? StatusPillType.success : StatusPillType.warning,
+            ),
+      onTap: _requesting ? null : _request,
     );
   }
 }
 
-/// Debounced concurrency control — local drag value, persist only on changeEnd
-/// so dragging does NOT trigger per-tick disk write + notifyListeners + SliverList rebuild.
+/// Debounced concurrency control with Aero slider styling
 class _ConcurrentDownloadsControl extends StatefulWidget {
   const _ConcurrentDownloadsControl();
 
@@ -1950,48 +2143,53 @@ class _ConcurrentDownloadsControlState
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final persisted =
-        context.select<PlatformSettingsProvider, int>((p) => p.maxConcurrentDownloads);
+    final persisted = context.select<PlatformSettingsProvider, int>(
+      (p) => p.maxConcurrentDownloads,
+    );
     final displayed = (_dragValue ?? persisted.toDouble()).clamp(1.0, 6.0);
+    final colors = context.aero;
 
-    return Column(
-      children: [
-        // Title row — mirrors _buildSettingsTile styling without divider
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          child: Row(
+    return Padding(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AeroSpace.lg,
+        vertical: AeroSpace.sm,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
             children: [
               Container(
-                padding: const EdgeInsets.all(10),
+                width: 36,
+                height: 36,
                 decoration: BoxDecoration(
-                  color: theme.colorScheme.primary.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(10),
+                  color: colors.surface2,
+                  borderRadius: AeroRadius.smBorderRadius,
+                  border: Border.all(color: colors.outline, width: 1.0),
                 ),
+                alignment: Alignment.center,
                 child: Icon(
-                  Icons.downloading_rounded,
+                  Symbols.downloading_rounded,
                   size: 20,
-                  color: theme.colorScheme.primary,
+                  color: colors.onSurface,
                 ),
               ),
-              const SizedBox(width: 16),
+              const SizedBox(width: AeroSpace.md),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
+                    Text(
                       'Concurrent Downloads',
-                      style: TextStyle(
+                      style: AeroText.body.copyWith(
                         fontWeight: FontWeight.w600,
-                        fontSize: 14,
                       ),
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      '${displayed.toInt()} active downloads',
-                      style: TextStyle(
-                        color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
-                        fontSize: 12,
+                      '${displayed.toInt()} simultaneous active downloads',
+                      style: AeroText.bodySm.copyWith(
+                        color: colors.onSurfaceMuted,
                       ),
                     ),
                   ],
@@ -1999,32 +2197,37 @@ class _ConcurrentDownloadsControlState
               ),
             ],
           ),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(64, 0, 16, 16),
-          child: SliderTheme(
-            data: SliderTheme.of(context).copyWith(
-              trackHeight: 4,
-              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
-              overlayShape: const RoundSliderOverlayShape(overlayRadius: 16),
-            ),
-            child: Slider(
-              value: displayed,
-              min: 1,
-              max: 6,
-              divisions: 5,
-              label: '${displayed.toInt()}',
-              onChanged: (v) => setState(() => _dragValue = v),
-              onChangeEnd: (v) {
-                setState(() => _dragValue = null);
-                context
-                    .read<PlatformSettingsProvider>()
-                    .setMaxConcurrentDownloads(v.toInt());
-              },
+          const SizedBox(height: AeroSpace.sm),
+          Padding(
+            padding: const EdgeInsets.only(left: 48, right: 8),
+            child: SliderTheme(
+              data: SliderTheme.of(context).copyWith(
+                activeTrackColor: colors.primary,
+                inactiveTrackColor: colors.surface3,
+                thumbColor: colors.primary,
+                overlayColor: colors.primaryGlow,
+                trackHeight: 4,
+                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
+                overlayShape: const RoundSliderOverlayShape(overlayRadius: 16),
+              ),
+              child: Slider(
+                value: displayed,
+                min: 1,
+                max: 6,
+                divisions: 5,
+                label: '${displayed.toInt()}',
+                onChanged: (v) => setState(() => _dragValue = v),
+                onChangeEnd: (v) {
+                  setState(() => _dragValue = null);
+                  context
+                      .read<PlatformSettingsProvider>()
+                      .setMaxConcurrentDownloads(v.toInt());
+                },
+              ),
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

@@ -1,261 +1,213 @@
+import 'package:material_symbols_icons/symbols.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
-import 'package:youtube_downloader/providers/update_provider.dart';
-import 'package:youtube_downloader/providers/platform_settings_provider.dart';
-import 'package:youtube_downloader/core/utils/platform_utils.dart';
 
+import '../../core/theme/tokens/colors.dart';
+import '../../core/theme/tokens/radius.dart';
+import '../../core/theme/tokens/spacing.dart';
+import '../../core/theme/tokens/typography.dart';
+import '../../core/utils/platform_utils.dart';
+import '../../providers/update_provider.dart';
+import '../components/aero_button.dart';
+import '../components/aero_chip.dart';
+import '../components/aero_density.dart';
+import '../components/aero_dialog.dart';
+import '../components/aero_progress.dart';
+
+/// Aero-styled update modal dialog.
+///
+/// Features (redesign_spec 7.7):
+/// - Wrapped in [AeroDialog] (24 px radius xl, surface1, hairline outline).
+/// - Version chip, 3 bullet changelog, Update now / Later actions.
+/// - Inline download progress using [AeroProgress].
 class UpdateDialog extends StatelessWidget {
   const UpdateDialog({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final enableAnimations = context.select<PlatformSettingsProvider, bool>(
-      (p) => p.enableAnimations,
-    );
-
     return Consumer<UpdateProvider>(
       builder: (context, updateProvider, child) {
-        return Dialog(
-          backgroundColor: Colors.transparent,
-          child: Container(
-            constraints: const BoxConstraints(maxWidth: 500),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surface,
-              borderRadius: BorderRadius.circular(24),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.3),
-                  blurRadius: 40,
-                  spreadRadius: 0,
-                ),
-              ],
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(24),
-              child: _buildContent(context, updateProvider, enableAnimations),
-            ),
-          ),
-        );
+        return _buildContent(context, updateProvider);
       },
     );
   }
 
-  Widget _buildContent(
-    BuildContext context,
-    UpdateProvider provider,
-    bool enableAnimations,
-  ) {
+  Widget _buildContent(BuildContext context, UpdateProvider provider) {
+    final colors = context.aero;
+
     switch (provider.status) {
       case UpdateStatus.checking:
-        return _buildCheckingState(context, enableAnimations);
+        return _buildCheckingState(context, colors);
       case UpdateStatus.available:
-        return _buildAvailableState(context, provider, enableAnimations);
+        return _buildAvailableState(context, provider, colors);
       case UpdateStatus.downloading:
-        return _buildDownloadingState(context, provider, enableAnimations);
+        return _buildDownloadingState(context, provider, colors);
       case UpdateStatus.readyToInstall:
-        return _buildReadyToInstallState(context, provider, enableAnimations);
+        return _buildReadyToInstallState(context, provider, colors);
       case UpdateStatus.needsInstallPermission:
-        return _buildNeedsInstallPermissionState(
-          context,
-          provider,
-          enableAnimations,
-        );
+        return _buildNeedsInstallPermissionState(context, provider, colors);
       case UpdateStatus.upToDate:
-        return _buildUpToDateState(context, enableAnimations);
+        return _buildUpToDateState(context, colors);
       case UpdateStatus.error:
-        return _buildErrorState(context, provider, enableAnimations);
+        return _buildErrorState(context, provider, colors);
       default:
         return const SizedBox.shrink();
     }
   }
 
-  Widget _buildCheckingState(BuildContext context, bool enableAnimations) {
-    final theme = Theme.of(context);
-
-    return Container(
-      padding: const EdgeInsets.all(40),
-      child: Column(
+  Widget _buildCheckingState(BuildContext context, AeroColors colors) {
+    return AeroDialog(
+      leading: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: colors.primarySoft,
+          shape: BoxShape.circle,
+        ),
+        child: Icon(Symbols.sync_rounded, size: 20, color: colors.primary),
+      ),
+      titleText: 'Checking for Updates',
+      content: Column(
         mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          SizedBox(
-            width: 60,
-            height: 60,
-            child: CircularProgressIndicator(
-              strokeWidth: 3,
-              color: theme.colorScheme.primary,
-            ),
-          ),
-          const SizedBox(height: 24),
           Text(
-            'Checking for Updates',
-            style: theme.textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.bold,
-            ),
+            'Checking GitHub for the latest AeroTube release…',
+            style: AeroText.body.copyWith(color: colors.onSurfaceMuted),
           ),
-          const SizedBox(height: 8),
-          Text(
-            'Please wait while we check for the latest version...',
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-            ),
-            textAlign: TextAlign.center,
-          ),
+          const SizedBox(height: AeroSpace.lg),
+          const AeroProgress(value: null),
         ],
       ),
-    ).animate().fadeIn(duration: enableAnimations ? 300.ms : Duration.zero);
+      actions: [
+        AeroButton(
+          variant: AeroButtonVariant.ghost,
+          text: 'Close',
+          onPressed: () => Navigator.of(context).maybePop(),
+        ),
+      ],
+    );
   }
 
   Widget _buildAvailableState(
     BuildContext context,
     UpdateProvider provider,
-    bool enableAnimations,
+    AeroColors colors,
   ) {
-    final theme = Theme.of(context);
     final updateInfo = provider.updateInfo!;
+    final bullets = _extractChangelogBullets(updateInfo.releaseNotes);
 
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        // Header
-        Container(
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [
-                theme.colorScheme.primary.withValues(alpha: 0.2),
-                theme.colorScheme.primary.withValues(alpha: 0.05),
-              ],
+    return AeroDialog(
+      leading: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: colors.primarySoft,
+          shape: BoxShape.circle,
+        ),
+        child: Icon(
+          Symbols.system_update_rounded,
+          size: 20,
+          color: colors.primary,
+        ),
+      ),
+      title: Row(
+        children: [
+          Expanded(
+            child: Text(
+              'Update Available',
+              style: AeroText.title.copyWith(color: colors.onSurface),
             ),
           ),
-          child: Column(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.primary.withValues(alpha: 0.2),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  Icons.system_update_rounded,
-                  size: 40,
-                  color: theme.colorScheme.primary,
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'Update Available!',
-                style: theme.textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Version ${updateInfo.version}',
-                style: theme.textTheme.titleMedium?.copyWith(
-                  color: theme.colorScheme.primary,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              if (updateInfo.assetSize != null) ...[
-                const SizedBox(height: 4),
-                Text(
-                  'Size: ${_formatFileSize(updateInfo.assetSize!)}',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-                  ),
-                ),
-              ],
-            ],
+          AeroChip(
+            text: 'v${updateInfo.version}',
+            density: AeroDensity.compact,
+            selected: true,
           ),
-        ),
-
-        // Release Notes
-        Flexible(
-          child: Container(
-            constraints: const BoxConstraints(maxHeight: 200),
-            padding: const EdgeInsets.all(24),
-            child: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'What\'s New:',
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    updateInfo.releaseNotes,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: theme.colorScheme.onSurface.withValues(alpha: 0.8),
-                      height: 1.5,
-                    ),
-                  ),
-                ],
-              ),
+        ],
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (updateInfo.assetSize != null) ...[
+            Text(
+              'Download size: ${_formatFileSize(updateInfo.assetSize!)}',
+              style: AeroText.caption.copyWith(color: colors.onSurfaceMuted),
+            ),
+            const SizedBox(height: AeroSpace.md),
+          ],
+          Text(
+            "What's New",
+            style: AeroText.label.copyWith(
+              color: colors.onSurface,
+              fontWeight: FontWeight.w700,
             ),
           ),
-        ),
-
-        // Actions
-        Padding(
-          padding: const EdgeInsets.all(24),
-          child: Row(
-            children: [
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: () {
-                    provider.skipUpdate();
-                    Navigator.of(context).pop();
-                  },
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  child: const Text('Later'),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                flex: 2,
-                child: FilledButton(
-                  onPressed: () => provider.downloadUpdate(),
-                  style: FilledButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  child: const Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
+          const SizedBox(height: AeroSpace.sm),
+          Container(
+            padding: const EdgeInsets.all(AeroSpace.md),
+            decoration: BoxDecoration(
+              color: colors.surface2,
+              borderRadius: AeroRadius.mdBorderRadius,
+              border: Border.all(color: colors.outline),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (int i = 0; i < bullets.length; i++) ...[
+                  if (i > 0) const SizedBox(height: AeroSpace.sm),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Icon(Icons.download_rounded),
-                      SizedBox(width: 8),
-                      Text(
-                        'Download Update',
-                        style: TextStyle(fontWeight: FontWeight.bold),
+                      Container(
+                        margin: const EdgeInsets.only(top: 6, right: 10),
+                        width: 6,
+                        height: 6,
+                        decoration: BoxDecoration(
+                          color: colors.primary,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      Expanded(
+                        child: Text(
+                          bullets[i],
+                          style: AeroText.bodySm.copyWith(
+                            color: colors.onSurface,
+                            height: 1.35,
+                          ),
+                        ),
                       ),
                     ],
                   ),
-                ),
-              ),
-            ],
+                ],
+              ],
+            ),
           ),
+        ],
+      ),
+      actions: [
+        AeroButton(
+          variant: AeroButtonVariant.ghost,
+          text: 'Later',
+          onPressed: () {
+            provider.skipUpdate();
+            Navigator.of(context).pop();
+          },
+        ),
+        AeroButton(
+          variant: AeroButtonVariant.primary,
+          text: 'Update now',
+          icon: const Icon(Symbols.download_rounded, size: 18),
+          onPressed: () => provider.downloadUpdate(),
         ),
       ],
-    ).animate().fadeIn(duration: enableAnimations ? 300.ms : Duration.zero).slideY(begin: enableAnimations ? 0.1 : 0, end: 0);
+    );
   }
 
   Widget _buildDownloadingState(
     BuildContext context,
     UpdateProvider provider,
-    bool enableAnimations,
+    AeroColors colors,
   ) {
-    final theme = Theme.of(context);
     final progress = (provider.downloadProgress * 100).toInt();
     final sizeLabel = provider.updateInfo?.assetSize != null
         ? _formatFileSize(provider.updateInfo!.assetSize!)
@@ -267,387 +219,241 @@ class UpdateDialog extends StatelessWidget {
           )
         : null;
 
-    return Container(
-      padding: const EdgeInsets.all(40),
-      child: Column(
+    final subtitle = sizeLabel != null && receivedLabel != null
+        ? '$receivedLabel of $sizeLabel'
+        : 'Downloading in background…';
+
+    return AeroDialog(
+      leading: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: colors.primarySoft,
+          shape: BoxShape.circle,
+        ),
+        child: Icon(
+          Symbols.downloading_rounded,
+          size: 20,
+          color: colors.primary,
+        ),
+      ),
+      titleText: 'Downloading Update',
+      content: Column(
         mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Stack(
-            alignment: Alignment.center,
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              SizedBox(
-                width: 80,
-                height: 80,
-                child: CircularProgressIndicator(
-                  value: provider.downloadProgress,
-                  strokeWidth: 6,
-                  backgroundColor: theme.colorScheme.primary.withValues(
-                    alpha: 0.1,
-                  ),
-                  color: theme.colorScheme.primary,
-                ),
+              Text(
+                subtitle,
+                style: AeroText.bodySm.copyWith(color: colors.onSurfaceMuted),
               ),
               Text(
                 '$progress%',
-                style: theme.textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: theme.colorScheme.primary,
+                style: AeroText.label.copyWith(
+                  color: colors.primary,
+                  fontWeight: FontWeight.w700,
+                  fontFeatures: const [FontFeature.tabularFigures()],
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 24),
-          Text(
-            'Downloading Update',
-            style: theme.textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            sizeLabel != null && receivedLabel != null
-                ? '$receivedLabel of $sizeLabel'
-                : 'Please don\'t close the application',
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-            ),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 24),
-          LinearProgressIndicator(
-            value: provider.downloadProgress,
-            backgroundColor: theme.colorScheme.primary.withValues(alpha: 0.1),
-            color: theme.colorScheme.primary,
-            minHeight: 6,
-            borderRadius: BorderRadius.circular(3),
-          ),
-          const SizedBox(height: 24),
-          OutlinedButton(
-            onPressed: () => provider.cancelDownload(),
-            style: OutlinedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-              foregroundColor: theme.colorScheme.error,
-              side: BorderSide(
-                color: theme.colorScheme.error.withValues(alpha: 0.4),
-              ),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-            child: const Text('Cancel Download'),
-          ),
+          const SizedBox(height: AeroSpace.sm),
+          AeroProgress(value: provider.downloadProgress),
         ],
       ),
-    ).animate().fadeIn(duration: enableAnimations ? 300.ms : Duration.zero);
+      actions: [
+        AeroButton(
+          variant: AeroButtonVariant.danger,
+          text: 'Cancel Download',
+          onPressed: () => provider.cancelDownload(),
+        ),
+      ],
+    );
   }
 
   Widget _buildReadyToInstallState(
     BuildContext context,
     UpdateProvider provider,
-    bool enableAnimations,
+    AeroColors colors,
   ) {
-    final theme = Theme.of(context);
     final isAndroid = PlatformUtils.isAndroid;
 
-    return Container(
-      padding: const EdgeInsets.all(40),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: Colors.green.withValues(alpha: 0.2),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(
-              Icons.check_circle_rounded,
-              size: 48,
-              color: Colors.green,
-            ),
-          ),
-          const SizedBox(height: 24),
-          Text(
-            'Download Complete!',
-            style: theme.textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            isAndroid
-                ? 'Tap Install to open the system installer. Your data stays intact.'
-                : 'The update is ready to install. The application will restart automatically.',
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-            ),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 32),
-          FilledButton(
-            onPressed: () => provider.installUpdate(),
-            style: FilledButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 16),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  isAndroid
-                      ? Icons.install_mobile_rounded
-                      : Icons.install_desktop_rounded,
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  isAndroid ? 'Install Update' : 'Install & Restart',
-                  style: const TextStyle(fontWeight: FontWeight.bold),
-                ),
-              ],
-            ),
-          ),
-        ],
+    return AeroDialog(
+      leading: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: colors.success.withValues(alpha: 0.15),
+          shape: BoxShape.circle,
+        ),
+        child: Icon(
+          Symbols.check_circle_rounded,
+          size: 20,
+          color: colors.success,
+        ),
       ),
-    ).animate().fadeIn(duration: enableAnimations ? 300.ms : Duration.zero);
+      titleText: 'Update Ready',
+      content: Text(
+        isAndroid
+            ? 'Tap Install to open the system package installer. Your downloads and settings stay intact.'
+            : 'The update is ready to install. AeroTube will restart automatically.',
+        style: AeroText.body.copyWith(color: colors.onSurfaceMuted),
+      ),
+      actions: [
+        AeroButton(
+          variant: AeroButtonVariant.ghost,
+          text: 'Later',
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+        AeroButton(
+          variant: AeroButtonVariant.primary,
+          text: isAndroid ? 'Install' : 'Install & Restart',
+          icon: Icon(
+            isAndroid
+                ? Symbols.install_mobile_rounded
+                : Symbols.install_desktop_rounded,
+            size: 18,
+          ),
+          onPressed: () => provider.installUpdate(),
+        ),
+      ],
+    );
   }
 
   Widget _buildNeedsInstallPermissionState(
     BuildContext context,
     UpdateProvider provider,
-    bool enableAnimations,
+    AeroColors colors,
   ) {
-    final theme = Theme.of(context);
-
-    return Container(
-      padding: const EdgeInsets.all(40),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: Colors.orange.withValues(alpha: 0.2),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(
-              Icons.install_mobile_rounded,
-              size: 48,
-              color: Colors.orange,
-            ),
-          ),
-          const SizedBox(height: 24),
-          Text(
-            'Permission Needed',
-            style: theme.textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Android blocked the install because "Install unknown apps" is off for AeroTube.\n\nEnable it in system settings, return here, then tap Install again. Your downloaded update is kept.',
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
-              height: 1.5,
-            ),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 32),
-          FilledButton.icon(
-            onPressed: () async {
-              final granted = await provider.openInstallSettings();
-              if (!context.mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    granted
-                        ? 'Permission granted — tap Install to continue.'
-                        : 'After enabling the toggle, return and tap Install.',
-                  ),
-                ),
-              );
-              // Re-check in case the native result arrived via onResume.
-              await provider.refreshInstallPermission();
-            },
-            icon: const Icon(Icons.settings_rounded),
-            label: const Text(
-              'Open Settings',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            style: FilledButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              OutlinedButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text('Later'),
-              ),
-              const SizedBox(width: 12),
-              OutlinedButton(
-                onPressed: () async {
-                  final granted = await provider.refreshInstallPermission();
-                  if (!context.mounted) return;
-                  if (granted) {
-                    await provider.installUpdate();
-                  } else {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text(
-                          'Still blocked — enable "Allow from this source" first.',
-                        ),
-                      ),
-                    );
-                  }
-                },
-                child: const Text('I enabled it — Retry'),
-              ),
-            ],
-          ),
-        ],
+    return AeroDialog(
+      leading: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: colors.warning.withValues(alpha: 0.15),
+          shape: BoxShape.circle,
+        ),
+        child: Icon(Symbols.security_rounded, size: 20, color: colors.warning),
       ),
-    ).animate().fadeIn(duration: enableAnimations ? 300.ms : Duration.zero);
+      titleText: 'Permission Needed',
+      content: Text(
+        'Android blocked the install because "Install unknown apps" is off for AeroTube.\n\nEnable it in system settings, return here, then tap Install.',
+        style: AeroText.body.copyWith(color: colors.onSurfaceMuted),
+      ),
+      actions: [
+        AeroButton(
+          variant: AeroButtonVariant.ghost,
+          text: 'Later',
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+        AeroButton(
+          variant: AeroButtonVariant.primary,
+          text: 'Open Settings',
+          icon: const Icon(Symbols.settings_rounded, size: 18),
+          onPressed: () async {
+            final granted = await provider.openInstallSettings();
+            if (!context.mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  granted
+                      ? 'Permission granted — tap Install to continue.'
+                      : 'After enabling the toggle, return and tap Install.',
+                ),
+              ),
+            );
+            await provider.refreshInstallPermission();
+          },
+        ),
+      ],
+    );
   }
 
-  Widget _buildUpToDateState(BuildContext context, bool enableAnimations) {
-    final theme = Theme.of(context);
-
-    return Container(
-      padding: const EdgeInsets.all(40),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: Colors.green.withValues(alpha: 0.2),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(
-              Icons.check_circle_outline_rounded,
-              size: 48,
-              color: Colors.green,
-            ),
-          ),
-          const SizedBox(height: 24),
-          Text(
-            'You\'re Up to Date!',
-            style: theme.textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'You have the latest version of AeroTube Downloader.',
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-            ),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 32),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(),
-            style: FilledButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 16),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-            child: const Text(
-              'Great!',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-          ),
-        ],
+  Widget _buildUpToDateState(BuildContext context, AeroColors colors) {
+    return AeroDialog(
+      leading: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: colors.success.withValues(alpha: 0.15),
+          shape: BoxShape.circle,
+        ),
+        child: Icon(
+          Symbols.check_circle_rounded,
+          size: 20,
+          color: colors.success,
+        ),
       ),
-    ).animate().fadeIn(duration: enableAnimations ? 300.ms : Duration.zero);
+      titleText: "You're Up to Date",
+      content: Text(
+        'You have the latest version of AeroTube Downloader installed.',
+        style: AeroText.body.copyWith(color: colors.onSurfaceMuted),
+      ),
+      actions: [
+        AeroButton(
+          variant: AeroButtonVariant.primary,
+          text: 'Done',
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+      ],
+    );
   }
 
   Widget _buildErrorState(
     BuildContext context,
     UpdateProvider provider,
-    bool enableAnimations,
+    AeroColors colors,
   ) {
-    final theme = Theme.of(context);
-
-    return Container(
-      padding: const EdgeInsets.all(40),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: theme.colorScheme.error.withValues(alpha: 0.2),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              Icons.error_outline_rounded,
-              size: 48,
-              color: theme.colorScheme.error,
-            ),
-          ),
-          const SizedBox(height: 24),
-          Text(
-            'Update Failed',
-            style: theme.textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            provider.errorMessage ?? 'An unexpected error occurred',
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-            ),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 32),
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              OutlinedButton(
-                onPressed: () => Navigator.of(context).pop(),
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 24,
-                    vertical: 16,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                child: const Text('Close'),
-              ),
-              const SizedBox(width: 12),
-              FilledButton(
-                onPressed: () {
-                  provider.reset();
-                  provider.checkForUpdates();
-                },
-                style: FilledButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 24,
-                    vertical: 16,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                child: const Text('Try Again'),
-              ),
-            ],
-          ),
-        ],
+    return AeroDialog(
+      leading: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: colors.danger.withValues(alpha: 0.15),
+          shape: BoxShape.circle,
+        ),
+        child: Icon(Symbols.error_rounded, size: 20, color: colors.danger),
       ),
-    ).animate().fadeIn(duration: enableAnimations ? 300.ms : Duration.zero);
+      titleText: 'Update Failed',
+      content: Text(
+        provider.errorMessage ??
+            'An unexpected error occurred while checking for updates.',
+        style: AeroText.body.copyWith(color: colors.onSurfaceMuted),
+      ),
+      actions: [
+        AeroButton(
+          variant: AeroButtonVariant.ghost,
+          text: 'Close',
+          onPressed: () => Navigator.of(context).pop(),
+        ),
+        AeroButton(
+          variant: AeroButtonVariant.primary,
+          text: 'Try Again',
+          icon: const Icon(Symbols.refresh_rounded, size: 18),
+          onPressed: () {
+            provider.reset();
+            provider.checkForUpdates();
+          },
+        ),
+      ],
+    );
+  }
+
+  List<String> _extractChangelogBullets(String releaseNotes) {
+    final lines = releaseNotes
+        .split('\n')
+        .map((line) => line.trim())
+        .where((line) => line.isNotEmpty && !line.startsWith('#'))
+        .map((line) => line.replaceFirst(RegExp(r'^[-*•]\s*'), ''))
+        .where((line) => line.isNotEmpty)
+        .take(3)
+        .toList();
+
+    if (lines.isEmpty) {
+      return const [
+        'Engine stability and compatibility improvements.',
+        'Updated YouTube format extractors.',
+        'Refined interface and performance enhancements.',
+      ];
+    }
+    return lines;
   }
 
   String _formatFileSize(int bytes) {
@@ -663,7 +469,7 @@ class UpdateDialog extends StatelessWidget {
 // Extension to show the update dialog
 extension UpdateDialogExtension on BuildContext {
   Future<void> showUpdateDialog() async {
-    return showDialog(
+    await showAeroDialog<void>(
       context: this,
       barrierDismissible: false,
       builder: (context) => const UpdateDialog(),

@@ -18,10 +18,17 @@ class AuthService {
   static const String _userIdKey = 'youtube_user_id';
   static const String _userNameKey = 'youtube_user_name';
 
-  static const String _clientId =
-      'YOUR_CLIENT_ID.apps.googleusercontent.com'; // TODO: Replace with your actual Google OAuth client ID
-  static const String _redirectUri =
-      'myapp://oauth2callback'; // TODO: Configure custom scheme in AndroidManifest.xml
+  static const String _clientId = String.fromEnvironment(
+    'GOOGLE_OAUTH_CLIENT_ID',
+    defaultValue: 'YOUR_CLIENT_ID.apps.googleusercontent.com',
+  );
+  static const String _redirectUri = String.fromEnvironment(
+    'GOOGLE_OAUTH_REDIRECT_URI',
+    defaultValue: 'com.aerotube.youtube_downloader:/oauth2callback',
+  );
+
+  /// True when a real Google OAuth client ID has been injected via --dart-define.
+  static bool get isConfigured => !_clientId.contains('YOUR_CLIENT_ID');
   static const List<String> _scopes = [
     'openid',
     'email',
@@ -250,6 +257,11 @@ class AuthService {
   }
 
   Future<String?> _performAuth() async {
+    if (!isConfigured) {
+      _logger.warning('Google OAuth is not configured (client ID is placeholder)', component: 'AuthService');
+      throw StateError('Google OAuth is not configured. Inject GOOGLE_OAUTH_CLIENT_ID or use Browser/Cookie login.');
+    }
+
     final verifier = _generateCodeVerifier();
     final challenge = _generateCodeChallenge(verifier);
     final stateBytes = List<int>.generate(
@@ -274,9 +286,12 @@ class AuthService {
     }).toString();
 
     try {
+      final scheme = _redirectUri.contains('://')
+          ? _redirectUri.split('://')[0]
+          : _redirectUri.split(':')[0];
       final result = await FlutterWebAuth2.authenticate(
         url: authUrl,
-        callbackUrlScheme: _redirectUri.split('://')[0],
+        callbackUrlScheme: scheme,
       );
 
       final uri = Uri.parse(result);

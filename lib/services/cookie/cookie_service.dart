@@ -91,6 +91,11 @@ class CookieService {
   Future<String?> get userAgent async {
     // Return a default user agent or one cached from webview
     // For now hardcode a modern one similar to what we'd want
+    //
+    // H7: callers MUST NOT apply this UA when cookies-from-browser (or a
+    // WebView profile) is the active auth source — a mismatched Chrome UA
+    // plus Edge/browser cookies can make YouTube reject the session.
+    // YtdlpService skips --user-agent in that case.
     return 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
   }
 

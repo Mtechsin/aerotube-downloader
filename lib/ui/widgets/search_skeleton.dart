@@ -1,73 +1,185 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
+
+import '../../core/theme/tokens/colors.dart';
+import '../../core/theme/tokens/radius.dart';
+import '../../core/theme/tokens/spacing.dart';
+import '../../core/utils/platform_utils.dart';
 import '../../providers/platform_settings_provider.dart';
 
+/// Skeleton placeholder for the search screen, matching Aero geometry and tokens.
+/// Adapts between 2-line rows (Mobile) and card grid (Windows).
 class SearchSkeleton extends StatelessWidget {
   const SearchSkeleton({super.key});
 
   Widget _applyShimmer(
-    Widget widget,
+    Widget child,
     Color shimmerColor, {
     Duration delay = Duration.zero,
     required bool enableAnimations,
   }) {
-    if (!enableAnimations) return widget;
-    return widget
+    if (!enableAnimations) return child;
+    return child
         .animate(onPlay: (controller) => controller.repeat())
-        .shimmer(duration: 1500.ms, delay: delay, color: shimmerColor);
+        .shimmer(
+          duration: 1500.ms,
+          curve: Curves.linear,
+          delay: delay,
+          color: shimmerColor,
+        );
   }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-    final baseColor = isDark ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.05);
+    final colors = context.aero;
     final settingsProvider = Provider.of<PlatformSettingsProvider?>(context);
-    final enableAnimations = settingsProvider?.enableAnimations ?? true;
-    final shimmerColor = theme.colorScheme.primary.withValues(alpha: 0.1);
+    final enableAnimations =
+        (settingsProvider?.enableAnimations ?? true) &&
+        !MediaQuery.disableAnimationsOf(context);
+    final baseColor = colors.surface2;
+    final shimmerColor = colors.surface3;
+
+    if (PlatformUtils.isMobile) {
+      return ListView.separated(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AeroSpace.lg,
+          vertical: AeroSpace.sm,
+        ),
+        physics: const NeverScrollableScrollPhysics(),
+        itemCount: 8,
+        separatorBuilder: (_, __) => const SizedBox(height: AeroSpace.md),
+        itemBuilder: (context, index) {
+          return Container(
+            padding: const EdgeInsets.all(AeroSpace.sm),
+            decoration: BoxDecoration(
+              color: colors.surface1,
+              borderRadius: AeroRadius.lgBorderRadius,
+              border: Border.all(color: colors.outline, width: 1.0),
+            ),
+            child: Row(
+              children: [
+                // 16:9 thumbnail skeleton
+                _applyShimmer(
+                  Container(
+                    width: 112,
+                    height: 64,
+                    decoration: BoxDecoration(
+                      color: baseColor,
+                      borderRadius: AeroRadius.mdBorderRadius,
+                    ),
+                  ),
+                  shimmerColor,
+                  delay: (index * 60).ms,
+                  enableAnimations: enableAnimations,
+                ),
+                const SizedBox(width: AeroSpace.md),
+                // Text rows
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _applyShimmer(
+                        Container(
+                          height: 14,
+                          width: double.infinity,
+                          decoration: BoxDecoration(
+                            color: baseColor,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                        ),
+                        shimmerColor,
+                        delay: (index * 60 + 50).ms,
+                        enableAnimations: enableAnimations,
+                      ),
+                      const SizedBox(height: AeroSpace.xs),
+                      _applyShimmer(
+                        Container(
+                          height: 12,
+                          width: 140,
+                          decoration: BoxDecoration(
+                            color: baseColor,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                        ),
+                        shimmerColor,
+                        delay: (index * 60 + 100).ms,
+                        enableAnimations: enableAnimations,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: AeroSpace.sm),
+                // Trailing button placeholder
+                _applyShimmer(
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: baseColor,
+                      borderRadius: AeroRadius.smBorderRadius,
+                    ),
+                  ),
+                  shimmerColor,
+                  delay: (index * 60 + 120).ms,
+                  enableAnimations: enableAnimations,
+                ),
+              ],
+            ),
+          );
+        },
+      );
+    }
 
     return GridView.builder(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AeroSpace.xxl,
+        vertical: AeroSpace.md,
+      ),
+      physics: const NeverScrollableScrollPhysics(),
       gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 400,
-        mainAxisExtent: 320,
-        crossAxisSpacing: 20,
-        mainAxisSpacing: 20,
+        maxCrossAxisExtent: 380,
+        mainAxisExtent: 310,
+        crossAxisSpacing: AeroSpace.lg,
+        mainAxisSpacing: AeroSpace.lg,
       ),
       itemCount: 6,
       itemBuilder: (context, index) {
         return Container(
           decoration: BoxDecoration(
-            color: theme.colorScheme.surface,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: theme.colorScheme.onSurface.withValues(alpha: 0.1)),
+            color: colors.surface1,
+            borderRadius: AeroRadius.lgBorderRadius,
+            border: Border.all(color: colors.outline, width: 1.0),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Thumbnail placeholder
-              _applyShimmer(
-                Container(
-                  height: 180,
-                  decoration: BoxDecoration(
-                    color: baseColor,
-                    borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+              // 16:9 Thumbnail placeholder
+              AspectRatio(
+                aspectRatio: 16 / 9,
+                child: _applyShimmer(
+                  Container(
+                    decoration: BoxDecoration(
+                      color: baseColor,
+                      borderRadius: const BorderRadius.vertical(
+                        top: Radius.circular(AeroRadius.lg - 1),
+                      ),
+                    ),
                   ),
+                  shimmerColor,
+                  delay: (index * 80).ms,
+                  enableAnimations: enableAnimations,
                 ),
-                shimmerColor,
-                enableAnimations: enableAnimations,
               ),
-              
               Padding(
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.all(AeroSpace.md),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Title placeholder
                     _applyShimmer(
                       Container(
-                        height: 16,
+                        height: 14,
                         width: double.infinity,
                         decoration: BoxDecoration(
                           color: baseColor,
@@ -75,42 +187,54 @@ class SearchSkeleton extends StatelessWidget {
                         ),
                       ),
                       shimmerColor,
-                      delay: 100.ms,
+                      delay: (index * 80 + 60).ms,
                       enableAnimations: enableAnimations,
                     ),
-                    
-                    const SizedBox(height: 8),
-                    
-                    // Author placeholder
+                    const SizedBox(height: AeroSpace.sm),
                     _applyShimmer(
                       Container(
                         height: 12,
-                        width: 150,
+                        width: 180,
                         decoration: BoxDecoration(
                           color: baseColor,
                           borderRadius: BorderRadius.circular(4),
                         ),
                       ),
                       shimmerColor,
-                      delay: 200.ms,
+                      delay: (index * 80 + 120).ms,
                       enableAnimations: enableAnimations,
                     ),
-                    
-                    const SizedBox(height: 16),
-                    
-                    // Stats placeholder
-                    _applyShimmer(
-                      Container(
-                        height: 10,
-                        width: 100,
-                        decoration: BoxDecoration(
-                          color: baseColor,
-                          borderRadius: BorderRadius.circular(4),
+                    const SizedBox(height: AeroSpace.md),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        _applyShimmer(
+                          Container(
+                            height: 11,
+                            width: 80,
+                            decoration: BoxDecoration(
+                              color: baseColor,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                          ),
+                          shimmerColor,
+                          delay: (index * 80 + 160).ms,
+                          enableAnimations: enableAnimations,
                         ),
-                      ),
-                      shimmerColor,
-                      delay: 300.ms,
-                      enableAnimations: enableAnimations,
+                        _applyShimmer(
+                          Container(
+                            height: 28,
+                            width: 64,
+                            decoration: BoxDecoration(
+                              color: baseColor,
+                              borderRadius: AeroRadius.mdBorderRadius,
+                            ),
+                          ),
+                          shimmerColor,
+                          delay: (index * 80 + 180).ms,
+                          enableAnimations: enableAnimations,
+                        ),
+                      ],
                     ),
                   ],
                 ),

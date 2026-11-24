@@ -52,25 +52,42 @@ android {
 
     splits {
         abi {
+            // Decision (sideload distribution): keep isUniversalApk = true so
+            // GitHub releases/android can ship one universal APK alongside the
+            // per-ABI splits. ABI splits are already disabled when the Gradle
+            // task name contains "bundle" (AAB / Play path).
+            // Do NOT flip isUniversalApk to false unless the product switches
+            // fully to Play AAB-only distribution.
             isEnable = gradle.startParameter.taskNames.none { it.contains("bundle", ignoreCase = true) }
             reset()
             include("arm64-v8a", "armeabi-v7a", "x86_64")
             isUniversalApk = true
         }
     }
+
+    sourceSets {
+        getByName("test") {
+            // Canonical Kotlin unit-test source dir (plus existing java/).
+            java.srcDir("src/test/kotlin")
+        }
+    }
 }
 
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
-    
+
     // Kotlin Coroutines for background tasks
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+
+    // lifecycleScope for method-channel handlers (FlutterActivity is a LifecycleOwner)
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.6.2")
 
     // youtubedl-android library - keep current stable version
     val youtubedlAndroid = "0.18.1"
     implementation("io.github.junkfood02.youtubedl-android:library:$youtubedlAndroid")
     implementation("io.github.junkfood02.youtubedl-android:ffmpeg:$youtubedlAndroid")
-    implementation("io.github.junkfood02.youtubedl-android:aria2c:$youtubedlAndroid") // optional
+
+    testImplementation("junit:junit:4.13.2")
 }
 
 flutter {

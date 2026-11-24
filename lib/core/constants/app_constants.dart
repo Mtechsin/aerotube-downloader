@@ -64,6 +64,7 @@ class AppConstants {
   static const String prefAutoMergeStreams = 'auto_merge_streams';
   static const String prefDefaultSubtitleLanguage = 'default_subtitle_language';
   static const String prefThemeMode = 'theme_mode';
+  static const String prefAmoledDark = 'amoled_dark';
   static const String prefAccentColor = 'accent_color';
   static const String prefEnableAnimations = 'enable_animations';
   static const String prefEnableCookies = 'enable_cookies';
@@ -78,6 +79,7 @@ class AppConstants {
   static const String prefSanitizeUrls = 'sanitize_urls';
   static const String prefOnboardingComplete = 'onboarding_complete';
   static const String prefYtdlpAutoUpdated = 'ytdlp_auto_updated';
+  static const String prefIsSidebarExpanded = 'is_sidebar_expanded';
 
   // ── Auth / Session Preference Keys ────────────────────────────────────
   static const String prefAuthTokenExpiry = 'youtube_token_expiry';

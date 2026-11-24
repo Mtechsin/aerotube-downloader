@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/app_motion.dart';
@@ -16,9 +17,9 @@ import 'ui/screens/onboarding_screen.dart';
 import 'ui/widgets/update_dialog.dart';
 import 'ui/widgets/navigation/app_navigation_rail.dart';
 import 'ui/widgets/floating_progress_overlay.dart';
-import 'core/utils/responsive_layout.dart';
 import 'core/utils/platform_utils.dart';
 import 'providers/update_provider.dart';
+import 'ui/components/components.dart';
 
 class App extends StatefulWidget {
   const App({super.key});
@@ -90,6 +91,9 @@ class _AppState extends State<App> with TickerProviderStateMixin {
     final themeMode = context.select<PlatformSettingsProvider, ThemeMode>(
       (p) => p.themeMode,
     );
+    final amoledDark = context.select<PlatformSettingsProvider, bool>(
+      (p) => p.amoledDark,
+    );
     final needsOnboarding =
         PlatformUtils.isAndroid &&
         context.select<PlatformSettingsProvider, bool>(
@@ -98,10 +102,13 @@ class _AppState extends State<App> with TickerProviderStateMixin {
     return MaterialApp(
       navigatorKey: _navigatorKey,
       scaffoldMessengerKey: notificationService.scaffoldMessengerKey,
-      title: 'YouTube Downloader',
+      title: 'AeroTube',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
-      darkTheme: AppTheme.darkTheme,
+      darkTheme:
+          amoledDark && themeMode != ThemeMode.light
+              ? AppTheme.amoledDarkTheme
+              : AppTheme.darkTheme,
       themeMode: themeMode,
       routes: {'/youtube_login': (context) => const YoutubeLoginScreen()},
       home: needsOnboarding
@@ -147,46 +154,113 @@ class _AppState extends State<App> with TickerProviderStateMixin {
                 }
                 return Stack(
                   children: [
-                    Scaffold(
-                      backgroundColor: Theme.of(
-                        context,
-                      ).scaffoldBackgroundColor,
-                      body: Row(
-                        children: [
-                          if (ResponsiveLayout.shouldShowSidebar(context))
-                            AppNavigationRail(
-                              entranceController: _entranceController,
-                            )
-                          else
-                            const SizedBox.shrink(),
-                          Expanded(
-                            child: Selector<NavigationProvider, int>(
-                              selector: (_, p) => p.currentIndex,
-                              builder: (context, currentIndex, _) {
-                                return AnimatedSwitcher(
-                                  duration: appMotionDuration(
-                                    context,
-                                    AppMotion.short,
-                                  ),
-                                  switchInCurve: AppMotion.decelerate,
-                                  switchOutCurve: AppMotion.accelerate,
-                                  transitionBuilder: (child, animation) =>
-                                      FadeTransition(
-                                        opacity: animation,
-                                        child: SlideTransition(
-                                          position: Tween<Offset>(
-                                            begin: const Offset(0.02, 0),
-                                            end: Offset.zero,
-                                          ).animate(animation),
-                                          child: child,
+                    CallbackShortcuts(
+                      bindings: <ShortcutActivator, VoidCallback>{
+                        const SingleActivator(
+                          LogicalKeyboardKey.digit1,
+                          control: true,
+                        ): () {
+                          context.read<NavigationProvider>().switchToHome();
+                        },
+                        const SingleActivator(
+                          LogicalKeyboardKey.digit2,
+                          control: true,
+                        ): () {
+                          context.read<NavigationProvider>().switchToSearch();
+                        },
+                        const SingleActivator(
+                          LogicalKeyboardKey.keyF,
+                          control: true,
+                        ): () {
+                          context.read<NavigationProvider>().switchToSearch();
+                        },
+                        const SingleActivator(
+                          LogicalKeyboardKey.digit3,
+                          control: true,
+                        ): () {
+                          context.read<NavigationProvider>().switchToLibrary();
+                        },
+                        const SingleActivator(
+                          LogicalKeyboardKey.digit4,
+                          control: true,
+                        ): () {
+                          context.read<NavigationProvider>().switchToSettings();
+                        },
+                        const SingleActivator(
+                          LogicalKeyboardKey.comma,
+                          control: true,
+                        ): () {
+                          context.read<NavigationProvider>().switchToSettings();
+                        },
+                      },
+                      child: Focus(
+                        autofocus: true,
+                        child: Scaffold(
+                          backgroundColor: Theme.of(
+                            context,
+                          ).scaffoldBackgroundColor,
+                          body: Row(
+                            children: [
+                              AppNavigationRail(
+                                entranceController: _entranceController,
+                              ),
+                              Expanded(
+                                child: Selector<NavigationProvider, int>(
+                                  selector: (_, p) => p.currentIndex,
+                                  builder: (context, currentIndex, _) {
+                                    return Column(
+                                      children: [
+                                        // 48 px transparent top strip with breadcrumb and StatusPills
+                                        AeroDesktopTopStrip(
+                                          currentIndex: currentIndex,
                                         ),
-                                      ),
-                                  child: _screens[currentIndex],
-                                );
-                              },
-                            ),
+                                        Expanded(
+                                          child: Center(
+                                            child: ConstrainedBox(
+                                              constraints: const BoxConstraints(
+                                                maxWidth: 1100,
+                                              ),
+                                              child: AnimatedSwitcher(
+                                                duration: appMotionDuration(
+                                                  context,
+                                                  AppMotion.short,
+                                                ),
+                                                switchInCurve:
+                                                    AppMotion.decelerate,
+                                                switchOutCurve:
+                                                    AppMotion.accelerate,
+                                                transitionBuilder:
+                                                    (
+                                                      child,
+                                                      animation,
+                                                    ) => FadeTransition(
+                                                      opacity: animation,
+                                                      child: SlideTransition(
+                                                        position: Tween<Offset>(
+                                                          begin: const Offset(
+                                                            0.02,
+                                                            0,
+                                                          ),
+                                                          end: Offset.zero,
+                                                        ).animate(animation),
+                                                        child: child,
+                                                      ),
+                                                    ),
+                                                child: _screens[currentIndex],
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                        // Mini download tray docked at bottom of content
+                                        const MiniDownloadTray(),
+                                      ],
+                                    );
+                                  },
+                                ),
+                              ),
+                            ],
                           ),
-                        ],
+                        ),
                       ),
                     ),
                     // PF8: RepaintBoundary isolates overlay repaints from main scaffold
@@ -195,7 +269,9 @@ class _AppState extends State<App> with TickerProviderStateMixin {
                       builder: (context, idx, _) => idx == 3
                           ? const SizedBox.shrink()
                           : const RepaintBoundary(
-                              child: FloatingProgressOverlay(),
+                              child: FloatingProgressOverlay(
+                                showDownloadProgress: false,
+                              ),
                             ),
                     ),
                   ],

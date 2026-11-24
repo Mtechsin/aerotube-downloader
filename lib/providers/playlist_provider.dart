@@ -46,8 +46,13 @@ class PlaylistProvider extends ChangeNotifier {
   String? get currentUrl => _currentUrl;
   Set<String> get selectedIds => _selectedIds;
   int get selectedCount => _selectedIds.length;
-  bool get isAllSelected =>
-      _playlist != null && _selectedIds.length == _playlist!.videos.length;
+  bool get isAllSelected {
+    if (_playlist == null) return false;
+    // M28: playlists can repeat a video; Set dedupes so length comparison
+    // against videos.length never matches. Compare unique ids.
+    final uniqueIds = _playlist!.videos.map((v) => v.id).toSet();
+    return uniqueIds.isNotEmpty && _selectedIds.containsAll(uniqueIds);
+  }
 
   String get selectedFormatId => _selectedFormatId;
   bool get audioOnly => _audioOnly;
@@ -110,19 +115,39 @@ class PlaylistProvider extends ChangeNotifier {
           _throttledStatus(status);
         },
       ) as Future<PlaylistInfo>;
-      final info = await future.timeout(
-        const Duration(seconds: 90),
-        onTimeout: () => throw TimeoutException(
-          'Fetch timed out - VPN may be slowing connection, try again or disable VPN',
-          Duration(seconds: 90),
-        ),
-      );
+      // C3: service allows 6 minutes for large playlists. Provider must not
+      // give up at 90s — that made every large playlist always fail.
+      // Cancel the service on timeout so yt-dlp is not left as a zombie.
+      final PlaylistInfo info;
+      try {
+        info = await future.timeout(
+          const Duration(minutes: 7),
+          onTimeout: () => throw TimeoutException(
+            'Fetch timed out - VPN may be slowing connection, try again or disable VPN',
+            const Duration(minutes: 7),
+          ),
+        );
+      } on TimeoutException {
+        try {
+          // ignore: avoid_dynamic_calls
+          await _ytdlpService.cancelFetch();
+        } catch (_) {}
+        rethrow;
+      }
       if (myGen != _fetchGen) return;
 
       _playlist = info;
       _selectedIds.addAll(info.videos.map((v) => v.id));
     } catch (e, stackTrace) {
       if (myGen != _fetchGen) return;
+      // H29: user cancel is not an error.
+      if (e.toString().contains('Cancelled')) {
+        LoggingService().info(
+          'Playlist fetch cancelled',
+          component: 'PlaylistProvider',
+        );
+        return;
+      }
       LoggingService().error(
         'Playlist fetch failed for $url: $e',
         component: 'PlaylistProvider',

@@ -14,10 +14,31 @@
 }
 
 # youtubedl-android
--keep class io.github.junkfood02.youtubedl.** { *; }
--keep class org.yausername.** { *; }
--dontwarn org.yausername.**
+# CRITICAL: Maven coordinates are io.github.junkfood02.youtubedl-android, but the
+# actual Kotlin/Java packages are com.yausername.*. The previous rules kept
+# org.yausername.** and io.github.junkfood02.youtubedl.** which never matched,
+# so R8 stripped/renamed the library and release builds crashed with
+# NoClassDefFoundError / ClassNotFoundException whose message was an obfuscated
+# name like "I4.f" (surfaced to users as "Platform error: I4.f").
+-keep class com.yausername.** { *; }
+-keep class io.github.junkfood02.** { *; }
+-dontwarn com.yausername.**
 -dontwarn io.github.junkfood02.**
+
+# youtubedl-android depends on Apache Commons IO + Commons Compress at runtime
+# (ZipUtils.unzip → org.apache.commons.compress.archivers.zip.*). Stripping
+# Compress caused NoClassDefFoundError during YoutubeDL.initPython().
+-keep class org.apache.commons.io.** { *; }
+-keep class org.apache.commons.compress.** { *; }
+-dontwarn org.apache.commons.io.**
+-dontwarn org.apache.commons.compress.**
+
+# Keep exception class names and messages readable in release stack traces.
+# Without this, Error.message is often just an obfuscated class name.
+-keepattributes SourceFile,LineNumberTable
+-keepattributes Exceptions,*Annotation*,Signature,InnerClasses,EnclosingMethod
+-renamesourcefileattribute SourceFile
+-keep class * extends java.lang.Throwable { *; }
 
 # FileProvider
 -keep class androidx.core.content.FileProvider { *; }

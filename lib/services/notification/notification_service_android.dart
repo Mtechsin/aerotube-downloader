@@ -165,7 +165,19 @@ class NotificationServiceAndroid extends NotificationService {
     VoidCallback? onTap,
     String? payload,
     String? channelId,
+    bool alsoSystemNotification = true,
   }) async {
+    // In-app SnackBar (single surface). Parent handles ScaffoldMessenger.
+    await super.show(
+      title: title,
+      body: body,
+      isError: isError,
+      onTap: onTap,
+      // Native shade notification is optional and must not duplicate the SnackBar.
+      alsoSystemNotification: false,
+    );
+
+    if (!alsoSystemNotification) return;
     if (!systemNotificationsEnabled) return;
 
     if (!_isInitialized && !_permissionDenied) {

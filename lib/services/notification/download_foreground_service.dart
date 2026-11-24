@@ -198,7 +198,12 @@ class DownloadForegroundService {
     }
   }
 
-  /// Update download progress
+  /// Update download progress.
+  ///
+  /// On Android the native DownloadService also updates its own foreground
+  /// notification from yt-dlp progress events. This Dart-side forwarder is
+  /// therefore optional/redundant for the Android notification, but is kept
+  /// so non-Android paths and any native gaps still get progress updates.
   Future<void> updateProgress({
     required String downloadId,
     required double progress,

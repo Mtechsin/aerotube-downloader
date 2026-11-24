@@ -1,3 +1,4 @@
+import 'package:material_symbols_icons/symbols.dart';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -27,18 +28,21 @@ void main() {
 
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
-      const MethodChannel(FileActionService.channelName),
-      (MethodCall call) async {
-        methodCalls.add(call);
-        return mockMethodResult;
-      },
-    );
+          const MethodChannel(FileActionService.channelName),
+          (MethodCall call) async {
+            methodCalls.add(call);
+            return mockMethodResult;
+          },
+        );
   });
 
   tearDown(() async {
     PlatformUtils.isAndroidOverride = null;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
-        .setMockMethodCallHandler(const MethodChannel(FileActionService.channelName), null);
+        .setMockMethodCallHandler(
+          const MethodChannel(FileActionService.channelName),
+          null,
+        );
 
     if (await tempDir.exists()) {
       await tempDir.delete(recursive: true);
@@ -75,42 +79,47 @@ void main() {
     return MaterialApp(
       home: Scaffold(
         body: Center(
-          child: MobileDownloadItem(
-            item: item,
-            onDelete: onDelete,
-          ),
+          child: MobileDownloadItem(item: item, onDelete: onDelete),
         ),
       ),
     );
   }
 
   group('MobileDownloadItem Completed Card Actions', () {
-    testWidgets('renders Open, Share, Show in Folder, and More buttons when completed', (tester) async {
-      final item = createCompletedItem();
+    testWidgets(
+      'renders Open, Share, Show in Folder, and More buttons when completed',
+      (tester) async {
+        final item = createCompletedItem();
 
-      await tester.pumpWidget(createWidgetUnderTest(item));
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(createWidgetUnderTest(item));
+        await tester.pumpAndSettle();
 
-      expect(find.byTooltip('Open'), findsOneWidget);
-      expect(find.byTooltip('Share'), findsOneWidget);
-      expect(find.byTooltip('Show in folder'), findsOneWidget);
-      expect(find.byTooltip('More actions'), findsOneWidget);
-      expect(find.text('Done'), findsOneWidget);
-    });
+        expect(find.byTooltip('Open'), findsOneWidget);
+        expect(find.byTooltip('Share'), findsOneWidget);
+        expect(find.byTooltip('Show in folder'), findsOneWidget);
+        expect(find.byTooltip('More actions'), findsOneWidget);
+        expect(find.text('Done'), findsOneWidget);
+      },
+    );
 
-    testWidgets('does NOT render completed action buttons when item is active', (tester) async {
-      final item = createActiveItem();
+    testWidgets(
+      'does NOT render completed action buttons when item is active',
+      (tester) async {
+        final item = createActiveItem();
 
-      await tester.pumpWidget(createWidgetUnderTest(item));
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(createWidgetUnderTest(item));
+        await tester.pumpAndSettle();
 
-      expect(find.byTooltip('Open'), findsNothing);
-      expect(find.byTooltip('Share'), findsNothing);
-      expect(find.byTooltip('Show in folder'), findsNothing);
-      expect(find.byTooltip('More actions'), findsNothing);
-    });
+        expect(find.byTooltip('Open'), findsNothing);
+        expect(find.byTooltip('Share'), findsNothing);
+        expect(find.byTooltip('Show in folder'), findsNothing);
+        expect(find.byTooltip('More actions'), findsNothing);
+      },
+    );
 
-    testWidgets('tapping Open button triggers FileActionService openFile', (tester) async {
+    testWidgets('tapping Open button triggers FileActionService openFile', (
+      tester,
+    ) async {
       final item = createCompletedItem();
 
       await tester.pumpWidget(createWidgetUnderTest(item));
@@ -125,7 +134,9 @@ void main() {
       expect(call.arguments['useChooser'], isFalse);
     });
 
-    testWidgets('tapping Share button triggers FileActionService shareFile', (tester) async {
+    testWidgets('tapping Share button triggers FileActionService shareFile', (
+      tester,
+    ) async {
       final item = createCompletedItem();
 
       await tester.pumpWidget(createWidgetUnderTest(item));
@@ -140,21 +151,26 @@ void main() {
       expect(call.arguments['title'], equals('Completed Test Video'));
     });
 
-    testWidgets('tapping Show in Folder button triggers FileActionService openFolder', (tester) async {
-      final item = createCompletedItem();
+    testWidgets(
+      'tapping Show in Folder button triggers FileActionService openFolder',
+      (tester) async {
+        final item = createCompletedItem();
 
-      await tester.pumpWidget(createWidgetUnderTest(item));
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(createWidgetUnderTest(item));
+        await tester.pumpAndSettle();
 
-      await tester.tap(find.byTooltip('Show in folder'));
-      await tester.pumpAndSettle();
+        await tester.tap(find.byTooltip('Show in folder'));
+        await tester.pumpAndSettle();
 
-      expect(methodCalls.any((c) => c.method == 'openFolder'), isTrue);
-      final call = methodCalls.firstWhere((c) => c.method == 'openFolder');
-      expect(call.arguments['folderPath'], equals(tempDir.path));
-    });
+        expect(methodCalls.any((c) => c.method == 'openFolder'), isTrue);
+        final call = methodCalls.firstWhere((c) => c.method == 'openFolder');
+        expect(call.arguments['folderPath'], equals(tempDir.path));
+      },
+    );
 
-    testWidgets('tapping card body triggers openFile on completed download', (tester) async {
+    testWidgets('tapping card body triggers openFile on completed download', (
+      tester,
+    ) async {
       final item = createCompletedItem();
 
       await tester.pumpWidget(createWidgetUnderTest(item));
@@ -169,27 +185,32 @@ void main() {
       expect(call.arguments['filePath'], equals(sampleFile.path));
     });
 
-    testWidgets('tapping More actions opens popup menu with Open with and triggers chooser', (tester) async {
-      final item = createCompletedItem();
+    testWidgets(
+      'tapping More actions opens popup menu with Open with and triggers chooser',
+      (tester) async {
+        final item = createCompletedItem();
 
-      await tester.pumpWidget(createWidgetUnderTest(item));
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(createWidgetUnderTest(item));
+        await tester.pumpAndSettle();
 
-      await tester.tap(find.byTooltip('More actions'));
-      await tester.pumpAndSettle();
+        await tester.tap(find.byTooltip('More actions'));
+        await tester.pumpAndSettle();
 
-      expect(find.text('Open with...'), findsOneWidget);
-      expect(find.text('Show in folder'), findsOneWidget);
+        expect(find.text('Open with...'), findsOneWidget);
+        expect(find.text('Show in folder'), findsOneWidget);
 
-      await tester.tap(find.text('Open with...'));
-      await tester.pumpAndSettle();
+        await tester.tap(find.text('Open with...'));
+        await tester.pumpAndSettle();
 
-      expect(methodCalls.any((c) => c.method == 'openFile'), isTrue);
-      final call = methodCalls.firstWhere((c) => c.method == 'openFile');
-      expect(call.arguments['useChooser'], isTrue);
-    });
+        expect(methodCalls.any((c) => c.method == 'openFile'), isTrue);
+        final call = methodCalls.firstWhere((c) => c.method == 'openFile');
+        expect(call.arguments['useChooser'], isTrue);
+      },
+    );
 
-    testWidgets('displays SnackBar when file does not exist on disk', (tester) async {
+    testWidgets('displays SnackBar when file does not exist on disk', (
+      tester,
+    ) async {
       final missingFile = '${tempDir.path}/deleted_by_user.mp4';
       final item = createCompletedItem(savePath: missingFile);
 
@@ -203,17 +224,22 @@ void main() {
       expect(find.text('File not found on device.'), findsOneWidget);
     });
 
-    testWidgets('displays SnackBar when native channel reports NO_APP_FOUND', (tester) async {
+    testWidgets('displays SnackBar when native channel reports NO_APP_FOUND', (
+      tester,
+    ) async {
       final item = createCompletedItem();
 
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(
-        const MethodChannel(FileActionService.channelName),
-        (MethodCall call) async {
-          methodCalls.add(call);
-          throw PlatformException(code: 'NO_APP_FOUND', message: 'No activity found');
-        },
-      );
+            const MethodChannel(FileActionService.channelName),
+            (MethodCall call) async {
+              methodCalls.add(call);
+              throw PlatformException(
+                code: 'NO_APP_FOUND',
+                message: 'No activity found',
+              );
+            },
+          );
 
       await tester.pumpWidget(createWidgetUnderTest(item));
       await tester.pumpAndSettle();
@@ -222,7 +248,10 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byType(SnackBar), findsOneWidget);
-      expect(find.text('No application found to open this file.'), findsOneWidget);
+      expect(
+        find.text('No application found to open this file.'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('displays SnackBar when share action fails', (tester) async {
@@ -230,12 +259,15 @@ void main() {
 
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(
-        const MethodChannel(FileActionService.channelName),
-        (MethodCall call) async {
-          methodCalls.add(call);
-          throw PlatformException(code: 'SHARE_FAILED', message: 'Could not share');
-        },
-      );
+            const MethodChannel(FileActionService.channelName),
+            (MethodCall call) async {
+              methodCalls.add(call);
+              throw PlatformException(
+                code: 'SHARE_FAILED',
+                message: 'Could not share',
+              );
+            },
+          );
 
       await tester.pumpWidget(createWidgetUnderTest(item));
       await tester.pumpAndSettle();
@@ -247,38 +279,45 @@ void main() {
       expect(find.text('Could not share'), findsOneWidget);
     });
 
-    testWidgets('DownloadItemCard on non-Windows invokes onOpenFolder callback', (tester) async {
-      PlatformUtils.isWindowsOverride = false;
-      bool onOpenFolderCalled = false;
-      final item = createCompletedItem();
+    testWidgets(
+      'DownloadItemCard on non-Windows invokes onOpenFolder callback',
+      (tester) async {
+        PlatformUtils.isWindowsOverride = false;
+        bool onOpenFolderCalled = false;
+        final item = createCompletedItem();
 
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: DownloadItemCard(
-              item: item,
-              onOpenFolder: () {
-                onOpenFolderCalled = true;
-                FileActionService().openFolder(item.savePath ?? item.outputPath);
-              },
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: DownloadItemCard(
+                item: item,
+                onOpenFolder: () {
+                  onOpenFolderCalled = true;
+                  FileActionService().openFolder(
+                    item.savePath ?? item.outputPath,
+                  );
+                },
+              ),
             ),
           ),
-        ),
-      );
-      await tester.pumpAndSettle();
+        );
+        await tester.pumpAndSettle();
 
-      // Tap the folder icon on DownloadItemCard
-      final folderButton = find.byIcon(Icons.folder_open_rounded);
-      expect(folderButton, findsOneWidget);
-      await tester.tap(folderButton);
-      await tester.pumpAndSettle();
+        // Folder actions are grouped under More actions in the redesigned row.
+        await tester.tap(find.byTooltip('More actions'));
+        await tester.pumpAndSettle();
+        final folderButton = find.byIcon(Symbols.folder_open_rounded);
+        expect(folderButton, findsOneWidget);
+        await tester.tap(folderButton);
+        await tester.pumpAndSettle();
 
-      expect(onOpenFolderCalled, isTrue);
-      expect(methodCalls.any((c) => c.method == 'openFolder'), isTrue);
-      final call = methodCalls.firstWhere((c) => c.method == 'openFolder');
-      expect(call.arguments['folderPath'], equals(tempDir.path));
+        expect(onOpenFolderCalled, isTrue);
+        expect(methodCalls.any((c) => c.method == 'openFolder'), isTrue);
+        final call = methodCalls.firstWhere((c) => c.method == 'openFolder');
+        expect(call.arguments['folderPath'], equals(tempDir.path));
 
-      PlatformUtils.isWindowsOverride = null;
-    });
+        PlatformUtils.isWindowsOverride = null;
+      },
+    );
   });
 }

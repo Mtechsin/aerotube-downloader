@@ -1,0 +1,114 @@
+[
+  {
+    "finding": "activeCookieSource",
+    "claim": "When both _cookiePath and _cookieBrowser are null (no cookies configured), activeCookieSource incorrectly returns the string 'browser' instead of null, because null != 'none' is true in Dart.",
+    "action": "keep",
+    "support": "supported",
+    "confidence": 0.93,
+    "probabilities": {
+      "supported": 0.94,
+      "contradicted": 0.04,
+      "not_in_evidence": 0.01,
+      "misquoted": 0.01
+    },
+    "reasons": [
+      "support=supported conf=0.93"
+    ]
+  },
+  {
+    "finding": "merge_output_format_dead",
+    "claim": "The --merge-output-format argument is never applied for dual-stream downloads because the code reads the extension from an yt-dlp output TEMPLATE path ('%(title)s.%(ext)s'), producing the literal string '%(ext)s' which never matches the allowed container list.",
+    "action": "keep",
+    "support": "supported",
+    "confidence": 1.0,
+    "probabilities": {
+      "contradicted": 0.0,
+      "supported": 1.0,
+      "not_in_evidence": 0.0,
+      "misquoted": 0.0
+    },
+    "reasons": [
+      "support=supported conf=1.00"
+    ]
+  },
+  {
+    "finding": "playlist_false_positive",
+    "claim": "looksLikePlaylist returns true for ordinary URLs that merely contain the substring 'list=' (for example a checklist query parameter or an empty list= parameter), causing single-video pages to be treated as playlists.",
+    "action": "keep",
+    "support": "supported",
+    "confidence": 1.0,
+    "probabilities": {
+      "supported": 1.0,
+      "contradicted": 0.0,
+      "not_in_evidence": 0.0,
+      "misquoted": 0.0
+    },
+    "reasons": [
+      "support=supported conf=1.00"
+    ]
+  },
+  {
+    "finding": "outdated_overmatch",
+    "claim": "Any error text containing the bare substrings 'outdated' or 'signature' is classified as an outdated yt-dlp extractor and surfaces an 'Extractor Update Required' message, even when the real cause is unrelated.",
+    "action": "keep",
+    "support": "supported",
+    "confidence": 0.98,
+    "probabilities": {
+      "contradicted": 0.0,
+      "supported": 0.99,
+      "not_in_evidence": 0.0,
+      "misquoted": 0.01
+    },
+    "reasons": [
+      "support=supported conf=0.98"
+    ]
+  },
+  {
+    "finding": "desktop_progress_drop",
+    "claim": "The desktop DownloadProvider's _throttledNotify is leading-edge-only with no trailing flush, so the last progress update in a burst can be dropped and the UI progress bar can freeze until the next yt-dlp event arrives.",
+    "action": "keep",
+    "support": "supported",
+    "confidence": 1.0,
+    "probabilities": {
+      "supported": 1.0,
+      "contradicted": 0.0,
+      "not_in_evidence": 0.0,
+      "misquoted": 0.0
+    },
+    "reasons": [
+      "support=supported conf=1.00"
+    ]
+  },
+  {
+    "finding": "file_finder_wrong_id",
+    "claim": "findDownloadedFile's idMatches branch can never succeed under the default -o template because the on-disk filename is the video title, not the composite DownloadItem.id, so the finder falls back to a 4-word title match that can select the wrong file in a crowded download folder.",
+    "action": "keep",
+    "support": "supported",
+    "confidence": 0.94,
+    "probabilities": {
+      "supported": 0.95,
+      "contradicted": 0.02,
+      "not_in_evidence": 0.01,
+      "misquoted": 0.02
+    },
+    "reasons": [
+      "support=supported conf=0.94"
+    ]
+  },
+  {
+    "finding": "silent_duplicate",
+    "claim": "startDownload silently no-ops when the same URL is already active, with no user-visible feedback, so a second tap appears broken.",
+    "action": "keep",
+    "support": "supported",
+    "confidence": 1.0,
+    "probabilities": {
+      "supported": 1.0,
+      "contradicted": 0.0,
+      "not_in_evidence": 0.0,
+      "misquoted": 0.0
+    },
+    "reasons": [
+      "support=supported conf=1.00"
+    ]
+  }
+]

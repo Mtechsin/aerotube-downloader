@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/theme/app_motion.dart';
 import '../../models/download_item.dart';
 
-/// One-shot spring pop (scale 0.92 -> 1 with slight overshoot) for a card
+/// One-shot linear scale (0.92 to 1) for a card
 /// whose download just completed. Plays on a false->true [completed]
 /// transition and, via [playOnMount], for cards that appear already
 /// completed (history lists) when the completion is only seconds old —
@@ -74,12 +74,10 @@ class _CompletionPopState extends State<CompletionPop>
   Widget build(BuildContext context) {
     _controller.duration = appMotionDuration(context, AppMotion.medium);
     return ScaleTransition(
-      scale: Tween<double>(begin: 0.92, end: 1.0).animate(
-        CurvedAnimation(
-          parent: _controller,
-          curve: AppMotion.bounceSpringCurve,
-        ),
-      ),
+      scale: Tween<double>(
+        begin: 0.92,
+        end: 1.0,
+      ).animate(CurvedAnimation(parent: _controller, curve: AppMotion.linear)),
       child: widget.child,
     );
   }

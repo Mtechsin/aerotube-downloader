@@ -1,19 +1,28 @@
+import 'package:material_symbols_icons/symbols.dart';
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
-import '../../providers/video_provider.dart';
-import '../../providers/platform_settings_provider.dart';
-import '../../providers/navigation_provider.dart';
+
+import '../../core/theme/tokens/colors.dart';
+import '../../core/theme/tokens/radius.dart';
+import '../../core/theme/tokens/spacing.dart';
+import '../../core/theme/tokens/typography.dart';
+import '../../core/utils/error_helper.dart';
+import '../../core/utils/platform_utils.dart';
+import '../../models/download_item.dart';
 import '../../providers/download_provider.dart';
 import '../../providers/mobile_download_provider.dart';
-import '../../core/utils/platform_utils.dart';
-import '../widgets/mobile_url_input_card.dart';
+import '../../providers/navigation_provider.dart';
+import '../../providers/platform_settings_provider.dart';
+import '../../providers/video_provider.dart';
+import '../../services/core/file_action_service.dart';
+import '../components/components.dart';
 import '../widgets/app_logo.dart';
-import 'package:flutter/cupertino.dart';
 import 'mobile_result_screen.dart';
-import '../../core/utils/error_helper.dart';
 
-/// Minimalist mobile home screen
+/// Minimalist mobile home screen following AeroTube redesign spec section 7.1.
 class MobileHomeScreen extends StatefulWidget {
   const MobileHomeScreen({super.key});
 
@@ -25,6 +34,10 @@ class _MobileHomeScreenState extends State<MobileHomeScreen> {
   final _urlController = TextEditingController();
   VideoProvider? _videoProvider;
 
+  bool _isShowingAuthDialog = false;
+  bool _isFetchNavigating = false;
+  String? _lastAuthErrorMessage;
+
   @override
   void initState() {
     super.initState();
@@ -34,11 +47,10 @@ class _MobileHomeScreenState extends State<MobileHomeScreen> {
     });
   }
 
-  bool _isShowingAuthDialog = false;
-
   @override
   void dispose() {
     _isShowingAuthDialog = false;
+    _lastAuthErrorMessage = null;
     _videoProvider?.removeListener(_onVideoProviderChange);
     _urlController.dispose();
     super.dispose();
@@ -52,32 +64,62 @@ class _MobileHomeScreenState extends State<MobileHomeScreen> {
       _urlController.text = _videoProvider!.currentUrl;
     }
 
-    if (_videoProvider!.hasError) {
-      final parsed = ErrorHelper.parse(_videoProvider!.errorMessage!);
+    // C7: never force-unwrap errorMessage. H23: only re-show the auth dialog
+    // when the error message itself changes (not on every notify).
+    final err = _videoProvider!.errorMessage;
+    if (_videoProvider!.hasError && err != null) {
+      if (err == _lastAuthErrorMessage) return;
+      final parsed = ErrorHelper.parse(err);
       if (parsed.category == ErrorCategory.authentication) {
-        _showAuthErrorDialog(parsed.suggestion ?? _videoProvider!.errorMessage!);
+        _lastAuthErrorMessage = err;
+        _showAuthErrorDialog(parsed.suggestion ?? err);
       }
+    } else if (!_videoProvider!.hasError) {
+      _lastAuthErrorMessage = null;
     }
   }
 
   void _showAuthErrorDialog(String message) {
     if (!mounted || _isShowingAuthDialog) return;
     _isShowingAuthDialog = true;
-    showDialog(
+    final colors = context.aero;
+    showAeroDialog<void>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Row(
-          children: [
-            Icon(Icons.lock_person_rounded, color: Colors.orange),
-            SizedBox(width: 12),
-            Text('Authentication Required'),
-          ],
+      builder: (dialogContext) => AeroDialog(
+        leading: Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: colors.warning.withValues(alpha: 0.15),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(
+            Symbols.lock_person_rounded,
+            color: colors.warning,
+            size: 22,
+          ),
         ),
-        content: Text(message),
+        titleText: 'Authentication Required',
+        content: Text(
+          message,
+          style: AeroText.body.copyWith(
+            color: colors.onSurfaceMuted,
+            height: 1.4,
+          ),
+        ),
         actions: [
-          FilledButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('OK'),
+          AeroButton(
+            variant: AeroButtonVariant.ghost,
+            text: 'Dismiss',
+            onPressed: () => Navigator.pop(dialogContext),
+          ),
+          AeroButton(
+            variant: AeroButtonVariant.primary,
+            text: 'Sign In',
+            icon: const Icon(Symbols.login_rounded, size: 16),
+            onPressed: () {
+              Navigator.pop(dialogContext);
+              Navigator.pushNamed(context, '/youtube_login');
+            },
           ),
         ],
       ),
@@ -86,88 +128,163 @@ class _MobileHomeScreenState extends State<MobileHomeScreen> {
     });
   }
 
+  Future<void> _handleFetch() async {
+    // H22: re-entrancy guard — ignore a second Fetch tap while navigating.
+    if (_isFetchNavigating) return;
+    final url = _urlController.text.trim();
+    if (url.isEmpty) return;
+
+    final videoProvider = context.read<VideoProvider>();
+    final settings = context.read<PlatformSettingsProvider>();
+    videoProvider.setPreferredQuality(settings.defaultQuality);
+
+    if (url.contains('list=') && !url.contains('v=')) {
+      videoProvider.fetchPlaylistInfo(url);
+    } else {
+      videoProvider.fetchVideoInfo(url);
+      videoProvider.setAudioOnly(settings.defaultQuality == 'Audio Only');
+    }
+
+    _isFetchNavigating = true;
+    try {
+      await Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const MobileResultScreen()),
+      );
+    } finally {
+      if (mounted) {
+        _isFetchNavigating = false;
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final navProvider = context.read<NavigationProvider>();
+    final colors = context.aero;
+
+    final isLoading = context.select<VideoProvider, bool>((p) => p.isLoading);
+    final errorMessage = context.select<VideoProvider, String?>(
+      (p) => p.errorMessage,
+    );
+    final loadingStatus = context.select<VideoProvider, String>(
+      (p) => p.loadingStatus,
+    );
+
+    final recentDownloads = PlatformUtils.isAndroid
+        ? context.select<MobileDownloadProvider, List<DownloadItem>>(
+            (p) => p.completedDownloads,
+          )
+        : context.select<DownloadProvider, List<DownloadItem>>(
+            (p) => p.historyDownloads,
+          );
 
     return SafeArea(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // ── Top bar ─────────────────────────────────────────────────
+          // ── Top bar: AeroTube wordmark + StatusPill + avatar ───────────
           Padding(
-            padding: const EdgeInsets.fromLTRB(22, 18, 12, 0),
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                // App name
-                RichText(
-                  text: TextSpan(
-                    children: [
-                      TextSpan(
-                        text: 'Aero',
-                        style: TextStyle(
-                          fontFamily: 'Manrope',
-                          fontSize: 26,
-                          fontWeight: FontWeight.w800,
-                          color: theme.colorScheme.onSurface,
-                          letterSpacing: -0.5,
-                        ),
-                      ),
-                      TextSpan(
-                        text: 'Tube',
-                        style: TextStyle(
-                          fontFamily: 'Manrope',
-                          fontSize: 26,
-                          fontWeight: FontWeight.w300,
-                          color: theme.colorScheme.primary,
-                          letterSpacing: -0.5,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 10),
-                // Status pill — isolated so settings notifications don't rebuild whole screen
-                const _StatusPill(),
+                const _AeroTubeWordmark(),
                 const Spacer(),
-                // Files button with active-download badge — isolated via select
-                _DownloadBadgeButton(navProvider: navProvider),
-                const SizedBox(width: 2),
-                // Settings button
-                _TopBarButton(
-                  icon: Icons.tune_rounded,
-                  tooltip: 'Settings',
-                  onTap: () => navProvider.setIndex(3),
-                ),
+                const _TopBarStatusPill(),
+                const SizedBox(width: AeroSpace.sm),
+                const _TopBarAvatar(),
               ],
             ),
           ),
 
-          // ── Main Content — vertically centered ───────────────────────
+          // ── Idle layout: positioned in upper-middle (~35% from top) ────
           Expanded(
             child: LayoutBuilder(
               builder: (context, constraints) {
+                // Ensure composer sits ~35% from the top so it stays above keyboard
+                final topSpacing = max(16.0, constraints.maxHeight * 0.10);
+
                 return SingleChildScrollView(
-                  physics: const AlwaysScrollableScrollPhysics(),
+                  physics: const BouncingScrollPhysics(
+                    parent: AlwaysScrollableScrollPhysics(),
+                  ),
                   child: ConstrainedBox(
                     constraints: BoxConstraints(
                       minHeight: constraints.maxHeight,
                     ),
-                    child: Center(
+                    child: IntrinsicHeight(
                       child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 24,
-                          vertical: 32,
-                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
                         child: Column(
-                          mainAxisSize: MainAxisSize.min,
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            _UrlInputSection(controller: _urlController),
-                            const SizedBox(height: 20),
-                            const _CookieToggle(),
+                            SizedBox(height: topSpacing),
+
+                            // Headline 28 w800: "Download anything,\ncleanly."
+                            Text(
+                              'Download anything,\ncleanly.',
+                              style: AeroText.headline.copyWith(
+                                fontSize: 28,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: -0.6,
+                                height: 1.15,
+                                color: colors.onSurface,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: AeroSpace.xs + 2),
+
+                            // Subtitle bodySm muted: "Paste a link. Pick a format."
+                            Text(
+                              'Paste a link. Pick a format.',
+                              style: AeroText.bodySm.copyWith(
+                                color: colors.onSurfaceMuted,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: AeroSpace.xl),
+
+                            // Composer (UrlComposer): 56dp, radius xl, H27 privacy rule strictly preserved
+                            UrlComposer(
+                              controller: _urlController,
+                              onFetch: _handleFetch,
+                              onCancel: () =>
+                                  context.read<VideoProvider>().cancelFetch(),
+                              isLoading: isLoading,
+                              statusMessage: loadingStatus.isNotEmpty
+                                  ? loadingStatus
+                                  : null,
+                              errorMessage: errorMessage,
+                              hintText: 'Paste a video URL…',
+                              showPasteButton: true,
+                              showFetchButton: true,
+                            ),
+
+                            // Recent section: top 3 most recent downloads (tap = open/re-open)
+                            if (recentDownloads.isNotEmpty) ...[
+                              SectionHeader(
+                                title: 'Recent',
+                                margin: const EdgeInsets.only(
+                                  top: AeroSpace.xxl,
+                                  bottom: AeroSpace.sm,
+                                ),
+                              ),
+                              ...recentDownloads
+                                  .take(3)
+                                  .map(
+                                    (item) => _RecentDownloadTile(item: item),
+                                  ),
+                            ],
+
+                            const Spacer(),
+
+                            // Cookie/auth StatusPill row
+                            const Padding(
+                              padding: EdgeInsets.symmetric(
+                                vertical: AeroSpace.lg,
+                              ),
+                              child: Center(child: _CookieAuthStatusPill()),
+                            ),
                           ],
                         ),
                       ),
@@ -181,272 +298,263 @@ class _MobileHomeScreenState extends State<MobileHomeScreen> {
       ),
     );
   }
-
 }
 
-/// Status pill isolated via selects — rebuilds only this small widget on settings changes
-class _StatusPill extends StatelessWidget {
-  const _StatusPill();
+/// App wordmark for the mobile top bar.
+class _AeroTubeWordmark extends StatelessWidget {
+  const _AeroTubeWordmark();
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isInitialized =
-        context.select<PlatformSettingsProvider, bool>((p) => p.isInitialized);
-    if (!isInitialized) {
-      return _buildPill(
-        context,
-        label: 'Initializing...',
-        color: theme.colorScheme.primary,
-        isLoading: true,
-      );
-    }
-    final hasChecked =
-        context.select<PlatformSettingsProvider, bool>((p) => p.hasCheckedTools);
-    if (!hasChecked) return const SizedBox.shrink();
-    final isYtdlpAvailable = context
-        .select<PlatformSettingsProvider, bool>((p) => p.isYtdlpAvailable);
-    if (!isYtdlpAvailable) {
-      return _buildPill(context, label: 'yt-dlp missing', color: Colors.red);
-    }
-    final isFfmpegAvailable = context
-        .select<PlatformSettingsProvider, bool>((p) => p.isFfmpegAvailable);
-    if (!isFfmpegAvailable) {
-      return _buildPill(context, label: 'FFmpeg missing', color: Colors.orange);
-    }
-    return const SizedBox.shrink();
-  }
+    final colors = context.aero;
 
-  Widget _buildPill(
-    BuildContext context, {
-    required String label,
-    required Color color,
-    bool isLoading = false,
-  }) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        if (isLoading)
-          SizedBox(
-            width: 6,
-            height: 6,
-            child: CircularProgressIndicator(
-              strokeWidth: 1.5,
-              color: color.withValues(alpha: 0.6),
-            ),
-          )
-        else
-          Container(
-            width: 6,
-            height: 6,
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.7),
-              shape: BoxShape.circle,
+    return RichText(
+      text: TextSpan(
+        children: [
+          TextSpan(
+            text: 'Aero',
+            style: TextStyle(
+              fontFamily: 'Manrope',
+              fontSize: 26,
+              fontWeight: FontWeight.w800,
+              color: colors.onSurface,
+              letterSpacing: -0.5,
             ),
           ),
-        const SizedBox(width: 6),
-        Text(
-          label,
-          style: TextStyle(
-            color: color.withValues(alpha: 0.7),
-            fontSize: 11,
-            fontWeight: FontWeight.w500,
+          TextSpan(
+            text: 'Tube',
+            style: TextStyle(
+              fontFamily: 'Manrope',
+              fontSize: 26,
+              fontWeight: FontWeight.w300,
+              color: colors.primary,
+              letterSpacing: -0.5,
+            ),
           ),
-        ),
-      ],
-    );
-  }
-}
-
-/// Active-download badge isolated via select — only rebuilds the icon when count changes
-class _DownloadBadgeButton extends StatelessWidget {
-  final NavigationProvider navProvider;
-  const _DownloadBadgeButton({required this.navProvider});
-
-  @override
-  Widget build(BuildContext context) {
-    final int activeDownloads = PlatformUtils.isAndroid
-        ? context.select<MobileDownloadProvider, int>(
-            (p) => p.activeDownloadsCount)
-        : context.select<DownloadProvider, int>((p) => p.activeCount);
-    return _TopBarButton(
-      icon: Icons.download_outlined,
-      activeIcon: Icons.download_rounded,
-      tooltip: 'Downloads',
-      badge: activeDownloads > 0 ? activeDownloads : null,
-      onTap: () => navProvider.setIndex(2),
-    );
-  }
-}
-
-/// URL input isolated: watches only isLoading/errorMessage at this level,
-/// and delegates per-tick loadingStatus to a nested small widget.
-class _UrlInputSection extends StatelessWidget {
-  final TextEditingController controller;
-  const _UrlInputSection({required this.controller});
-
-  void _handleFetch(BuildContext context) {
-    final url = controller.text.trim();
-    if (url.isEmpty) return;
-    final videoProvider = context.read<VideoProvider>();
-    // Apply default quality from settings before fetching formats.
-    final settings = context.read<PlatformSettingsProvider>();
-    videoProvider.setPreferredQuality(settings.defaultQuality);
-    if (url.contains('list=') && !url.contains('v=')) {
-      videoProvider.fetchPlaylistInfo(url);
-    } else {
-      videoProvider.fetchVideoInfo(url);
-      videoProvider.setAudioOnly(settings.defaultQuality == 'Audio Only');
-    }
-    Navigator.push(
-      context,
-      CupertinoPageRoute(
-        builder: (context) => const MobileResultScreen(),
+        ],
       ),
     );
   }
-
-  @override
-  Widget build(BuildContext context) {
-    final isLoading =
-        context.select<VideoProvider, bool>((p) => p.isLoading);
-    final errorMessage =
-        context.select<VideoProvider, String?>((p) => p.errorMessage);
-    return _UrlInputStatusWrapper(
-      controller: controller,
-      isLoading: isLoading,
-      errorMessage: errorMessage,
-      onFetch: () => _handleFetch(context),
-      onCancel: () => context.read<VideoProvider>().cancelFetch(),
-    );
-  }
 }
 
-/// Inner wrapper that watches only loadingStatus — per-fetch-progress ticks
-/// rebuild only this small widget, not the whole screen or even the loading/error wrapper.
-class _UrlInputStatusWrapper extends StatelessWidget {
-  final TextEditingController controller;
-  final bool isLoading;
-  final String? errorMessage;
-  final VoidCallback onFetch;
-  final VoidCallback? onCancel;
-  const _UrlInputStatusWrapper({
-    required this.controller,
-    required this.isLoading,
-    required this.errorMessage,
-    required this.onFetch,
-    this.onCancel,
-  });
+/// Status pill in the top bar isolated via selects.
+class _TopBarStatusPill extends StatelessWidget {
+  const _TopBarStatusPill();
 
   @override
   Widget build(BuildContext context) {
-    final loadingStatus =
-        context.select<VideoProvider, String>((p) => p.loadingStatus);
-    return MobileUrlInputCard(
-      controller: controller,
-      onFetch: onFetch,
-      onCancel: onCancel,
-      isLoading: isLoading,
-      statusMessage: loadingStatus,
-      errorMessage: errorMessage,
+    final isInitialized = context.select<PlatformSettingsProvider, bool>(
+      (p) => p.isInitialized,
     );
-  }
-}
-
-/// Cookie toggle isolated via selects — rebuilds only this row
-class _CookieToggle extends StatelessWidget {
-  const _CookieToggle();
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final enabled =
-        context.select<PlatformSettingsProvider, bool>((p) => p.enableCookies);
-    final isCookieActive =
-        context.select<PlatformSettingsProvider, bool>((p) => p.isCookieActive);
-    final isLoggedIn = context
-        .select<PlatformSettingsProvider, bool>((p) => p.isYouTubeLoggedIn);
-    final cookieStatus =
-        context.select<PlatformSettingsProvider, String>((p) => p.cookieStatus);
-
-    String statusLabel;
-    Color statusColor;
-    IconData statusIcon;
-
-    if (!enabled) {
-      statusLabel = 'Cookies disabled';
-      statusColor = theme.colorScheme.onSurface.withValues(alpha: 0.35);
-      statusIcon = Icons.cookie_outlined;
-    } else if (isLoggedIn) {
-      statusLabel = 'Signed in to YouTube · cookies active';
-      statusColor = Colors.green;
-      statusIcon = Icons.verified_user_rounded;
-    } else if (isCookieActive) {
-      statusLabel = cookieStatus;
-      statusColor = Colors.orange;
-      statusIcon = Icons.cookie_rounded;
-    } else {
-      statusLabel = 'Cookies enabled · not signed in';
-      statusColor = Colors.orange.withValues(alpha: 0.8);
-      statusIcon = Icons.cookie_rounded;
+    if (!isInitialized) {
+      return const StatusPill.info(label: 'Initializing', showSpinner: true);
     }
 
-    return GestureDetector(
-      onTap: () async {
-        await context
-            .read<PlatformSettingsProvider>()
-            .setEnableCookies(!enabled);
-      },
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 250),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-        decoration: BoxDecoration(
-          color: enabled
-              ? (isLoggedIn
-                  ? Colors.green.withValues(alpha: 0.07)
-                  : theme.colorScheme.primary.withValues(alpha: 0.05))
-              : theme.colorScheme.onSurface.withValues(alpha: 0.03),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: enabled
-                ? (isLoggedIn
-                    ? Colors.green.withValues(alpha: 0.2)
-                    : theme.colorScheme.primary.withValues(alpha: 0.12))
-                : theme.colorScheme.onSurface.withValues(alpha: 0.08),
-            width: 0.8,
+    final hasChecked = context.select<PlatformSettingsProvider, bool>(
+      (p) => p.hasCheckedTools,
+    );
+    if (hasChecked) {
+      final isYtdlpAvailable = context.select<PlatformSettingsProvider, bool>(
+        (p) => p.isYtdlpAvailable,
+      );
+      if (!isYtdlpAvailable) {
+        return StatusPill.danger(
+          label: 'yt-dlp missing',
+          icon: Symbols.warning_amber_rounded,
+          onTap: () => context.read<NavigationProvider>().setIndex(3),
+        );
+      }
+
+      final isFfmpegAvailable = context.select<PlatformSettingsProvider, bool>(
+        (p) => p.isFfmpegAvailable,
+      );
+      if (!isFfmpegAvailable) {
+        return StatusPill.warning(
+          label: 'FFmpeg missing',
+          icon: Symbols.warning_amber_rounded,
+          onTap: () => context.read<NavigationProvider>().setIndex(3),
+        );
+      }
+    }
+
+    final isLoggedIn = context.select<PlatformSettingsProvider, bool>(
+      (p) => p.isYouTubeLoggedIn,
+    );
+    if (isLoggedIn) {
+      return StatusPill.success(
+        label: 'Signed in',
+        icon: Symbols.verified_user_rounded,
+        onTap: () => context.read<NavigationProvider>().setIndex(3),
+      );
+    }
+
+    final isCookieActive = context.select<PlatformSettingsProvider, bool>(
+      (p) => p.isCookieActive,
+    );
+    if (isCookieActive) {
+      return StatusPill.info(
+        label: 'Cookies on',
+        icon: Symbols.cookie_rounded,
+        onTap: () => context.read<NavigationProvider>().setIndex(3),
+      );
+    }
+
+    return StatusPill.neutral(
+      label: 'Ready',
+      showDot: true,
+      onTap: () => context.read<NavigationProvider>().setIndex(3),
+    );
+  }
+}
+
+/// Avatar button in the top bar.
+class _TopBarAvatar extends StatelessWidget {
+  const _TopBarAvatar();
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.aero;
+    final isLoggedIn = context.select<PlatformSettingsProvider, bool>(
+      (p) => p.isYouTubeLoggedIn,
+    );
+    final profileImageUrl = context.select<PlatformSettingsProvider, String?>(
+      (p) => p.youtubeProfileImageUrl,
+    );
+
+    return Tooltip(
+      message: isLoggedIn ? 'Account & Settings' : 'Settings',
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(17),
+          onTap: () => context.read<NavigationProvider>().setIndex(3),
+          child: Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: isLoggedIn
+                  ? colors.primary.withValues(alpha: 0.15)
+                  : colors.surface2,
+              border: Border.all(
+                color: isLoggedIn
+                    ? colors.primary.withValues(alpha: 0.35)
+                    : colors.outline,
+                width: 1,
+              ),
+            ),
+            child: ClipOval(
+              child: isLoggedIn && profileImageUrl != null
+                  ? Image.network(
+                      profileImageUrl,
+                      width: 34,
+                      height: 34,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => Icon(
+                        Symbols.person_rounded,
+                        size: 18,
+                        color: colors.primary,
+                      ),
+                    )
+                  : Icon(
+                      isLoggedIn
+                          ? Symbols.person_rounded
+                          : Symbols.person_rounded,
+                      size: 18,
+                      color: isLoggedIn
+                          ? colors.primary
+                          : colors.onSurfaceMuted,
+                    ),
+            ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Tile representing a recent download item on Mobile Home.
+class _RecentDownloadTile extends StatelessWidget {
+  final DownloadItem item;
+
+  const _RecentDownloadTile({required this.item});
+
+  String _formatBadge() {
+    if (item.audioOnly) return 'MP3';
+    if (item.videoQuality != null && item.videoQuality!.trim().isNotEmpty) {
+      final q = item.videoQuality!.trim();
+      return q.toLowerCase().contains('mp4') ? q : '$q MP4';
+    }
+    return '1080p MP4';
+  }
+
+  Future<void> _handleTap(BuildContext context) async {
+    final path = item.savePath ?? item.outputPath;
+    final success = await FileActionService().openFile(path);
+    if (!success && context.mounted) {
+      final msg = FileActionService().lastError ?? 'Could not open file';
+      AeroSnack.error(context, message: msg);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.aero;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AeroSpace.xs + 2),
+      child: AeroCard(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        borderRadius: AeroRadius.mdBorderRadius,
+        onTap: () => _handleTap(context),
         child: Row(
           children: [
-            Icon(statusIcon, size: 16, color: statusColor),
-            const SizedBox(width: 9),
+            ThumbnailTile(
+              imageUrl: item.thumbnailUrl,
+              width: 72,
+              height: 40.5,
+              borderRadius: AeroRadius.smBorderRadius,
+            ),
+            const SizedBox(width: AeroSpace.sm + 2),
             Expanded(
-              child: Text(
-                statusLabel,
-                style: TextStyle(
-                  color: statusColor,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    item.title,
+                    style: AeroText.bodySm.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: colors.onSurface,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 3),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 1.5,
+                    ),
+                    decoration: BoxDecoration(
+                      color: colors.surface2,
+                      borderRadius: AeroRadius.fullBorderRadius,
+                      border: Border.all(color: colors.outline, width: 0.8),
+                    ),
+                    child: Text(
+                      _formatBadge(),
+                      style: AeroText.caption.copyWith(
+                        color: colors.onSurfaceMuted,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
-            SizedBox(
-              height: 24,
-              child: FittedBox(
-                fit: BoxFit.contain,
-                child: Switch(
-                  value: enabled,
-                  onChanged: (val) async {
-                    await context
-                        .read<PlatformSettingsProvider>()
-                        .setEnableCookies(val);
-                  },
-                  activeThumbColor:
-                      isLoggedIn ? Colors.green : theme.colorScheme.primary,
-                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                ),
-              ),
-            ),
+            const SizedBox(width: AeroSpace.xs),
+            Icon(Symbols.check_circle_rounded, color: colors.success, size: 18),
           ],
         ),
       ),
@@ -454,67 +562,52 @@ class _CookieToggle extends StatelessWidget {
   }
 }
 
-/// Compact top-bar icon button with optional badge
-class _TopBarButton extends StatelessWidget {
-  final IconData icon;
-  final IconData? activeIcon;
-  final String tooltip;
-  final int? badge;
-  final VoidCallback onTap;
-
-  const _TopBarButton({
-    required this.icon,
-    this.activeIcon,
-    required this.tooltip,
-    this.badge,
-    required this.onTap,
-  });
+/// Cookie / auth status pill row ("Signed in · cookies on", "Cookies on · not signed in", "Cookies off").
+class _CookieAuthStatusPill extends StatelessWidget {
+  const _CookieAuthStatusPill();
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        IconButton(
-          icon: Icon(
-            icon,
-            size: 22,
-            color: theme.colorScheme.onSurface.withValues(alpha: 0.55),
-          ),
-          onPressed: onTap,
-          tooltip: tooltip,
-          padding: const EdgeInsets.all(8),
-          constraints: const BoxConstraints(),
-        ),
-        if (badge != null)
-          Positioned(
-            right: 2,
-            top: 2,
-            child: Container(
-              padding: const EdgeInsets.all(3),
-              decoration: const BoxDecoration(
-                color: Colors.red,
-                shape: BoxShape.circle,
-              ),
-              constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
-              child: Text(
-                badge! > 9 ? '9+' : '$badge',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 9,
-                  fontWeight: FontWeight.bold,
-                ),
-                textAlign: TextAlign.center,
-              ),
-            ),
-          ),
-      ],
+    final enabled = context.select<PlatformSettingsProvider, bool>(
+      (p) => p.enableCookies,
     );
+    final isLoggedIn = context.select<PlatformSettingsProvider, bool>(
+      (p) => p.isYouTubeLoggedIn,
+    );
+
+    if (!enabled) {
+      return StatusPill.neutral(
+        label: 'Cookies off',
+        icon: Symbols.cookie_rounded,
+        tooltip: 'Tap to turn cookies on',
+        onTap: () async {
+          await context.read<PlatformSettingsProvider>().setEnableCookies(true);
+          if (context.mounted) {
+            AeroSnack.success(context, message: 'Cookies enabled');
+          }
+        },
+      );
+    } else if (isLoggedIn) {
+      return StatusPill.success(
+        label: 'Signed in · cookies on',
+        icon: Symbols.verified_user_rounded,
+        tooltip: 'Signed in to YouTube · cookies active',
+        onTap: () => context.read<NavigationProvider>().setIndex(3),
+      );
+    } else {
+      return StatusPill.warning(
+        label: 'Cookies on · not signed in',
+        icon: Symbols.cookie_rounded,
+        tooltip: 'Tap to sign in to YouTube',
+        onTap: () {
+          Navigator.pushNamed(context, '/youtube_login');
+        },
+      );
+    }
   }
 }
 
-/// Mobile initialization overlay
+/// Mobile initialization overlay (preserved for background initialization sequences).
 class MobileInitializationOverlay extends StatelessWidget {
   final PlatformSettingsProvider settingsProvider;
 
@@ -538,10 +631,7 @@ class MobileInitializationOverlay extends StatelessWidget {
               AppLogo(size: 120)
                   .animate()
                   .fadeIn(duration: 800.ms)
-                  .scale(
-                    begin: const Offset(0.8, 0.8),
-                    curve: Curves.easeOutBack,
-                  ),
+                  .scale(begin: const Offset(0.8, 0.8), curve: Curves.linear),
               const SizedBox(height: 32),
               Text(
                 'YouTube Downloader',
@@ -559,21 +649,21 @@ class MobileInitializationOverlay extends StatelessWidget {
               const SizedBox(height: 40),
               _buildProgressStep(
                 context,
-                icon: Icons.check_circle_rounded,
+                icon: Symbols.check_circle_rounded,
                 title: 'Loading settings',
                 isComplete: true,
               ),
               const SizedBox(height: 12),
               _buildProgressStep(
                 context,
-                icon: Icons.terminal_rounded,
+                icon: Symbols.terminal_rounded,
                 title: 'Checking yt-dlp',
                 isLoading: true,
               ),
               const SizedBox(height: 12),
               _buildProgressStep(
                 context,
-                icon: Icons.movie_rounded,
+                icon: Symbols.movie_rounded,
                 title: 'Checking FFmpeg',
                 isPending: true,
               ),
@@ -587,7 +677,7 @@ class MobileInitializationOverlay extends StatelessWidget {
                 ),
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 1500),
-                  curve: Curves.easeInOut,
+                  curve: Curves.linear,
                   width: 100,
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
@@ -622,7 +712,11 @@ class MobileInitializationOverlay extends StatelessWidget {
 
     if (isComplete) {
       iconColor = Colors.green;
-      trailing = const Icon(Icons.check_rounded, color: Colors.green, size: 20);
+      trailing = const Icon(
+        Symbols.check_rounded,
+        color: Colors.green,
+        size: 20,
+      );
     } else if (isLoading) {
       iconColor = theme.colorScheme.primary;
       trailing = SizedBox(
@@ -644,15 +738,15 @@ class MobileInitializationOverlay extends StatelessWidget {
         color: isLoading
             ? theme.colorScheme.primary.withValues(alpha: 0.05)
             : isComplete
-                ? Colors.green.withValues(alpha: 0.05)
-                : theme.colorScheme.surface,
+            ? Colors.green.withValues(alpha: 0.05)
+            : theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
           color: isLoading
               ? theme.colorScheme.primary.withValues(alpha: 0.2)
               : isComplete
-                  ? Colors.green.withValues(alpha: 0.2)
-                  : theme.colorScheme.onSurface.withValues(alpha: 0.1),
+              ? Colors.green.withValues(alpha: 0.2)
+              : theme.colorScheme.onSurface.withValues(alpha: 0.1),
         ),
       ),
       child: Row(

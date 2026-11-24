@@ -28,7 +28,6 @@ class YtdlpService implements YtdlpToolService {
   String? _userAgent;
   bool _enableCookies = false;
   bool _isInitialized = false;
-  final NotificationService? _notificationService;
   final CertificatePinningService _certPinningService = CertificatePinningService();
   String? _cachedLatestVersion;
   DateTime? _cacheTime;
@@ -36,7 +35,10 @@ class YtdlpService implements YtdlpToolService {
   static const Duration _cacheExpiry = Duration(minutes: 60);
   static const Duration _throttleWindow = Duration(seconds: 60);
   final _videoInfoCache = <String, VideoInfo>{};
+  final _videoInfoCacheAt = <String, DateTime>{};
   static const int _maxCacheSize = 30;
+  // Match Android's 10-minute info TTL so stale format ladders are not kept forever.
+  static const Duration _videoInfoCacheTtl = Duration(minutes: 10);
   String? _cachedVersion;
   HttpClient? _pinnedClient;
 
@@ -75,8 +77,7 @@ class YtdlpService implements YtdlpToolService {
        _cookiePath = cookiePath,
        _cookieBrowser = cookieBrowser,
        _webViewPath = webViewPath,
-       _ffmpegPath = ffmpegPath,
-       _notificationService = notificationService;
+       _ffmpegPath = ffmpegPath;
 
   @override
   set ytdlpPath(String path) {
@@ -118,11 +119,21 @@ class YtdlpService implements YtdlpToolService {
           (_cookieBrowser != null && _cookieBrowser != 'none') ||
           (_webViewPath != null));
 
-  String? get activeCookieSource => _cookiePath != null
-      ? 'file'
-      : (_cookieBrowser != 'none'
-            ? 'browser'
-            : (_webViewPath != null ? 'webview' : null));
+  String? get activeCookieSource {
+    if (_cookiePath != null) return 'file';
+    // H4: null != 'none' is true in Dart — must null-check before comparing.
+    if (_cookieBrowser != null && _cookieBrowser != 'none') return 'browser';
+    if (_webViewPath != null) return 'webview';
+    return null;
+  }
+
+  /// H7: true when cookies-from-browser / WebView profile is the active
+  /// auth source. In that case a hardcoded Chrome UA can mismatch the
+  /// browser session and cause YouTube to reject it — skip --user-agent.
+  bool get _usesBrowserCookieSource =>
+      _enableCookies &&
+      (_webViewPath != null ||
+          (_cookieBrowser != null && _cookieBrowser != 'none'));
 
   /// Initialize the service: locate or download yt-dlp
   @override
@@ -249,8 +260,10 @@ class YtdlpService implements YtdlpToolService {
   @override
   Future<bool> update() async {
     try {
-      final result = await Process.run(_ytdlpPath, ['-U']).timeout(
+      final result = await _runWithTimeoutTracked(
+        ['-U'],
         const Duration(seconds: 45),
+        timeoutMessage: 'yt-dlp -U timed out',
       );
       if (result.exitCode == 0) {
         _cachedVersion = null;
@@ -267,9 +280,14 @@ class YtdlpService implements YtdlpToolService {
       );
     }
 
-    // Direct binary download fallback
+    // Direct binary download fallback — pick URL by platform (not always .exe).
+    final url = PlatformUtils.isWindows
+        ? _windowsDownloadUrl
+        : PlatformUtils.isMacOS
+            ? _macosDownloadUrl
+            : _linuxDownloadUrl;
     return downloadAndInstallUpdate(
-      AppConstants.ytdlpWindowsDownloadUrl,
+      url,
       onProgress: (_) {},
       onStatus: (_) {},
     );
@@ -489,15 +507,10 @@ class YtdlpService implements YtdlpToolService {
   bool isNewerVersion(String current, String latest) =>
       VersionUtils.isNewerVersion(current, latest);
 
-  /// Detect if an error suggests yt-dlp is broken or outdated
-  bool isBrokenError(String error) {
-    final lowerError = error.toLowerCase();
-    return lowerError.contains('outdated') ||
-        lowerError.contains('update') ||
-        lowerError.contains('signature') ||
-        lowerError.contains('decipher') ||
-        lowerError.contains('extraction failed');
-  }
+  /// Detect if an error suggests yt-dlp is broken or outdated.
+  /// Shared with Android via [ErrorHelper.isBrokenExtractorError].
+  bool isBrokenError(String error) =>
+      ErrorHelper.isBrokenExtractorError(error);
 
   // ── VPN helpers ──────────────────────────────────────────────────────
   bool _isVpnNetworkError(String msg) {
@@ -605,14 +618,18 @@ class YtdlpService implements YtdlpToolService {
     return args;
   }
 
-  // Active process for cancellation support
+  /// Active process for cancellation support
   Process? _activeVideoProcess;
   Process? _activePlaylistProcess;
   int _videoFetchGen = 0;
+  // H29: set while cancelFetch is killing an in-flight playlist so the
+  // non-zero exit is reported as Cancelled, not a hard failure.
+  bool _playlistCancelRequested = false;
 
   @override
   Future<void> cancelFetch() async {
     _videoFetchGen++;
+    _playlistCancelRequested = true;
     final vProc = _activeVideoProcess;
     final pProc = _activePlaylistProcess;
     _activeVideoProcess = null;
@@ -640,11 +657,20 @@ class YtdlpService implements YtdlpToolService {
 
     final cacheKey = _buildVideoInfoCacheKey(url);
     final cachedInfo = _videoInfoCache[cacheKey];
-    if (cachedInfo != null) {
+    final cachedAt = _videoInfoCacheAt[cacheKey];
+    if (cachedInfo != null &&
+        cachedAt != null &&
+        DateTime.now().difference(cachedAt) < _videoInfoCacheTtl) {
       onProgress?.call('Using cached video metadata...');
       _videoInfoCache.remove(cacheKey);
       _videoInfoCache[cacheKey] = cachedInfo;
+      _videoInfoCacheAt.remove(cacheKey);
+      _videoInfoCacheAt[cacheKey] = cachedAt;
       return cachedInfo;
+    }
+    if (cachedInfo != null) {
+      _videoInfoCache.remove(cacheKey);
+      _videoInfoCacheAt.remove(cacheKey);
     }
 
     // Cancellation: bump generation, kill previous process
@@ -660,15 +686,22 @@ class YtdlpService implements YtdlpToolService {
     onProgress?.call('Fetching video metadata...');
 
     final stopwatch = Stopwatch()..start();
+    // Overall budget still allows the full resilient chain (fast → patient →
+    // auth/cookie/VPN fallbacks) without the provider giving up first.
     const overallTimeout = Duration(seconds: 120);
-    const perAttemptTimeout = Duration(seconds: 45);
+    const fastAttemptTimeout = Duration(seconds: 18);
+    const patientAttemptTimeout = Duration(seconds: 45);
     Duration remainingOverall() {
       final r = overallTimeout - stopwatch.elapsed;
       return r.isNegative ? Duration.zero : r;
     }
 
     // Helper to run args with remaining-aware timeout + active process tracking
-    Future<ProcessResult> runTracked(List<String> args, String timeoutMsg) async {
+    Future<ProcessResult> runTracked(
+      List<String> args,
+      String timeoutMsg, {
+      Duration perAttemptTimeout = patientAttemptTimeout,
+    }) async {
       if (myGen != _videoFetchGen) throw YtdlpException('Cancelled');
       final effTimeout = remainingOverall();
       if (effTimeout.inSeconds < 5) throw YtdlpException('Fetch timed out — VPN may be slowing connection, try again or disable VPN.');
@@ -697,21 +730,71 @@ class YtdlpService implements YtdlpToolService {
     ProcessResult? result;
     String lastError = '';
 
-    // ── Attempt 1: full args (with cookies) ───────────────────────────────
+    // ── Attempt 1: FAST lean args ─────────────────────────────────────────
+    // Short socket timeout + almost no in-process retries. On a healthy
+    // network this is the common path and finishes in ~1–3s instead of
+    // waiting out yt-dlp's 4×30s retry ladder. Content errors (private,
+    // unavailable) fail immediately and skip the patient retry.
     try {
       result = await runTracked(
-        _buildVideoInfoArgs(url),
-        'yt-dlp timed out fetching video info (45 s). VPN may be slowing connection, try again or disable VPN.',
+        _buildVideoInfoArgs(url, fast: true),
+        'yt-dlp timed out fetching video info. Retrying with longer timeouts...',
+        perAttemptTimeout: fastAttemptTimeout,
       );
       if (result.exitCode == 0) {
         return _parseAndCacheVideoInfo(result.stdout as String, cacheKey, onProgress);
       }
       lastError = (result.stderr as String).trim();
-      LoggingService().warning('Attempt 1 failed: $lastError', component: 'YtdlpService');
+      LoggingService().warning('Attempt 1 (fast) failed: $lastError', component: 'YtdlpService');
     } on YtdlpException catch (e) {
       lastError = e.message;
       if (e.message.contains('Cancelled')) rethrow;
-      // fall through to retry logic (VPN/auth handled below)
+      // fall through — timeouts / VPN / auth handled below
+    }
+
+    // Content-class errors will not improve with more patient retries.
+    final isContentError = lastError.isNotEmpty &&
+        (lastError.toLowerCase().contains('video unavailable') ||
+            lastError.toLowerCase().contains('private video') ||
+            lastError.toLowerCase().contains('has been removed') ||
+            lastError.toLowerCase().contains('not available') ||
+            lastError.toLowerCase().contains('members-only') ||
+            lastError.toLowerCase().contains('age-restricted') ||
+            lastError.toLowerCase().contains('http error 404') ||
+            lastError.toLowerCase().contains('http error 410'));
+
+    // ── Attempt 2: PATIENT full retries (only on timeout/network) ─────────
+    // Restores the old VPN-friendly ladder when the fast pass hit a slow
+    // link or flaky socket. Skipped for content errors and auth (auth has
+    // its own specialized fallbacks below).
+    final needsPatientRetry = !isContentError &&
+        lastError.isNotEmpty &&
+        (_isVpnNetworkError(lastError) ||
+            lastError.toLowerCase().contains('timed out') ||
+            lastError.toLowerCase().contains('timeout'));
+    if (needsPatientRetry) {
+      if (remainingOverall().inSeconds < 5) {
+        throw YtdlpException(_vpnFriendlyMessage(lastError));
+      }
+      onProgress?.call('Retrying with longer timeouts...');
+      LoggingService().info(
+        'Retrying getVideoInfo with patient timeouts due to: $lastError',
+        component: 'YtdlpService',
+      );
+      try {
+        result = await runTracked(
+          _buildVideoInfoArgs(url, fast: false),
+          'yt-dlp timed out fetching video info (45 s). VPN may be slowing connection, try again or disable VPN.',
+        );
+        if (result.exitCode == 0) {
+          return _parseAndCacheVideoInfo(result.stdout as String, cacheKey, onProgress);
+        }
+        lastError = (result.stderr as String).trim();
+        LoggingService().warning('Attempt 2 (patient) failed: $lastError', component: 'YtdlpService');
+      } on YtdlpException catch (e) {
+        if (e.message.contains('Cancelled')) rethrow;
+        lastError = e.message;
+      }
     }
 
     // Early auth check on lastError — if it's clearly auth, try player_client fallback before VPN fallback
@@ -761,6 +844,8 @@ class YtdlpService implements YtdlpToolService {
     }
 
     // ── Determine if we should retry without cookies / VPN fallback ──────
+    // M6: only strip cookies for cookie/VPN-class errors. A simple
+    // "video unavailable" must not double latency with a pointless retry.
     final shouldRetryWithoutCookies = lastError.isNotEmpty &&
         (_isVpnNetworkError(lastError) ||
             _isCookieRelatedError(lastError) ||
@@ -770,7 +855,9 @@ class YtdlpService implements YtdlpToolService {
             (isUsingCookies && _isVpnNetworkError(lastError)));
 
     // ── Attempt 2: without cookies (fixes LevelDB lock behind VPN, DPAPI) ─
-    if (shouldRetryWithoutCookies || (isUsingCookies && lastError.isNotEmpty)) {
+    // M6: do NOT retry without cookies on every error just because cookies
+    // are enabled — only for cookie/VPN-class failures.
+    if (shouldRetryWithoutCookies) {
       if (remainingOverall().inSeconds < 5) {
         throw YtdlpException(_vpnFriendlyMessage(lastError.isEmpty ? 'Fetch timed out' : lastError));
       }
@@ -881,10 +968,13 @@ class YtdlpService implements YtdlpToolService {
     final json = jsonDecode(jsonLine) as Map<String, dynamic>;
     final info = VideoInfo.fromJson(json);
     if (_videoInfoCache.length >= _maxCacheSize) {
-      _videoInfoCache.remove(_videoInfoCache.keys.first);
+      final oldest = _videoInfoCache.keys.first;
+      _videoInfoCache.remove(oldest);
+      _videoInfoCacheAt.remove(oldest);
     }
     _videoInfoCache[cacheKey] = info;
-    _notificationService?.show(title: 'Fetch Complete', body: info.title);
+    _videoInfoCacheAt[cacheKey] = DateTime.now();
+    // M5: do not spam a system notification for every routine metadata fetch.
     return info;
   }
 
@@ -896,22 +986,38 @@ class YtdlpService implements YtdlpToolService {
     }
   }
 
-  // VPN-friendly defaults: longer socket timeout, more retries, retry sleep
-  List<String> _buildVideoInfoArgs(String url) {
+  /// Builds yt-dlp args for a metadata dump.
+  ///
+  /// [fast]: lean flags for the happy path — short socket timeout, almost no
+  /// in-process retries, no retry-sleep. A healthy network finishes in ~1–3s.
+  /// Patient mode restores the VPN-friendly ladder used when the fast pass
+  /// hits a timeout or network error.
+  List<String> _buildVideoInfoArgs(String url, {bool fast = true}) {
     final args = <String>[
       '--ignore-config',
       '--newline',
       '--no-playlist',
       '--skip-download',
-      '--retries',
-      '4',
-      '--extractor-retries',
-      '3',
-      '--socket-timeout',
-      '30',
-      '--retry-sleep',
-      'linear=1:3',
+      if (fast) ...[
+        '--retries',
+        '1',
+        '--extractor-retries',
+        '1',
+        '--socket-timeout',
+        '8',
+      ] else ...[
+        '--retries',
+        '4',
+        '--extractor-retries',
+        '3',
+        '--socket-timeout',
+        '30',
+        '--retry-sleep',
+        'linear=1:3',
+      ],
       '--no-warnings',
+      // Let yt-dlp choose its maintained clients for the current YouTube API.
+      // Pinning android/web can succeed with only the 360p progressive stream.
       '--dump-single-json',
     ];
 
@@ -919,7 +1025,7 @@ class YtdlpService implements YtdlpToolService {
       args.addAll(['--ffmpeg-location', _ffmpegPath!]);
     }
 
-    if (_userAgent != null) {
+    if (_userAgent != null && !_usesBrowserCookieSource) {
       args.addAll(['--user-agent', _userAgent!]);
     }
 
@@ -1045,45 +1151,42 @@ class YtdlpService implements YtdlpToolService {
     );
   }
 
-  List<String> _buildPlaylistArgs(String url, {bool stripCookies = false, bool vpnFallback = false}) {
-    final base = _buildCommonArgs();
-    base.remove('--no-playlist');
-    if (stripCookies) {
-      base.removeWhere((e) => e == '--cookies' || e == '--cookies-from-browser');
-      // also remove the value following those flags if present
-      // _buildCommonArgs builds cookies as two entries; we need to strip pattern.
-      // Rebuild clean without cookies.
-      final clean = <String>[
-        '--newline',
-        '--retries',
-        '5',
-        '--fragment-retries',
-        '5',
-        '--file-access-retries',
-        '3',
-        '--extractor-retries',
-        '3',
-        '--socket-timeout',
-        '30',
-        '--retry-sleep',
-        'linear=1:3',
-        '--concurrent-fragments',
-        '16',
-        '--buffer-size',
-        '16K',
-        '--http-chunk-size',
-        '10M',
-        '--no-warnings',
-      ];
-      if (_ffmpegPath != null && _ffmpegPath != 'ffmpeg') clean.addAll(['--ffmpeg-location', _ffmpegPath!]);
-      if (_userAgent != null) clean.addAll(['--user-agent', _userAgent!]);
-      if (vpnFallback) clean.add('--force-ipv4');
-      clean.addAll(['--flat-playlist', '--extractor-args', 'youtubetab:skip=authcheck', '--dump-json', '--', _validateUrl(url)]);
-      return clean;
-    }
-    if (vpnFallback) base.add('--force-ipv4');
-    base.addAll([
+  List<String> _buildPlaylistArgs(
+    String url, {
+    bool stripCookies = false,
+    bool vpnFallback = false,
+    String? playlistItems,
+  }) {
+    final base = <String>[
+      '--ignore-config',
+      '--newline',
+      '--no-warnings',
       '--flat-playlist',
+      '--retries',
+      '3',
+      '--extractor-retries',
+      '3',
+      '--socket-timeout',
+      '15',
+    ];
+    if (_ffmpegPath != null && _ffmpegPath != 'ffmpeg') {
+      base.addAll(['--ffmpeg-location', _ffmpegPath!]);
+    }
+    if (_userAgent != null) base.addAll(['--user-agent', _userAgent!]);
+    if (vpnFallback) base.add('--force-ipv4');
+    if (!stripCookies && _enableCookies) {
+      if (_webViewPath != null) {
+        base.addAll(['--cookies-from-browser', 'edge:$_webViewPath']);
+      } else if (_cookiePath != null && File(_cookiePath!).existsSync()) {
+        base.addAll(['--cookies', _cookiePath!]);
+      } else if (_cookieBrowser != null && _cookieBrowser != 'none') {
+        base.addAll(['--cookies-from-browser', _cookieBrowser!.toLowerCase()]);
+      }
+    }
+    if (playlistItems != null && playlistItems.trim().isNotEmpty) {
+      base.addAll(['--playlist-items', playlistItems.trim()]);
+    }
+    base.addAll([
       '--extractor-args',
       'youtubetab:skip=authcheck',
       '--dump-json',
@@ -1096,10 +1199,12 @@ class YtdlpService implements YtdlpToolService {
   /// Fetch playlist information from URL — VPN resilient
   Future<PlaylistInfo> getPlaylistInfo(
     String url, {
+    String? playlistItems,
     Function(String status)? onProgress,
   }) async {
     if (!_isInitialized) await initialize();
 
+    _playlistCancelRequested = false;
     onProgress?.call('Connecting...');
 
     Future<PlaylistInfo> runWithArgs(List<String> args) async {
@@ -1163,6 +1268,9 @@ class YtdlpService implements YtdlpToolService {
         rethrow;
       } catch (e) {
         _activePlaylistProcess = null;
+        if (_playlistCancelRequested) {
+          throw YtdlpCancelledException('Playlist fetch cancelled');
+        }
         throw YtdlpException(_vpnFriendlyMessage(e.toString()));
       }
       try {
@@ -1174,6 +1282,11 @@ class YtdlpService implements YtdlpToolService {
       _activePlaylistProcess = null;
 
       if (exitCode != 0) {
+        // H29: a user cancel kills the process → non-zero exit. Report Cancelled
+        // so providers can swallow it instead of showing a hard error.
+        if (_playlistCancelRequested) {
+          throw YtdlpCancelledException('Playlist fetch cancelled');
+        }
         final error = stderrBuffer.toString().trim();
         final authError = checkAuthenticationErrors(error);
         if (authError != null) throw YtdlpException(authError);
@@ -1195,13 +1308,12 @@ class YtdlpService implements YtdlpToolService {
         videoCount: videos.length,
         videos: videos,
       );
-      _notificationService?.show(title: 'Playlist Fetched', body: '${info.title} (${info.videoCount} videos)');
       return info;
     }
 
     // Attempt 1: normal
     try {
-      return await runWithArgs(_buildPlaylistArgs(url));
+      return await runWithArgs(_buildPlaylistArgs(url, playlistItems: playlistItems));
     } on YtdlpException catch (e) {
       final msg = e.message;
       final isVpn = _isVpnNetworkError(msg) || msg.toLowerCase().contains('timed out');
@@ -1210,12 +1322,12 @@ class YtdlpService implements YtdlpToolService {
         LoggingService().warning('Playlist fetch failed ($msg), retrying without cookies/VPN fallback', component: 'YtdlpService');
         onProgress?.call('Retrying without browser cookies (VPN fallback)...');
         try {
-          return await runWithArgs(_buildPlaylistArgs(url, stripCookies: true));
+          return await runWithArgs(_buildPlaylistArgs(url, stripCookies: true, playlistItems: playlistItems));
         } catch (e2) {
           if (_isVpnNetworkError(e2.toString())) {
             onProgress?.call('Retrying with VPN-tolerant settings...');
             try {
-              return await runWithArgs(_buildPlaylistArgs(url, stripCookies: true, vpnFallback: true));
+              return await runWithArgs(_buildPlaylistArgs(url, stripCookies: true, vpnFallback: true, playlistItems: playlistItems));
             } catch (_) {}
           }
           rethrow;
@@ -1223,6 +1335,52 @@ class YtdlpService implements YtdlpToolService {
       }
       rethrow;
     }
+  }
+
+  /// yt-dlp `ytsearchN:query` flat-playlist search.
+  /// Fallback when youtube_explode search fails (bot check / extractor break).
+  /// Returns a map shaped like `{entries: [...], _type: playlist}`.
+  Future<Map<String, dynamic>> searchVideosRaw(
+    String query, {
+    int limit = 10,
+  }) async {
+    if (!_isInitialized) await initialize();
+    final n = limit.clamp(1, 25);
+    final args = <String>[
+      '--ignore-config',
+      '--flat-playlist',
+      '--no-warnings',
+      '--socket-timeout',
+      '15',
+      '--retries',
+      '5',
+      '-J',
+      '--',
+      'ytsearch$n:$query',
+    ];
+    if (_enableCookies && _cookiePath != null && _cookiePath!.isNotEmpty) {
+      args.insertAll(0, ['--cookies', _cookiePath!]);
+    }
+    if (_userAgent != null) {
+      args.insertAll(0, ['--user-agent', _userAgent!]);
+    }
+
+    // H1: Process.run().timeout leaves the native yt-dlp running. Use
+    // Process.start + exitCode.timeout + kill via _runWithTimeoutTracked.
+    final result = await _runWithTimeoutTracked(
+      args,
+      const Duration(seconds: 60),
+      timeoutMessage: 'yt-dlp search timed out (60 s). VPN may be slowing connection.',
+    );
+    if (result.exitCode != 0) {
+      final err = (result.stderr as String).trim();
+      throw YtdlpException('yt-dlp search failed: $err');
+    }
+    final out = (result.stdout as String).trim();
+    if (out.isEmpty) {
+      throw YtdlpException('yt-dlp search returned empty output');
+    }
+    return jsonDecode(out) as Map<String, dynamic>;
   }
 
   /// Download video with specified format
@@ -1240,6 +1398,7 @@ class YtdlpService implements YtdlpToolService {
     bool embedSubtitles = false,
     bool sponsorBlock = false,
     String? archivePath,
+    String? mergeOutputFormat,
     Function(double progress, double speed, int eta)? onProgress,
   }) async {
     if (!_isInitialized) await initialize();
@@ -1288,11 +1447,13 @@ class YtdlpService implements YtdlpToolService {
       // Separate video and audio streams - strictly use selected formats
       args.addAll(['-f', '$formatId+$audioFormatId']);
 
-      // Ensure merge output format matches the destination extension if it's a standard container
-      final ext = p.extension(outputPath).replaceAll('.', '').toLowerCase();
-      if (ext.isNotEmpty &&
-          ['mp4', 'mkv', 'ogg', 'webm', 'flv'].contains(ext)) {
-        args.addAll(['--merge-output-format', ext]);
+      // H3: outputPath is an yt-dlp output TEMPLATE (`%(title)s [%(id)s].%(ext)s`),
+      // so p.extension() returns `.%(ext)s` and never matches a real container.
+      // Prefer an explicit mergeOutputFormat; otherwise default to mp4 (matches
+      // the preferred format ladder: bestvideo[ext=mp4]+bestaudio[ext=m4a]).
+      final container = _resolveMergeContainer(mergeOutputFormat, outputPath);
+      if (container != null) {
+        args.addAll(['--merge-output-format', container]);
       }
     } else if (formatId != null) {
       // Single format with fallback - skip if it's a live stream format (9x range)
@@ -1328,6 +1489,34 @@ class YtdlpService implements YtdlpToolService {
 
     final process = await Process.start(_ytdlpPath, args);
     return process;
+  }
+
+  static const Set<String> _allowedMergeContainers = {
+    'mp4',
+    'mkv',
+    'ogg',
+    'webm',
+    'flv',
+  };
+
+  /// Resolve --merge-output-format for dual-stream downloads.
+  /// Explicit container wins; a concrete (non-template) extension is used next;
+  /// otherwise default to mp4 so the container matches the preferred ladder.
+  static String? _resolveMergeContainer(String? explicit, String outputPath) {
+    if (explicit != null &&
+        explicit.isNotEmpty &&
+        _allowedMergeContainers.contains(explicit.toLowerCase())) {
+      return explicit.toLowerCase();
+    }
+    final ext = p.extension(outputPath).replaceAll('.', '').toLowerCase();
+    if (ext.isNotEmpty &&
+        !ext.contains('%(') &&
+        _allowedMergeContainers.contains(ext)) {
+      return ext;
+    }
+    // Template path (default desktop flow): yt-dlp would otherwise pick its
+    // own default (often mkv). Force mp4 to match the mp4+m4a format ladder.
+    return 'mp4';
   }
 
   /// Build common arguments for yt-dlp including cookies and ffmpeg location
@@ -1367,7 +1556,7 @@ class YtdlpService implements YtdlpToolService {
       args.addAll(['--ffmpeg-location', _ffmpegPath!]);
     }
 
-    if (_userAgent != null) {
+    if (_userAgent != null && !_usesBrowserCookieSource) {
       args.addAll(['--user-agent', _userAgent!]);
     }
 
@@ -1433,11 +1622,30 @@ class YtdlpService implements YtdlpToolService {
     return null;
   }
 
-  /// Parse progress from yt-dlp output line
-  static DownloadProgress? parseProgress(String line) {
+  /// Parse progress from yt-dlp output line.
+  /// [audioOnly] disambiguates `.webm` destinations (Opus audio vs VP9 video).
+  static DownloadProgress? parseProgress(String line, {bool audioOnly = false}) {
     final lowerLine = line.toLowerCase();
 
     if (line.contains('[download] Destination:')) {
+      // M4: audio containers first. `.webm` is ambiguous — Opus audio and
+      // VP9 video both use it — so honor [audioOnly] when present.
+      if (audioOnly ||
+          lowerLine.contains('.m4a') ||
+          lowerLine.contains('.mp3') ||
+          lowerLine.contains('.opus') ||
+          lowerLine.contains('.aac') ||
+          lowerLine.contains('.flac') ||
+          lowerLine.contains('.wav') ||
+          lowerLine.contains('.ogg') ||
+          lowerLine.contains('.audio')) {
+        return DownloadProgress(
+          progress: 0,
+          speed: 0,
+          eta: 0,
+          status: DownloadStatus.downloadingAudio,
+        );
+      }
       if (lowerLine.contains('.mp4') ||
           lowerLine.contains('.mkv') ||
           lowerLine.contains('.webm')) {
@@ -1446,16 +1654,6 @@ class YtdlpService implements YtdlpToolService {
           speed: 0,
           eta: 0,
           status: DownloadStatus.downloadingVideo,
-        );
-      } else if (lowerLine.contains('.m4a') ||
-          lowerLine.contains('.audio') ||
-          lowerLine.contains('.mp3') ||
-          lowerLine.contains('.opus')) {
-        return DownloadProgress(
-          progress: 0,
-          speed: 0,
-          eta: 0,
-          status: DownloadStatus.downloadingAudio,
         );
       }
     }
@@ -1471,9 +1669,13 @@ class YtdlpService implements YtdlpToolService {
     if (progressMatch == null) {
       if (lowerLine.contains('[merger]') ||
           lowerLine.contains('[ffmpeg]') ||
-          lowerLine.contains('merging formats into')) {
+          lowerLine.contains('[extractaudio]') ||
+          lowerLine.contains('[metadata]') ||
+          lowerLine.contains('[embedthumbnail]') ||
+          lowerLine.contains('merging formats into') ||
+          lowerLine.contains('deleting original file')) {
         return DownloadProgress(
-          progress: 1.0,
+          progress: 0.97,
           speed: 0,
           eta: 0,
           status: DownloadStatus.merging,
@@ -1797,4 +1999,12 @@ class YtdlpException implements Exception {
 
   @override
   String toString() => 'YtdlpException: $message';
+}
+
+/// Thrown when the user explicitly cancelled a fetch (vs a real failure).
+class YtdlpCancelledException extends YtdlpException {
+  YtdlpCancelledException(super.message);
+
+  @override
+  String toString() => 'YtdlpCancelledException: $message';
 }

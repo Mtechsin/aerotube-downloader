@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 
 import '../core/constants/app_constants.dart';
 import '../core/utils/downloaded_file_finder.dart';
@@ -16,6 +17,7 @@ import '../providers/platform_settings_provider.dart';
 import '../services/core/android_storage_service.dart';
 import '../services/cookie/cookie_service.dart';
 import '../services/notification/download_foreground_service.dart';
+import '../services/notification/notification_service.dart';
 import '../services/core/logging_service.dart';
 import '../services/ytdlp/native_ytdlp_android.dart';
 import '../services/ytdlp/ytdlp_service_android.dart';
@@ -31,6 +33,7 @@ class MobileDownloadProvider extends ChangeNotifier
   final AndroidStorageService _storageService = AndroidStorageService();
   final LoggingService _logger = LoggingService();
   final PlatformSettingsProvider? _settingsProvider;
+  final NotificationService? _notificationService;
 
   final List<DownloadItem> _downloads = [];
   final Map<String, StreamController<double>> _progressControllers = {};
@@ -43,7 +46,8 @@ class MobileDownloadProvider extends ChangeNotifier
 
   bool _isDisposed = false;
   bool _isInitialized = false;
-  int _maxConcurrentDownloads = 3;
+  // Default max concurrent downloads. Settings override still applies below.
+  int _maxConcurrentDownloads = 2;
   // B20 fix: collision-free ID counter
   static int _idCounter = 0;
   // P7 fix: re-entrancy guard for concurrent initialize() calls
@@ -54,10 +58,12 @@ class MobileDownloadProvider extends ChangeNotifier
   List<DownloadItem>? _cachedActiveDownloads;
   List<DownloadItem>? _cachedCompletedDownloads;
   List<DownloadItem>? _cachedFailedDownloads;
+  List<DownloadItem>? _cachedCancelledDownloads;
   bool _downloadsDirty = true;
   bool _activeDirty = true;
   bool _completedDirty = true;
   bool _failedDirty = true;
+  bool _cancelledDirty = true;
 
   // Progress events from yt-dlp arrive at native callback rate (~1-5/s per
   // download). Coalescing the UI notification to ~10 Hz cuts rebuild work
@@ -94,6 +100,7 @@ class MobileDownloadProvider extends ChangeNotifier
     _activeDirty = true;
     _completedDirty = true;
     _failedDirty = true;
+    _cancelledDirty = true;
   }
 
   @override
@@ -106,7 +113,9 @@ class MobileDownloadProvider extends ChangeNotifier
     required this.ytdlpService,
     CookieService? cookieService, // kept for signature compatibility
     PlatformSettingsProvider? settingsProvider,
-  }) : _settingsProvider = settingsProvider {
+    NotificationService? notificationService,
+  }) : _settingsProvider = settingsProvider,
+       _notificationService = notificationService {
     final settings = _settingsProvider;
     if (settings != null) {
       _maxConcurrentDownloads = settings.maxConcurrentDownloads;
@@ -182,6 +191,16 @@ class MobileDownloadProvider extends ChangeNotifier
     return _cachedFailedDownloads!;
   }
 
+  List<DownloadItem> get cancelledDownloads {
+    if (_cancelledDirty || _cachedCancelledDownloads == null) {
+      _cachedCancelledDownloads = List.unmodifiable(
+        _downloads.where((d) => d.status == DownloadStatus.cancelled).toList(),
+      );
+      _cancelledDirty = false;
+    }
+    return _cachedCancelledDownloads!;
+  }
+
   bool get isInitialized => _isInitialized;
   int get maxConcurrentDownloads => _maxConcurrentDownloads;
   int get activeDownloadsCount => activeDownloads.length;
@@ -242,7 +261,17 @@ class MobileDownloadProvider extends ChangeNotifier
           stackTrace: retrySt,
         );
         try {
-          return await Hive.openBox<DownloadItem>('${boxName}_recovered');
+          final recovered = await Hive.openBox<DownloadItem>(
+            '${boxName}_recovered',
+          );
+          // M10: surface the silent box switch so users know history was
+          // recovered into a fallback box and may be incomplete.
+          LoggingService().showUserLog(
+            'Download history was recovered into a fallback storage box. '
+            'Some past entries may be missing.',
+            isWarning: true,
+          );
+          return recovered;
         } catch (fallbackErr, fallbackSt) {
           LoggingService().error(
             'Failed to open fallback box for "$boxName": $fallbackErr',
@@ -586,7 +615,8 @@ class MobileDownloadProvider extends ChangeNotifier
     notifyListeners();
   }
 
-  Future<void> addDownload({
+  /// Returns true when a new item was queued, false when it was a duplicate.
+  Future<bool> addDownload({
     required String url,
     required String title,
     required DownloadMode mode,
@@ -606,7 +636,8 @@ class MobileDownloadProvider extends ChangeNotifier
           'Download already in queue: $title',
           component: 'MobileDownloadProvider',
         );
-        return;
+        _logger.showUserLog('Already downloading: $title', isWarning: true);
+        return false;
       }
       // B20 fix: collision-free ID using microseconds + counter
       final downloadId =
@@ -664,6 +695,7 @@ class MobileDownloadProvider extends ChangeNotifier
       await _saveActiveDownloads();
       notifyListeners();
       _processQueue();
+      return true;
     } catch (e, stackTrace) {
       _logger.error(
         'Failed to add download',
@@ -671,6 +703,7 @@ class MobileDownloadProvider extends ChangeNotifier
         error: e,
         stackTrace: stackTrace,
       );
+      return false;
     }
   }
 
@@ -856,7 +889,9 @@ class MobileDownloadProvider extends ChangeNotifier
         if (available != null) {
           const bufferBytes = 100 * 1024 * 1024;
           final required = item.totalBytes! + bufferBytes;
-          if (available < required) {
+          // H30: estimates are heuristic — only hard-fail on critically low space.
+          const criticalFloorBytes = 50 * 1024 * 1024;
+          if (available < criticalFloorBytes) {
             _logger.warning(
               'Insufficient disk space for ${item.title}: need ${_formatBytes(required)}, available ${_formatBytes(available)}',
               component: 'MobileDownloadProvider',
@@ -866,6 +901,15 @@ class MobileDownloadProvider extends ChangeNotifier
               'Insufficient disk space. Need ${_formatBytes(item.totalBytes!)}, available ${_formatBytes(available)}. Free up space and try again.',
             );
             return;
+          } else if (available < required) {
+            _logger.warning(
+              'Disk space may be tight for ${item.title}: estimated need ${_formatBytes(required)}, available ${_formatBytes(available)}',
+              component: 'MobileDownloadProvider',
+            );
+            _logger.showUserLog(
+              'Disk space may be tight — estimated ${_formatBytes(required)} needed, ${_formatBytes(available)} free',
+              isWarning: true,
+            );
           } else {
             _logger.debug(
               'Disk-space pre-flight passed for ${item.title}: need ${_formatBytes(required)}, available ${_formatBytes(available)}',
@@ -943,10 +987,13 @@ class MobileDownloadProvider extends ChangeNotifier
       _progressControllers[item.id] = StreamController<double>.broadcast();
 
       _logger.info(
-        'Calling yt-dlp: format=${item.formatId} -> dir=${item.outputPath}',
+        'Enqueueing yt-dlp download: format=${item.formatId} -> dir=${item.outputPath}',
         component: 'MobileDownloadProvider',
       );
 
+      // downloadVideo returns as soon as native work is enqueued.
+      // Terminal outcomes (completed / error / cancelled) arrive ONLY via
+      // _handleNativeDownloadEvent — never from this method return.
       final processId = await service.downloadVideo(
         url: item.url,
         outputPath: item.outputPath,
@@ -956,6 +1003,12 @@ class MobileDownloadProvider extends ChangeNotifier
         audioOnly: item.audioOnly,
         targetHeight: _parseTargetHeight(item.videoQuality),
         audioQuality: item.audioQuality,
+        // Settings-gated embed flags — do NOT let the service default to true
+        // when the user has turned them off in Settings.
+        embedThumbnail: _settingsProvider?.embedThumbnail ?? true,
+        embedMetadata: _settingsProvider?.embedMetadata ?? true,
+        // Leave null so YtdlpServiceAndroid fills defaultConcurrentFragments (8).
+        concurrentFragments: null,
         sponsorBlock: item.sponsorBlock,
         archivePath: item.useDownloadArchive
             ? p.join(item.outputPath, 'download_archive.txt')
@@ -968,16 +1021,24 @@ class MobileDownloadProvider extends ChangeNotifier
         if (_isDisposed) return;
         _processToDownloadId[processId] = item.id;
 
-        final latest = _downloads.firstWhere(
-          (d) => d.id == item.id,
-          orElse: () => item,
-        );
-        if (!_isTerminalStatus(latest.status) &&
-            latest.status != DownloadStatus.paused) {
-          await _completeDownload(item.id);
+        // Enqueue succeeded. Status is already downloadingVideo/Audio from
+        // earlier in this method; refresh statusText so the UI is honest
+        // that work is queued and completion waits on EventChannel.
+        final latestIndex = _downloads.indexWhere((d) => d.id == item.id);
+        if (latestIndex != -1 &&
+            !_isTerminalStatus(_downloads[latestIndex].status) &&
+            _downloads[latestIndex].status != DownloadStatus.paused) {
+          _downloads[latestIndex] = _downloads[latestIndex].copyWith(
+            statusText: 'Download started...',
+          );
+          _markDownloadsDirty();
+          notifyListeners();
         }
+        // Do NOT call _completeDownload here — that is the EventChannel
+        // terminal path only (_handleNativeDownloadEvent).
       } else {
-        throw Exception('yt-dlp returned failure - check device logs');
+        // Enqueue failed before any native work started.
+        throw Exception('yt-dlp enqueue failed - check device logs');
       }
     } catch (e, stackTrace) {
       if (_isDisposed) return;
@@ -1014,37 +1075,126 @@ class MobileDownloadProvider extends ChangeNotifier
 
     final item = _downloads[index];
 
+    if (type == 'started') {
+      if (_isTerminalStatus(item.status) ||
+          item.status == DownloadStatus.paused) {
+        return;
+      }
+      _downloads[index] = item.copyWith(statusText: 'Downloading...');
+      _markDownloadsDirty();
+      notifyListeners();
+      return;
+    }
+
     if (type == 'progress') {
       if (_isTerminalStatus(item.status)) return;
 
       final rawProgress = (event['progress'] as num?)?.toDouble() ?? -1.0;
       final eta = (event['eta'] as num?)?.toInt() ?? item.eta;
       final line = (event['line'] ?? '').toString();
-      // Normally pin progress with max() to hide per-stream jitter when
-      // video+audio report separately. Exception: after a resume where the
-      // .part was wiped we reset progress to 0 and the native reporter
-      // legitimately counts up from 0 again — accept backward movement then,
-      // otherwise the UI would be stuck at the stale pre-pause percentage.
-      final isRestarting = (item.statusText ?? '').contains('Restarting');
+      final status = _statusFromNativeLine(line, item);
+      var readableStatus = _humanReadableStatus(line, item);
+      var nextStatus = status;
+
       final nativeProgress = rawProgress >= 0
           ? (rawProgress / 100.0).clamp(0.0, 1.0)
           : item.progress;
-      final parsedProgress = isRestarting
-          ? nativeProgress
-          : (rawProgress >= 0
-                ? max(item.progress, nativeProgress)
-                : item.progress);
 
-      final parsedSpeed = _extractSpeedBytesPerSecond(line) ?? item.speed;
-      final status = _statusFromNativeLine(line, item);
-      final readableStatus = _humanReadableStatus(line, item);
-      final statusChanged = status != item.status;
+      // youtubedl-android only invokes the progress callback for `[download] X%`
+      // lines — Destination / Merger / ExtractAudio never arrive. Dual-stream
+      // downloads therefore report video 0→100%, then audio 0→100% with no
+      // line that flips the phase. Detect the second stream by the progress
+      // reset after the first stream finished.
+      final isRestarting = (item.statusText ?? '').contains('Restarting');
+      final isSecondStream =
+          rawProgress >= 0 &&
+          !item.audioOnly &&
+          item.progress >= 0.95 &&
+          nativeProgress < 0.85 &&
+          nextStatus != DownloadStatus.merging;
+      if (isSecondStream && nextStatus != DownloadStatus.downloadingAudio) {
+        nextStatus = DownloadStatus.downloadingAudio;
+        readableStatus = 'Downloading audio track...';
+      }
+
+      final statusChangedEarly = nextStatus != item.status;
+      final isPhaseChange =
+          statusChangedEarly &&
+          (nextStatus == DownloadStatus.downloadingAudio ||
+              nextStatus == DownloadStatus.downloadingVideo ||
+              nextStatus == DownloadStatus.merging);
+
+      // Overall dual-stream progress: video ≈ 0–70%, audio ≈ 70–95%,
+      // merge/convert ≈ 95–100%. Single-stream tracks native progress 1:1.
+      final acceptNativeProgress =
+          isRestarting || isPhaseChange || isSecondStream;
+      double parsedProgress;
+      if (nextStatus == DownloadStatus.merging) {
+        parsedProgress = max(item.progress, 0.95);
+      } else if (isSecondStream) {
+        // Map the audio file's 0–100% into the overall 70–95% band.
+        parsedProgress = (0.70 + nativeProgress * 0.25).clamp(0.0, 0.95);
+        // Audio stream done → FFmpeg merge runs with no further % lines.
+        // Surface a merge phase so the UI doesn't sit at 95% "downloading".
+        if (nativeProgress >= 0.99 && !item.audioOnly) {
+          nextStatus = DownloadStatus.merging;
+          readableStatus = 'Merging video + audio...';
+          parsedProgress = max(parsedProgress, 0.96);
+        }
+      } else if (nextStatus == DownloadStatus.downloadingAudio &&
+          item.status == DownloadStatus.downloadingAudio &&
+          item.progress > 0.70) {
+        // Already in the audio band — keep mapping.
+        parsedProgress = (0.70 + nativeProgress * 0.25).clamp(0.0, 0.95);
+        if (nativeProgress >= 0.99 && !item.audioOnly) {
+          nextStatus = DownloadStatus.merging;
+          readableStatus = 'Merging video + audio...';
+          parsedProgress = max(parsedProgress, 0.96);
+        }
+      } else if (acceptNativeProgress) {
+        parsedProgress = nativeProgress;
+      } else {
+        parsedProgress = rawProgress >= 0
+            ? max(item.progress, nativeProgress)
+            : item.progress;
+        // Never present a finished bar while the job is still active.
+        if (parsedProgress >= 1.0 &&
+            nextStatus != DownloadStatus.completed &&
+            nextStatus != DownloadStatus.merging) {
+          parsedProgress = 0.99;
+        }
+      }
+
+      // Recompute after possible synthetic merge flip.
+      final statusChanged = nextStatus != item.status;
+
+      // Zero out speed during merge/convert (no network throughput).
+      final parsedSpeed = nextStatus == DownloadStatus.merging
+          ? 0.0
+          : (_extractSpeedBytesPerSecond(line) ?? item.speed);
+
+      // Prefer an explicit phase label over a generic % line when we know
+      // we're in a post-download phase.
+      if (nextStatus == DownloadStatus.merging &&
+          (readableStatus.isEmpty ||
+              readableStatus.contains('%') ||
+              readableStatus == 'Downloading...')) {
+        readableStatus = item.audioOnly
+            ? 'Converting audio...'
+            : 'Merging video + audio...';
+      }
+      if (isSecondStream &&
+          (readableStatus.isEmpty || readableStatus.contains('%'))) {
+        readableStatus = 'Downloading audio track...';
+      }
 
       _downloads[index] = item.copyWith(
         progress: parsedProgress,
         speed: parsedSpeed,
-        eta: eta < 0 ? item.eta : eta,
-        status: status,
+        eta: nextStatus == DownloadStatus.merging
+            ? 0
+            : (eta < 0 ? item.eta : eta),
+        status: nextStatus,
         statusText: readableStatus,
       );
       _markDownloadsDirty();
@@ -1084,8 +1234,34 @@ class MobileDownloadProvider extends ChangeNotifier
     }
 
     if (type == 'completed') {
+      // Sole terminal-success path. Native reports whether the FFmpeg
+      // post-merge step was skipped (e.g. progressive MP4 needs no merge)
+      // and — when available — the exact absolute path of the finished file.
+      final ffmpegSkipped = event['ffmpeg_skipped'] == true;
+      final filepathRaw = event['filepath'];
+      final filepath = (filepathRaw is String && filepathRaw.isNotEmpty)
+          ? filepathRaw
+          : null;
+      if (ffmpegSkipped) {
+        _logger.warning(
+          'Download $downloadId completed with ffmpeg_skipped=true '
+          '(merge/post-process was skipped by native)',
+          component: 'MobileDownloadProvider',
+        );
+        // Surface on the item so UI can show a note if desired.
+        final itemIndex = _downloads.indexWhere((d) => d.id == downloadId);
+        if (itemIndex != -1 && !_isTerminalStatus(_downloads[itemIndex].status)) {
+          _downloads[itemIndex] = _downloads[itemIndex].copyWith(
+            statusText: 'Completed (merge skipped)',
+          );
+          _markDownloadsDirty();
+        }
+      }
       unawaited(
-        _completeDownload(downloadId).catchError((Object e, StackTrace st) {
+        _completeDownload(downloadId, filepath: filepath).catchError((
+          Object e,
+          StackTrace st,
+        ) {
           _logger.error(
             'Failed to complete download $downloadId: $e',
             component: 'MobileDownloadProvider',
@@ -1139,7 +1315,10 @@ class MobileDownloadProvider extends ChangeNotifier
     }
   }
 
-  Future<void> _completeDownload(String downloadId) async {
+  Future<void> _completeDownload(
+    String downloadId, {
+    String? filepath,
+  }) async {
     if (_isDisposed) return;
     final index = _downloads.indexWhere((d) => d.id == downloadId);
     if (index != -1 && _isTerminalStatus(_downloads[index].status)) {
@@ -1154,7 +1333,27 @@ class MobileDownloadProvider extends ChangeNotifier
 
     if (index != -1) {
       final item = _downloads[index];
-      final file = await _findDownloadedFile(item);
+      // Prefer the exact filepath reported by the native completed event —
+      // the mtime scan races under concurrent downloads. Fall back to the
+      // scanner only when filepath is missing or the file is gone.
+      File? file;
+      if (filepath != null && filepath.isNotEmpty) {
+        final exact = File(filepath);
+        if (await exact.exists()) {
+          file = exact;
+          _logger.debug(
+            'Using exact filepath from completed event: $filepath',
+            component: 'MobileDownloadProvider',
+          );
+        } else {
+          _logger.warning(
+            'Completed event filepath does not exist ($filepath); '
+            'falling back to mtime scan',
+            component: 'MobileDownloadProvider',
+          );
+        }
+      }
+      file ??= await _findDownloadedFile(item);
       if (file == null) {
         await _failDownload(
           downloadId,
@@ -1207,11 +1406,31 @@ class MobileDownloadProvider extends ChangeNotifier
         thumbnailPath: thumbnailFile?.path,
         totalBytes: await file.length(),
         completedDate: DateTime.now(),
+        statusText: 'Completed',
       );
       _markDownloadsDirty();
       await _removeActiveDownload(downloadId);
       await _persistHistoryItem(_downloads[index]);
       notifyListeners();
+
+      final title = _downloads[index].title;
+      // Single in-app surface: SnackBar only.
+      unawaited(
+        _notificationService
+            ?.show(
+              title: item.audioOnly ? 'Audio Ready' : 'Download Complete',
+              body: title,
+              alsoSystemNotification: false,
+            )
+            .catchError((Object e, StackTrace st) {
+              _logger.warning(
+                'Completion notification failed: $e',
+                component: 'MobileDownloadProvider',
+                error: e,
+                stackTrace: st,
+              );
+            }),
+      );
     } else {
       await _removeActiveDownload(downloadId);
     }
@@ -1246,11 +1465,36 @@ class MobileDownloadProvider extends ChangeNotifier
         status: DownloadStatus.failed,
         error: formattedError,
         completedDate: DateTime.now(),
+        statusText: 'Failed',
       );
       _markDownloadsDirty();
       await _removeActiveDownload(downloadId);
       await _persistHistoryItem(_downloads[index]);
       notifyListeners();
+      _logger.error(
+        'Download failed: $downloadTitle',
+        component: 'MobileDownloadProvider',
+      );
+      // Single in-app surface: SnackBar only. History already holds the error.
+      unawaited(
+        _notificationService
+            ?.show(
+              title: 'Download Failed',
+              body: formattedError.length > 120
+                  ? '${formattedError.substring(0, 117)}...'
+                  : formattedError,
+              isError: true,
+              alsoSystemNotification: false,
+            )
+            .catchError((Object e, StackTrace st) {
+              _logger.warning(
+                'Failure notification failed: $e',
+                component: 'MobileDownloadProvider',
+                error: e,
+                stackTrace: st,
+              );
+            }),
+      );
     } else {
       await _removeActiveDownload(downloadId);
     }
@@ -1262,10 +1506,6 @@ class MobileDownloadProvider extends ChangeNotifier
       'Download failed: $downloadId - $formattedError',
       component: 'MobileDownloadProvider',
       error: error,
-    );
-    _logger.showUserLog(
-      'Download failed: $downloadTitle — $formattedError',
-      isError: true,
     );
   }
 
@@ -1305,6 +1545,17 @@ class MobileDownloadProvider extends ChangeNotifier
       'Download cancelled: $downloadId',
       component: 'MobileDownloadProvider',
     );
+  }
+
+  /// Cancel only the downloads whose ids are in [downloadIds].
+  ///
+  /// Scoped bulk-cancel used by playlist cancel paths: never touches
+  /// unrelated downloads that happen to be active at the same time.
+  Future<void> cancelDownloads(List<String> downloadIds) async {
+    if (downloadIds.isEmpty) return;
+    for (final id in downloadIds) {
+      await cancelDownload(id);
+    }
   }
 
   Future<void> pauseDownload(String downloadId) async {
@@ -1382,10 +1633,24 @@ class MobileDownloadProvider extends ChangeNotifier
     _processQueue();
   }
 
-  /// True when the output dir still holds yt-dlp resume state
-  /// (.part, .ytdl, .temp, frag files). Best-effort: the exact filename is
-  /// unknown until completion, so any such file counts as "resumable".
+  /// True when the output dir or the isolated temp dir still holds yt-dlp
+  /// resume state (.part, .ytdl, .temp, frag files). Best-effort: the exact
+  /// filename is unknown until completion, so any such file counts as
+  /// "resumable".
+  ///
+  /// New downloads write partials under the app cache aerotube_temp folder
+  /// (native `--paths temp:...`); legacy partials may still sit in the
+  /// output dir, so both are checked.
   Future<bool> _hasPartialFiles(String dirPath) async {
+    if (await _directoryHasPartialFiles(dirPath)) return true;
+    final tempDir = await _tempDownloadDirPath();
+    if (tempDir != null && tempDir != dirPath) {
+      if (await _directoryHasPartialFiles(tempDir)) return true;
+    }
+    return false;
+  }
+
+  Future<bool> _directoryHasPartialFiles(String dirPath) async {
     try {
       final dir = Directory(dirPath);
       if (!await dir.exists()) return false;
@@ -1404,6 +1669,17 @@ class MobileDownloadProvider extends ChangeNotifier
     } catch (_) {
       // On error assume partials exist so we keep old progress (safe side).
       return true;
+    }
+  }
+
+  /// App-cache subfolder used by the native factory for yt-dlp partials
+  /// (`--paths temp:<cacheDir>/aerotube_temp`).
+  Future<String?> _tempDownloadDirPath() async {
+    try {
+      final cache = await getApplicationCacheDirectory();
+      return p.join(cache.path, 'aerotube_temp');
+    } catch (_) {
+      return null;
     }
   }
 
@@ -1548,6 +1824,19 @@ class MobileDownloadProvider extends ChangeNotifier
       }),
     );
 
+    // Also tear down any in-flight native yt-dlp jobs so dispose does not
+    // leave orphan processes writing into the app sandbox.
+    unawaited(
+      NativeYtdlpAndroid.cancelAll(
+        processIds: _processToDownloadId.keys.toList(),
+      ).catchError((Object e, StackTrace st) {
+        _logger.warning(
+          'Failed to cancel native downloads on dispose: $e',
+          component: 'MobileDownloadProvider',
+        );
+      }),
+    );
+
     super.dispose();
   }
 
@@ -1593,19 +1882,45 @@ class MobileDownloadProvider extends ChangeNotifier
 
   DownloadStatus _statusFromNativeLine(String line, DownloadItem item) {
     final lower = line.toLowerCase();
-    if (lower.contains('merging formats') || lower.contains('[merger]')) {
+
+    // Video+audio merge, or audio extract/conversion (all FFmpeg post-process).
+    // Audio-only downloads use --extract-audio, which prints [ExtractAudio] /
+    // [ffmpeg] rather than [Merger] — without this they never left
+    // "downloading" and the user saw no convert/merge phase.
+    if (lower.contains('merging formats') ||
+        lower.contains('[merger]') ||
+        lower.contains('[extractaudio]') ||
+        lower.contains('[ffmpeg]') ||
+        lower.contains('[metadata]') ||
+        lower.contains('[embedthumbnail]')) {
+      return DownloadStatus.merging;
+    }
+    // Deleting the pre-convert original is the last step of extract-audio.
+    if (lower.contains('deleting original file')) {
       return DownloadStatus.merging;
     }
     if (lower.contains('destination:')) {
+      // Dual-stream: audio track destinations use audio containers.
+      // Do NOT treat .webm as audio — video-only Opus/VP9 is also .webm.
       if (item.audioOnly ||
           lower.contains('.m4a') ||
           lower.contains('.mp3') ||
-          lower.contains('.opus')) {
+          lower.contains('.opus') ||
+          lower.contains('.aac') ||
+          lower.contains('.flac') ||
+          lower.contains('.wav')) {
         return DownloadStatus.downloadingAudio;
       }
       return DownloadStatus.downloadingVideo;
     }
     if (lower.contains('[download]')) {
+      // Keep the current stream phase. Only Destination lines flip
+      // video ↔ audio — otherwise every progress tick would reset the phase
+      // and thrash the progress bar on dual-stream downloads.
+      if (item.status == DownloadStatus.downloadingAudio ||
+          item.status == DownloadStatus.downloadingVideo) {
+        return item.status;
+      }
       return item.audioOnly
           ? DownloadStatus.downloadingAudio
           : DownloadStatus.downloadingVideo;
@@ -1616,11 +1931,33 @@ class MobileDownloadProvider extends ChangeNotifier
   String _humanReadableStatus(String line, DownloadItem item) {
     final lower = line.toLowerCase();
     final trimmed = line.trim();
-    if (double.tryParse(trimmed) != null) return 'Downloading...';
+    if (double.tryParse(trimmed) != null) {
+      // Bare progress number with no context — keep previous phase wording.
+      return item.statusText?.isNotEmpty == true
+          ? item.statusText!
+          : 'Downloading...';
+    }
     if (line.isEmpty) return '';
 
     if (lower.contains('merging formats') || lower.contains('[merger]')) {
-      return 'Merging formats...';
+      return 'Merging video + audio...';
+    }
+    if (lower.contains('[extractaudio]')) {
+      return 'Converting audio...';
+    }
+    if (lower.contains('[ffmpeg]')) {
+      return item.audioOnly ? 'Converting audio...' : 'Processing media...';
+    }
+    if (lower.contains('[metadata]')) {
+      return 'Writing metadata...';
+    }
+    if (lower.contains('[embedthumbnail]') ||
+        lower.contains('writing thumbnail') ||
+        lower.contains('downloading thumbnail')) {
+      return 'Embedding thumbnail...';
+    }
+    if (lower.contains('deleting original file')) {
+      return 'Finalizing...';
     }
     if (lower.contains('extracting url') ||
         lower.contains('downloading webpage')) {
@@ -1632,12 +1969,6 @@ class MobileDownloadProvider extends ChangeNotifier
     if (lower.contains('downloading m3u8') ||
         lower.contains('downloading json')) {
       return 'Fetching stream info...';
-    }
-    if (lower.contains('downloading') && lower.contains('thumbnail')) {
-      return 'Saving thumbnail...';
-    }
-    if (lower.contains('writing') && lower.contains('thumbnail')) {
-      return 'Saving thumbnail...';
     }
     if (lower.contains('[info]') && lower.contains('format')) {
       return 'Resolving formats...';

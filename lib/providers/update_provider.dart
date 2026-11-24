@@ -37,6 +37,11 @@ class UpdateProvider extends ChangeNotifier {
   static DateTime? _staticLastChecked;
   static const String _prefLastCheckedKey = 'last_app_update_check';
   bool _isDisposed = false;
+  DateTime _lastProgressNotify = DateTime.fromMillisecondsSinceEpoch(0);
+
+  /// M22: throttle download progress notifyListeners to ~10 UI updates/sec
+  /// (same pattern as ToolUpdateProvider).
+  static const int _progressThrottleMs = 100;
 
   UpdateProvider({
     UpdateService? updateService,
@@ -127,7 +132,14 @@ class UpdateProvider extends ChangeNotifier {
         _updateInfo!.downloadUrl,
         (progress) {
           _downloadProgress = progress;
-          notifyListeners();
+          final now = DateTime.now();
+          // Always notify on completion; otherwise throttle intermediate ticks.
+          if (progress >= 1.0 ||
+              now.difference(_lastProgressNotify).inMilliseconds >=
+                  _progressThrottleMs) {
+            _lastProgressNotify = now;
+            notifyListeners();
+          }
         },
         isCancelled: () => _cancelDownload,
       );

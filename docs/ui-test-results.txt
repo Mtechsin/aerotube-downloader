@@ -1,0 +1,1094 @@
+00:00 +0: loading E:/youtube downloader/test/bug_report_service_test.dart
+00:00 +0: E:/youtube downloader/test/bug_report_service_test.dart: BugReportService buildReport includes summary, environment, and safety footer
+00:00 +1: E:/youtube downloader/test/bug_report_service_test.dart: BugReportService issueTitleWithMeta is short and greppable
+00:00 +2: E:/youtube downloader/test/bug_report_service_test.dart: BugReportService buildGitHubIssueUrl points at the app repo
+00:00 +3: E:/youtube downloader/test/bug_report_service_test.dart: BugReportService redacts username segments in paths
+00:00 +4: E:/youtube downloader/test/core/downloaded_file_finder_test.dart: returns null when output directory does not exist
+00:00 +5: E:/youtube downloader/test/core/downloaded_file_finder_test.dart: returns null when directory has no media files
+00:00 +6: E:/youtube downloader/test/core/downloaded_file_finder_test.dart: returns the only media file present
+00:00 +7: E:/youtube downloader/test/core/downloaded_file_finder_test.dart: prefers filename containing the download id over newer unrelated file
+00:00 +8: E:/youtube downloader/test/core/downloaded_file_finder_test.dart: falls back to title words when no filename contains the id
+00:00 +9: E:/youtube downloader/test/core/downloaded_file_finder_test.dart: picks newest media file when neither id nor title match
+00:00 +10: E:/youtube downloader/test/core/downloaded_file_finder_test.dart: ignores non-media extensions even if newer
+00:00 +11: E:/youtube downloader/test/core/downloaded_file_finder_test.dart: extension match is case-insensitive
+00:00 +12: E:/youtube downloader/test/core/downloaded_file_finder_test.dart: supports common audio and video containers
+00:00 +13: E:/youtube downloader/test/error_helper_test.dart: ErrorHelper.clean removes exception class prefixes
+00:00 +14: E:/youtube downloader/test/error_helper_test.dart: ErrorHelper.parse parses authentication errors
+00:00 +15: E:/youtube downloader/test/error_helper_test.dart: ErrorHelper.parse parses rate limit errors
+00:00 +16: E:/youtube downloader/test/error_helper_test.dart: ErrorHelper.parse parses content unavailable errors
+00:00 +17: E:/youtube downloader/test/error_helper_test.dart: ErrorHelper.parse parses network errors
+00:00 +18: E:/youtube downloader/test/error_helper_test.dart: ErrorHelper.parse parses disk full errors
+00:00 +19: E:/youtube downloader/test/error_helper_test.dart: ErrorHelper.parse parses outdated tool errors
+00:00 +20: E:/youtube downloader/test/error_helper_test.dart: ErrorHelper.parse parses Windows invalid-filename errors
+00:00 +21: E:/youtube downloader/test/error_helper_test.dart: ErrorHelper.parse parses Android R8/obfuscation crashes as app binary errors
+00:00 +22: E:/youtube downloader/test/error_helper_test.dart: ErrorHelper.parse parses real yt-dlp update failures as tool update errors
+00:00 +23: E:/youtube downloader/test/error_helper_test.dart: ErrorHelper.parse parses unsupported player_client as outdated extractor
+00:00 +24: E:/youtube downloader/test/error_helper_test.dart: ErrorHelper.parse correctly handles multiline errors with real newlines and escaped newlines
+00:00 +25: E:/youtube downloader/test/error_helper_test.dart: ErrorHelper.isBrokenExtractorError detects shared broken-extractor phrases
+00:00 +26: E:/youtube downloader/test/error_helper_test.dart: ErrorHelper.isBrokenExtractorError does not flag ordinary network or content errors
+00:00 +27: E:/youtube downloader/test/error_helper_test.dart: ErrorHelper.formatDownloadError formats HTTP 416 resume error
+00:00 +28: E:/youtube downloader/test/error_helper_test.dart: ErrorHelper.formatDownloadError extracts ERROR line from multiline stderr output
+00:00 +29: E:/youtube downloader/test/error_helper_test.dart: ErrorHelper.formatDownloadError handles empty output with exitCode
+00:01 +30: E:/youtube downloader/test/providers/mobile_download_persistence_test.dart: (setUpAll)
+00:01 +30: E:/youtube downloader/test/providers/mobile_download_persistence_test.dart: Active Downloads Box Persistence on Enqueue enqueued downloads are immediately saved into active_downloads_mobile box
+[00:37:35] ℹ️ [DownloadForegroundService] Download notification channel created
+[00:37:35] ℹ️ [DownloadForegroundService] DownloadForegroundService initialized
+[00:37:35] ℹ️ [MobileDownloadProvider] MobileDownloadProvider initialized
+[00:37:35] ℹ️ [DownloadForegroundService] All notifications cancelled
+[00:37:35] 🐛 [MobileDownloadProvider] Skipping disk-space pre-flight: totalBytes unknown for Enqueue Test Video 1
+00:01 +31: E:/youtube downloader/test/providers/mobile_download_persistence_test.dart: Active Downloads Box Persistence on Enqueue multiple active downloads are maintained simultaneously in active box
+[00:37:35] ℹ️ [DownloadForegroundService] Download notification channel created
+[00:37:35] ℹ️ [DownloadForegroundService] DownloadForegroundService initialized
+[00:37:35] ℹ️ [MobileDownloadProvider] MobileDownloadProvider initialized
+[00:37:35] 🐛 [MobileDownloadProvider] Skipping disk-space pre-flight: totalBytes unknown for Video 1
+[00:37:35] ℹ️ [DownloadForegroundService] Started download service for: 1791149855767810_1
+[00:37:35] ℹ️ [MobileDownloadProvider] Enqueueing yt-dlp download: format=null -> dir=C:\Users\mtech\AppData\Local\Temp\mobile_download_persistence_test_4230b899/Download/AeroTube
+[00:37:35] ℹ️ [YtdlpServiceAndroid] Enqueueing download: https://www.youtube.com/watch?v=multi_1 -> C:\Users\mtech\AppData\Local\Temp\mobile_download_persistence_test_4230b899/Download/AeroTube (format=best[ext=mp4]/best)
+[00:37:35] ℹ️ [DownloadForegroundService] All notifications cancelled
+[00:37:35] ⚠️ [MobileDownloadProvider] Failed to save active downloads: HiveError: Box has already been closed.
+  Error: HiveError: Box has already been closed.
+  Stack: #0      BoxBaseImpl.checkOpen (package:hive/src/box/box_base_impl.dart:76:7)
+#1      BoxImpl._writeFrames (package:hive/src/box/box_impl.dart:83:5)
+#2      BoxImpl.putAll (package:hive/src/box/box_impl.dart:67:12)
+#3      BoxBaseImpl.put (package:hive/src/box/box_base_impl.dart:104:45)
+#4      MobileDownloadProvider._saveActiveDownloads (package:youtube_downloader/providers/mobile_download_provider.dart:432:19)
+<asynchronous suspension>
+
+[00:37:35] 🐛 [MobileDownloadProvider] Skipping disk-space pre-flight: totalBytes unknown for Video 2
+[00:37:35] 🐛 [MobileDownloadProvider] Skipping disk-space pre-flight: totalBytes unknown for Video 3
+00:01 +32: E:/youtube downloader/test/providers/mobile_download_persistence_test.dart: Process Kill Recovery & Orphan Restoration in-flight downloads interrupted by app kill are restored as paused on startup
+[00:37:35] ℹ️ [MobileDownloadProvider] Restoring 4 active download(s) from previous session
+[00:37:35] ℹ️ [DownloadForegroundService] Download notification channel created
+[00:37:35] ℹ️ [DownloadForegroundService] DownloadForegroundService initialized
+[00:37:35] ℹ️ [MobileDownloadProvider] MobileDownloadProvider initialized
+[00:37:35] ℹ️ [DownloadForegroundService] All notifications cancelled
+00:01 +33: E:/youtube downloader/test/providers/mobile_download_persistence_test.dart: Lifecycle State Flush WidgetsBindingObserver flushes active downloads to box on paused and detached
+[00:37:35] ℹ️ [DownloadForegroundService] Download notification channel created
+[00:37:35] ℹ️ [DownloadForegroundService] DownloadForegroundService initialized
+[00:37:35] ℹ️ [MobileDownloadProvider] MobileDownloadProvider initialized
+[00:37:35] 🐛 [MobileDownloadProvider] Skipping disk-space pre-flight: totalBytes unknown for Lifecycle Test Video
+[00:37:35] ℹ️ [DownloadForegroundService] Started download service for: 1791149855882863_4
+[00:37:35] ℹ️ [MobileDownloadProvider] Enqueueing yt-dlp download: format=null -> dir=C:\Users\mtech\AppData\Local\Temp\mobile_download_persistence_test_dc66e56/Download/AeroTube
+[00:37:35] ℹ️ [YtdlpServiceAndroid] Enqueueing download: https://www.youtube.com/watch?v=lifecycle_test -> C:\Users\mtech\AppData\Local\Temp\mobile_download_persistence_test_dc66e56/Download/AeroTube (format=best[ext=mp4]/best)
+[00:37:35] ℹ️ [DownloadForegroundService] All notifications cancelled
+00:01 +34: E:/youtube downloader/test/providers/mobile_download_persistence_test.dart: Terminal Status Transitions Remove from Active Box completed download is removed from active box and persisted to history
+[00:37:36] ℹ️ [DownloadForegroundService] Download notification channel created
+[00:37:36] ℹ️ [DownloadForegroundService] DownloadForegroundService initialized
+[00:37:36] ℹ️ [MobileDownloadProvider] MobileDownloadProvider initialized
+[00:37:36] 🐛 [MobileDownloadProvider] Skipping disk-space pre-flight: totalBytes unknown for Completed Video
+[00:37:36] ℹ️ [DownloadForegroundService] Started download service for: 1791149856018518_5
+[00:37:36] ℹ️ [MobileDownloadProvider] Enqueueing yt-dlp download: format=null -> dir=C:\Users\mtech\AppData\Local\Temp\mobile_download_persistence_test_62853eee/Download/AeroTube
+[00:37:36] ℹ️ [YtdlpServiceAndroid] Enqueueing download: https://www.youtube.com/watch?v=completion_test -> C:\Users\mtech\AppData\Local\Temp\mobile_download_persistence_test_62853eee/Download/AeroTube (format=best[ext=mp4]/best)
+00:01 +35: E:/youtube downloader/test/providers/mobile_download_persistence_test.dart: Terminal Status Transitions Remove from Active Box completed download is removed from active box and persisted to history
+00:01 +36: E:/youtube downloader/test/providers/mobile_download_persistence_test.dart: Terminal Status Transitions Remove from Active Box completed download is removed from active box and persisted to history
+00:01 +37: E:/youtube downloader/test/providers/mobile_download_persistence_test.dart: Terminal Status Transitions Remove from Active Box completed download is removed from active box and persisted to history
+00:01 +38: E:/youtube downloader/test/providers/mobile_download_persistence_test.dart: Terminal Status Transitions Remove from Active Box completed download is removed from active box and persisted to history
+00:01 +38: E:/youtube downloader/test/providers/platform_settings_storage_migration_test.dart: PlatformSettingsProvider Storage Migration & Public Defaults getDefaultOutputPath falls back to public AeroTube if native returns Android/data/
+[00:37:36] ⚠️ [AndroidStorageService] Native download directory returned app-specific path: /storage/emulated/0/Android/data/com.aerotube.youtube_downloader/files/Download. Bypassing to public Downloads/AeroTube.
+00:01 +39: E:/youtube downloader/test/providers/mobile_download_persistence_test.dart: Terminal Status Transitions Remove from Active Box completed download is removed from active box and persisted to history
+[00:37:36] ℹ️ [AndroidStorageService] MediaScanner scanned file: C:\Users\mtech\AppData\Local\Temp\mobile_download_persistence_test_62853eee/Download/AeroTube\Completed Video.mp4 (success=true)
+[00:37:36] ℹ️ [DownloadForegroundService] Download service stopped
+[00:37:36] ℹ️ [DownloadForegroundService] Download completed: 1791149856018518_5
+[00:37:36] ℹ️ [MobileDownloadProvider] Download completed: 1791149856018518_5
+[00:37:36] ℹ️ [DownloadForegroundService] All notifications cancelled
+00:01 +40: E:/youtube downloader/test/providers/mobile_download_persistence_test.dart: Terminal Status Transitions Remove from Active Box cancelled download is removed from active box and saved to history
+[00:37:36] ℹ️ [DownloadForegroundService] Download notification channel created
+[00:37:36] ℹ️ [DownloadForegroundService] DownloadForegroundService initialized
+[00:37:36] ℹ️ [MobileDownloadProvider] MobileDownloadProvider initialized
+[00:37:36] ℹ️ [DownloadForegroundService] Download cancelled: 1791149856260528_6
+[00:37:36] ℹ️ [MobileDownloadProvider] Download cancelled: 1791149856260528_6
+[00:37:36] ℹ️ [DownloadForegroundService] All notifications cancelled
+[00:37:36] 🐛 [MobileDownloadProvider] Skipping disk-space pre-flight: totalBytes unknown for Cancel Video
+00:02 +41: E:/youtube downloader/test/providers/mobile_download_persistence_test.dart: Terminal Status Transitions Remove from Active Box pause and resume downloads update active box state
+[00:37:36] ℹ️ [DownloadForegroundService] Download notification channel created
+[00:37:36] ℹ️ [DownloadForegroundService] DownloadForegroundService initialized
+[00:37:36] ℹ️ [MobileDownloadProvider] MobileDownloadProvider initialized
+[00:37:36] ℹ️ [DownloadForegroundService] Download cancelled: 1791149856295238_7
+[00:37:36] ℹ️ [MobileDownloadProvider] Download paused: 1791149856295238_7
+[00:37:36] 🐛 [MobileDownloadProvider] Skipping disk-space pre-flight: totalBytes unknown for Pause Resume Video
+[00:37:36] ℹ️ [DownloadForegroundService] All notifications cancelled
+[00:37:36] 🐛 [MobileDownloadProvider] Skipping disk-space pre-flight: totalBytes unknown for Pause Resume Video
+00:02 +42: E:/youtube downloader/test/providers/resume_partial_temp_dir_test.dart: output-dir only partial counts as resumable
+00:02 +43: E:/youtube downloader/test/providers/resume_partial_temp_dir_test.dart: output-dir only partial counts as resumable
+00:02 +44: E:/youtube downloader/test/providers/resume_partial_temp_dir_test.dart: output-dir only partial counts as resumable
+00:02 +45: E:/youtube downloader/test/providers/resume_partial_temp_dir_test.dart: temp-dir only partial counts as resumable (current --paths temp path)
+00:02 +46: E:/youtube downloader/test/providers/resume_partial_temp_dir_test.dart: ytdl / frag / temp extensions in temp dir count
+00:02 +47: E:/youtube downloader/test/providers/resume_partial_temp_dir_test.dart: both empty → not resumable (true wipe)
+00:02 +48: E:/youtube downloader/test/providers/resume_partial_temp_dir_test.dart: missing temp dir does not throw and falls back to output scan
+00:02 +49: E:/youtube downloader/test/providers/resume_partial_temp_dir_test.dart: completed media without partials is not resumable
+00:02 +50: E:/youtube downloader/test/providers/video_provider_seamless_update_test.dart: VideoProvider Seamless Self-Healing auto-installs yt-dlp if unavailable before fetching
+[00:37:36] 🐛 [VideoProvider] Starting for url: https://www.youtube.com/watch?v=test1234567 (gen 1)
+[00:37:36] 🐛 [VideoProvider] Calling _ytdlpService.getVideoInfo
+[00:37:36] 🐛 [VideoProvider] Got video info: Seamless Video Test
+00:02 +51: E:/youtube downloader/test/providers/video_provider_seamless_update_test.dart: VideoProvider Seamless Self-Healing transparently updates yt-dlp and retries on signature extraction error
+[00:37:36] 🐛 [VideoProvider] Starting for url: https://www.youtube.com/watch?v=test1234567 (gen 1)
+[00:37:36] 🐛 [VideoProvider] Calling _ytdlpService.getVideoInfo
+[00:37:36] ❌ [VideoProvider] Error fetching video info: Exception: ERROR: [youtube] Signature extraction failed: update yt-dlp
+  Error: Exception: ERROR: [youtube] Signature extraction failed: update yt-dlp
+  Stack: #0      MockYtdlpToolService.getVideoInfo (file:///E:/youtube%20downloader/test/providers/video_provider_seamless_update_test.dart:78:7)
+#1      VideoProvider.fetchVideoInfo (package:youtube_downloader/providers/video_provider.dart:359:36)
+<asynchronous suspension>
+#2      main.<anonymous closure>.<anonymous closure> (file:///E:/youtube%20downloader/test/providers/video_provider_seamless_update_test.dart:117:7)
+<asynchronous suspension>
+#3      Declarer.test.<anonymous closure>.<anonymous closure> (package:test_api/src/backend/declarer.dart:253:15)
+<asynchronous suspension>
+#4      Declarer.test.<anonymous closure> (package:test_api/src/backend/declarer.dart:250:11)
+<asynchronous suspension>
+#5      Invoker._waitForOutstandingCallbacks.<anonymous closure> (package:test_api/src/backend/invoker.dart:318:9)
+<asynchronous suspension>
+
+[00:37:36] 🐛 [VideoProvider] Starting for url: https://www.youtube.com/watch?v=test1234567 (gen 2)
+[00:37:36] 🐛 [VideoProvider] Calling _ytdlpService.getVideoInfo
+[00:37:36] 🐛 [VideoProvider] Got video info: Seamless Video Test
+00:02 +52: E:/youtube downloader/test/providers/video_provider_seamless_update_test.dart: VideoProvider Seamless Self-Healing updateYtdlpAndRetry triggers manual retry with fresh update
+[00:37:36] 🐛 [VideoProvider] Starting for url: https://www.youtube.com/watch?v=test1234567 (gen 1)
+[00:37:36] 🐛 [VideoProvider] Calling _ytdlpService.getVideoInfo
+[00:37:36] 🐛 [VideoProvider] Got video info: Seamless Video Test
+[00:37:36] 🐛 [VideoProvider] Starting for url: https://www.youtube.com/watch?v=test1234567 (gen 2)
+[00:37:36] 🐛 [VideoProvider] Calling _ytdlpService.getVideoInfo
+[00:37:36] 🐛 [VideoProvider] Got video info: Seamless Video Test
+00:02 +53: E:/youtube downloader/test/services/android_storage_service_test.dart: AndroidStorageService Public Storage resolves public AeroTube download directory directly
+00:02 +54: E:/youtube downloader/test/services/android_storage_service_test.dart: AndroidStorageService Public Storage appends AeroTube when native directory is top-level Download
+00:02 +55: E:/youtube downloader/test/services/android_storage_service_test.dart: AndroidStorageService Public Storage avoids duplicate AeroTube suffix if already present in path
+00:02 +56: E:/youtube downloader/test/services/android_storage_service_test.dart: AndroidStorageService Public Storage bypasses /Android/data/ if native returns app-specific path
+[00:37:37] ⚠️ [AndroidStorageService] Native download directory returned app-specific path: /storage/emulated/0/Android/data/com.aerotube.youtube_downloader/files/Download. Bypassing to public Downloads/AeroTube.
+00:02 +57: E:/youtube downloader/test/services/android_storage_service_test.dart: AndroidStorageService Public Storage falls back to app-specific dir when public Downloads is not writable
+[00:37:37] ℹ️ [AndroidStorageService] Using app-specific download directory: /storage/emulated/0/Android/data/com.aerotube.youtube_downloader/files/Download
+00:02 +58: E:/youtube downloader/test/services/android_storage_service_test.dart: AndroidStorageService Public Storage requestStoragePermission returns native grant result without faking
+00:02 +59: E:/youtube downloader/test/services/android_storage_service_test.dart: AndroidStorageService Public Storage requestStoragePermission returns true when already writable
+00:02 +60: E:/youtube downloader/test/services/android_storage_service_test.dart: AndroidStorageService Public Storage getVideoDirectory creates Videos subfolder under public AeroTube path
+00:02 +61: E:/youtube downloader/test/services/android_storage_service_test.dart: AndroidStorageService Public Storage getAudioDirectory creates Audio subfolder under public AeroTube path
+00:02 +62: E:/youtube downloader/test/services/android_storage_service_test.dart: AndroidStorageService MediaScanner scanMediaFile invokes method channel with correct filePath
+[00:37:37] ℹ️ [AndroidStorageService] MediaScanner scanned file: /storage/emulated/0/Download/AeroTube/sample_video.mp4 (success=true)
+00:02 +63: E:/youtube downloader/test/services/android_storage_service_test.dart: AndroidStorageService MediaScanner scanMediaFile handles false result from native channel
+[00:37:37] ℹ️ [AndroidStorageService] MediaScanner scanned file: /storage/emulated/0/Download/AeroTube/sample_video.mp4 (success=false)
+00:02 +64: E:/youtube downloader/test/services/android_storage_service_test.dart: AndroidStorageService MediaScanner scanMediaFile returns false when not on Android
+00:03 +65: E:/youtube downloader/test/services/downloaded_file_finder_filepath_test.dart: findDownloadedFile (mtime-scan fallback) returns null when the output directory does not exist
+00:03 +66: E:/youtube downloader/test/services/downloaded_file_finder_filepath_test.dart: findDownloadedFile (mtime-scan fallback) returns null when the directory has no media files
+00:03 +67: E:/youtube downloader/test/services/downloaded_file_finder_filepath_test.dart: findDownloadedFile (mtime-scan fallback) matches by download id embedded in the filename
+00:03 +68: E:/youtube downloader/test/services/downloaded_file_finder_filepath_test.dart: findDownloadedFile (mtime-scan fallback) falls back to title words when no id match exists
+00:03 +69: E:/youtube downloader/test/services/downloaded_file_finder_filepath_test.dart: findDownloadedFile (mtime-scan fallback) prefers the newest mtime among id matches
+00:03 +70: E:/youtube downloader/test/services/downloaded_file_finder_filepath_test.dart: findDownloadedFile (mtime-scan fallback) ignores non-media extensions even if they match the id
+00:03 +71: E:/youtube downloader/test/services/downloaded_file_finder_filepath_test.dart: completed-event filepath preference contract known exact path wins over the mtime-scanned candidate
+00:03 +72: E:/youtube downloader/test/services/downloaded_file_finder_filepath_test.dart: completed-event filepath preference contract missing exact path falls back to the finder
+00:03 +73: E:/youtube downloader/test/services/downloaded_file_finder_filepath_test.dart: completed-event filepath preference contract null filepath falls back to the finder
+00:03 +74: E:/youtube downloader/test/services/downloaded_file_finder_filepath_test.dart: completed-event filepath preference contract empty filepath falls back to the finder
+00:03 +75: E:/youtube downloader/test/services/downloaded_file_finder_filepath_test.dart: completed-event filepath preference contract exact path missing and finder finds nothing → null (fail path)
+00:03 +76: E:/youtube downloader/test/services/download_foreground_service_bridge_test.dart: R4: progress bridge to native notification updateProgress forwards progress and status to native
+[00:37:38] ⚠️ [DownloadForegroundService] Notification permission request failed: MissingPluginException(No implementation found for method checkPermissionStatus on channel flutter.baseflow.com/permissions/methods)
+[00:37:38] ⚠️ [DownloadForegroundService] Failed to check battery optimization status: MissingPluginException(No implementation found for method checkPermissionStatus on channel flutter.baseflow.com/permissions/methods)
+[00:37:38] ❌ [DownloadForegroundService] Failed to initialize DownloadForegroundService
+  Error: MissingPluginException(No implementation found for method initialize on channel dexterous.com/flutter/local_notifications)
+  Stack: #0      MethodChannel._invokeMethod (package:flutter/src/services/platform_channel.dart:364:7)
+<asynchronous suspension>
+#1      AndroidFlutterLocalNotificationsPlugin.initialize (package:flutter_local_notifications/src/platform_flutter_local_notifications.dart:143:12)
+<asynchronous suspension>
+#2      DownloadForegroundService.initialize (package:youtube_downloader/services/notification/download_foreground_service.dart:84:7)
+<asynchronous suspension>
+#3      DownloadForegroundService.startDownload (package:youtube_downloader/services/notification/download_foreground_service.dart:162:7)
+<asynchronous suspension>
+#4      main.<anonymous closure>.<anonymous closure> (file:///E:/youtube%20downloader/test/services/download_foreground_service_bridge_test.dart:47:7)
+<asynchronous suspension>
+#5      Declarer.test.<anonymous closure>.<anonymous closure> (package:test_api/src/backend/declarer.dart:253:15)
+<asynchronous suspension>
+#6      Declarer.test.<anonymous closure> (package:test_api/src/backend/declarer.dart:250:11)
+<asynchronous suspension>
+#7      Invoker._waitForOutstandingCallbacks.<anonymous closure> (package:test_api/src/backend/invoker.dart:318:9)
+<asynchronous suspension>
+
+[00:37:38] ℹ️ [DownloadForegroundService] Started download service for: d1
+00:03 +77: E:/youtube downloader/test/services/download_foreground_service_bridge_test.dart: R4: progress bridge to native notification progress outside [0,1] is clamped before forwarding
+[00:37:38] ⚠️ [DownloadForegroundService] Notification permission request failed: MissingPluginException(No implementation found for method checkPermissionStatus on channel flutter.baseflow.com/permissions/methods)
+[00:37:38] ⚠️ [DownloadForegroundService] Failed to check battery optimization status: MissingPluginException(No implementation found for method checkPermissionStatus on channel flutter.baseflow.com/permissions/methods)
+[00:37:38] ❌ [DownloadForegroundService] Failed to initialize DownloadForegroundService
+  Error: MissingPluginException(No implementation found for method initialize on channel dexterous.com/flutter/local_notifications)
+  Stack: #0      MethodChannel._invokeMethod (package:flutter/src/services/platform_channel.dart:364:7)
+<asynchronous suspension>
+#1      AndroidFlutterLocalNotificationsPlugin.initialize (package:flutter_local_notifications/src/platform_flutter_local_notifications.dart:143:12)
+<asynchronous suspension>
+#2      DownloadForegroundService.initialize (package:youtube_downloader/services/notification/download_foreground_service.dart:84:7)
+<asynchronous suspension>
+#3      DownloadForegroundService.startDownload (package:youtube_downloader/services/notification/download_foreground_service.dart:162:7)
+<asynchronous suspension>
+#4      main.<anonymous closure>.<anonymous closure> (file:///E:/youtube%20downloader/test/services/download_foreground_service_bridge_test.dart:69:7)
+<asynchronous suspension>
+#5      Declarer.test.<anonymous closure>.<anonymous closure> (package:test_api/src/backend/declarer.dart:253:15)
+<asynchronous suspension>
+#6      Declarer.test.<anonymous closure> (package:test_api/src/backend/declarer.dart:250:11)
+<asynchronous suspension>
+#7      Invoker._waitForOutstandingCallbacks.<anonymous closure> (package:test_api/src/backend/invoker.dart:318:9)
+<asynchronous suspension>
+
+[00:37:38] ℹ️ [DownloadForegroundService] Started download service for: d1
+00:03 +78: E:/youtube downloader/test/services/download_foreground_service_bridge_test.dart: R4: progress bridge to native notification throttle: sub-percent progress-only ticks within cooldown are skipped
+[00:37:38] ⚠️ [DownloadForegroundService] Notification permission request failed: MissingPluginException(No implementation found for method checkPermissionStatus on channel flutter.baseflow.com/permissions/methods)
+[00:37:38] ⚠️ [DownloadForegroundService] Failed to check battery optimization status: MissingPluginException(No implementation found for method checkPermissionStatus on channel flutter.baseflow.com/permissions/methods)
+[00:37:38] ❌ [DownloadForegroundService] Failed to initialize DownloadForegroundService
+  Error: MissingPluginException(No implementation found for method initialize on channel dexterous.com/flutter/local_notifications)
+  Stack: #0      MethodChannel._invokeMethod (package:flutter/src/services/platform_channel.dart:364:7)
+<asynchronous suspension>
+#1      AndroidFlutterLocalNotificationsPlugin.initialize (package:flutter_local_notifications/src/platform_flutter_local_notifications.dart:143:12)
+<asynchronous suspension>
+#2      DownloadForegroundService.initialize (package:youtube_downloader/services/notification/download_foreground_service.dart:84:7)
+<asynchronous suspension>
+#3      DownloadForegroundService.startDownload (package:youtube_downloader/services/notification/download_foreground_service.dart:162:7)
+<asynchronous suspension>
+#4      main.<anonymous closure>.<anonymous closure> (file:///E:/youtube%20downloader/test/services/download_foreground_service_bridge_test.dart:88:9)
+<asynchronous suspension>
+#5      Declarer.test.<anonymous closure>.<anonymous closure> (package:test_api/src/backend/declarer.dart:253:15)
+<asynchronous suspension>
+#6      Declarer.test.<anonymous closure> (package:test_api/src/backend/declarer.dart:250:11)
+<asynchronous suspension>
+#7      Invoker._waitForOutstandingCallbacks.<anonymous closure> (package:test_api/src/backend/invoker.dart:318:9)
+<asynchronous suspension>
+
+[00:37:38] ℹ️ [DownloadForegroundService] Started download service for: d1
+00:03 +79: E:/youtube downloader/test/services/download_foreground_service_bridge_test.dart: R4: progress bridge to native notification throttle: status text change is forwarded immediately
+[00:37:38] ⚠️ [DownloadForegroundService] Notification permission request failed: MissingPluginException(No implementation found for method checkPermissionStatus on channel flutter.baseflow.com/permissions/methods)
+[00:37:38] ⚠️ [DownloadForegroundService] Failed to check battery optimization status: MissingPluginException(No implementation found for method checkPermissionStatus on channel flutter.baseflow.com/permissions/methods)
+[00:37:38] ❌ [DownloadForegroundService] Failed to initialize DownloadForegroundService
+  Error: MissingPluginException(No implementation found for method initialize on channel dexterous.com/flutter/local_notifications)
+  Stack: #0      MethodChannel._invokeMethod (package:flutter/src/services/platform_channel.dart:364:7)
+<asynchronous suspension>
+#1      AndroidFlutterLocalNotificationsPlugin.initialize (package:flutter_local_notifications/src/platform_flutter_local_notifications.dart:143:12)
+<asynchronous suspension>
+#2      DownloadForegroundService.initialize (package:youtube_downloader/services/notification/download_foreground_service.dart:84:7)
+<asynchronous suspension>
+#3      DownloadForegroundService.startDownload (package:youtube_downloader/services/notification/download_foreground_service.dart:162:7)
+<asynchronous suspension>
+#4      main.<anonymous closure>.<anonymous closure> (file:///E:/youtube%20downloader/test/services/download_foreground_service_bridge_test.dart:110:7)
+<asynchronous suspension>
+#5      Declarer.test.<anonymous closure>.<anonymous closure> (package:test_api/src/backend/declarer.dart:253:15)
+<asynchronous suspension>
+#6      Declarer.test.<anonymous closure> (package:test_api/src/backend/declarer.dart:250:11)
+<asynchronous suspension>
+#7      Invoker._waitForOutstandingCallbacks.<anonymous closure> (package:test_api/src/backend/invoker.dart:318:9)
+<asynchronous suspension>
+
+[00:37:38] ℹ️ [DownloadForegroundService] Started download service for: d1
+00:03 +80: E:/youtube downloader/test/services/download_foreground_service_bridge_test.dart: R4: progress bridge to native notification updateProgress for unknown download is ignored entirely
+00:03 +81: E:/youtube downloader/test/services/download_foreground_service_bridge_test.dart: R4: progress bridge to native notification native channel failure is swallowed, not propagated
+[00:37:38] ⚠️ [DownloadForegroundService] Notification permission request failed: MissingPluginException(No implementation found for method checkPermissionStatus on channel flutter.baseflow.com/permissions/methods)
+[00:37:38] ⚠️ [DownloadForegroundService] Failed to check battery optimization status: MissingPluginException(No implementation found for method checkPermissionStatus on channel flutter.baseflow.com/permissions/methods)
+[00:37:38] ❌ [DownloadForegroundService] Failed to initialize DownloadForegroundService
+  Error: MissingPluginException(No implementation found for method initialize on channel dexterous.com/flutter/local_notifications)
+  Stack: #0      MethodChannel._invokeMethod (package:flutter/src/services/platform_channel.dart:364:7)
+<asynchronous suspension>
+#1      AndroidFlutterLocalNotificationsPlugin.initialize (package:flutter_local_notifications/src/platform_flutter_local_notifications.dart:143:12)
+<asynchronous suspension>
+#2      DownloadForegroundService.initialize (package:youtube_downloader/services/notification/download_foreground_service.dart:84:7)
+<asynchronous suspension>
+#3      DownloadForegroundService.startDownload (package:youtube_downloader/services/notification/download_foreground_service.dart:162:7)
+<asynchronous suspension>
+#4      main.<anonymous closure>.<anonymous closure> (file:///E:/youtube%20downloader/test/services/download_foreground_service_bridge_test.dart:143:7)
+<asynchronous suspension>
+#5      Declarer.test.<anonymous closure>.<anonymous closure> (package:test_api/src/backend/declarer.dart:253:15)
+<asynchronous suspension>
+#6      Declarer.test.<anonymous closure> (package:test_api/src/backend/declarer.dart:250:11)
+<asynchronous suspension>
+#7      Invoker._waitForOutstandingCallbacks.<anonymous closure> (package:test_api/src/backend/invoker.dart:318:9)
+<asynchronous suspension>
+
+[00:37:38] ℹ️ [DownloadForegroundService] Started download service for: d1
+[00:37:38] ⚠️ [DownloadForegroundService] Failed to forward progress to native notification: PlatformException(SERVICE_NOT_RUNNING, gone, null, null)
+00:03 +82: E:/youtube downloader/test/services/download_foreground_service_bridge_test.dart: R4: completion and cancellation cleanup completing one of several downloads signals per-task native completion without stopping the service
+[00:37:38] ⚠️ [DownloadForegroundService] Notification permission request failed: MissingPluginException(No implementation found for method checkPermissionStatus on channel flutter.baseflow.com/permissions/methods)
+[00:37:38] ⚠️ [DownloadForegroundService] Failed to check battery optimization status: MissingPluginException(No implementation found for method checkPermissionStatus on channel flutter.baseflow.com/permissions/methods)
+[00:37:38] ❌ [DownloadForegroundService] Failed to initialize DownloadForegroundService
+  Error: MissingPluginException(No implementation found for method initialize on channel dexterous.com/flutter/local_notifications)
+  Stack: #0      MethodChannel._invokeMethod (package:flutter/src/services/platform_channel.dart:364:7)
+<asynchronous suspension>
+#1      AndroidFlutterLocalNotificationsPlugin.initialize (package:flutter_local_notifications/src/platform_flutter_local_notifications.dart:143:12)
+<asynchronous suspension>
+#2      DownloadForegroundService.initialize (package:youtube_downloader/services/notification/download_foreground_service.dart:84:7)
+<asynchronous suspension>
+#3      DownloadForegroundService.startDownload (package:youtube_downloader/services/notification/download_foreground_service.dart:162:7)
+<asynchronous suspension>
+#4      main.<anonymous closure>.seedTwoDownloads (file:///E:/youtube%20downloader/test/services/download_foreground_service_bridge_test.dart:160:7)
+<asynchronous suspension>
+#5      main.<anonymous closure>.<anonymous closure> (file:///E:/youtube%20downloader/test/services/download_foreground_service_bridge_test.dart:179:9)
+<asynchronous suspension>
+#6      Declarer.test.<anonymous closure>.<anonymous closure> (package:test_api/src/backend/declarer.dart:253:15)
+<asynchronous suspension>
+#7      Declarer.test.<anonymous closure> (package:test_api/src/backend/declarer.dart:250:11)
+<asynchronous suspension>
+#8      Invoker._waitForOutstandingCallbacks.<anonymous closure> (package:test_api/src/backend/invoker.dart:318:9)
+<asynchronous suspension>
+
+[00:37:38] ℹ️ [DownloadForegroundService] Started download service for: d1
+[00:37:38] ⚠️ [DownloadForegroundService] Notification permission request failed: MissingPluginException(No implementation found for method checkPermissionStatus on channel flutter.baseflow.com/permissions/methods)
+[00:37:38] ⚠️ [DownloadForegroundService] Failed to check battery optimization status: MissingPluginException(No implementation found for method checkPermissionStatus on channel flutter.baseflow.com/permissions/methods)
+[00:37:38] ❌ [DownloadForegroundService] Failed to initialize DownloadForegroundService
+  Error: MissingPluginException(No implementation found for method initialize on channel dexterous.com/flutter/local_notifications)
+  Stack: #0      MethodChannel._invokeMethod (package:flutter/src/services/platform_channel.dart:364:7)
+<asynchronous suspension>
+#1      AndroidFlutterLocalNotificationsPlugin.initialize (package:flutter_local_notifications/src/platform_flutter_local_notifications.dart:143:12)
+<asynchronous suspension>
+#2      DownloadForegroundService.initialize (package:youtube_downloader/services/notification/download_foreground_service.dart:84:7)
+<asynchronous suspension>
+#3      DownloadForegroundService.startDownload (package:youtube_downloader/services/notification/download_foreground_service.dart:162:7)
+<asynchronous suspension>
+#4      main.<anonymous closure>.seedTwoDownloads (file:///E:/youtube%20downloader/test/services/download_foreground_service_bridge_test.dart:166:7)
+<asynchronous suspension>
+#5      main.<anonymous closure>.<anonymous closure> (file:///E:/youtube%20downloader/test/services/download_foreground_service_bridge_test.dart:179:9)
+<asynchronous suspension>
+#6      Declarer.test.<anonymous closure>.<anonymous closure> (package:test_api/src/backend/declarer.dart:253:15)
+<asynchronous suspension>
+#7      Declarer.test.<anonymous closure> (package:test_api/src/backend/declarer.dart:250:11)
+<asynchronous suspension>
+#8      Invoker._waitForOutstandingCallbacks.<anonymous closure> (package:test_api/src/backend/invoker.dart:318:9)
+<asynchronous suspension>
+
+[00:37:38] ℹ️ [DownloadForegroundService] Started download service for: d2
+00:03 +83: E:/youtube downloader/test/services/download_foreground_service_bridge_test.dart: R4: completion and cancellation cleanup completing the last download stops the native service and clears throttle state (no orphan notification state)
+[00:37:38] ⚠️ [DownloadForegroundService] Notification permission request failed: MissingPluginException(No implementation found for method checkPermissionStatus on channel flutter.baseflow.com/permissions/methods)
+[00:37:38] ⚠️ [DownloadForegroundService] Failed to check battery optimization status: MissingPluginException(No implementation found for method checkPermissionStatus on channel flutter.baseflow.com/permissions/methods)
+[00:37:38] ❌ [DownloadForegroundService] Failed to initialize DownloadForegroundService
+  Error: MissingPluginException(No implementation found for method initialize on channel dexterous.com/flutter/local_notifications)
+  Stack: #0      MethodChannel._invokeMethod (package:flutter/src/services/platform_channel.dart:364:7)
+<asynchronous suspension>
+#1      AndroidFlutterLocalNotificationsPlugin.initialize (package:flutter_local_notifications/src/platform_flutter_local_notifications.dart:143:12)
+<asynchronous suspension>
+#2      DownloadForegroundService.initialize (package:youtube_downloader/services/notification/download_foreground_service.dart:84:7)
+<asynchronous suspension>
+#3      DownloadForegroundService.startDownload (package:youtube_downloader/services/notification/download_foreground_service.dart:162:7)
+<asynchronous suspension>
+#4      main.<anonymous closure>.seedTwoDownloads (file:///E:/youtube%20downloader/test/services/download_foreground_service_bridge_test.dart:160:7)
+<asynchronous suspension>
+#5      main.<anonymous closure>.<anonymous closure> (file:///E:/youtube%20downloader/test/services/download_foreground_service_bridge_test.dart:200:9)
+<asynchronous suspension>
+#6      Declarer.test.<anonymous closure>.<anonymous closure> (package:test_api/src/backend/declarer.dart:253:15)
+<asynchronous suspension>
+#7      Declarer.test.<anonymous closure> (package:test_api/src/backend/declarer.dart:250:11)
+<asynchronous suspension>
+#8      Invoker._waitForOutstandingCallbacks.<anonymous closure> (package:test_api/src/backend/invoker.dart:318:9)
+<asynchronous suspension>
+
+[00:37:38] ℹ️ [DownloadForegroundService] Started download service for: d1
+[00:37:38] ⚠️ [DownloadForegroundService] Notification permission request failed: MissingPluginException(No implementation found for method checkPermissionStatus on channel flutter.baseflow.com/permissions/methods)
+[00:37:38] ⚠️ [DownloadForegroundService] Failed to check battery optimization status: MissingPluginException(No implementation found for method checkPermissionStatus on channel flutter.baseflow.com/permissions/methods)
+[00:37:38] ❌ [DownloadForegroundService] Failed to initialize DownloadForegroundService
+  Error: MissingPluginException(No implementation found for method initialize on channel dexterous.com/flutter/local_notifications)
+  Stack: #0      MethodChannel._invokeMethod (package:flutter/src/services/platform_channel.dart:364:7)
+<asynchronous suspension>
+#1      AndroidFlutterLocalNotificationsPlugin.initialize (package:flutter_local_notifications/src/platform_flutter_local_notifications.dart:143:12)
+<asynchronous suspension>
+#2      DownloadForegroundService.initialize (package:youtube_downloader/services/notification/download_foreground_service.dart:84:7)
+<asynchronous suspension>
+#3      DownloadForegroundService.startDownload (package:youtube_downloader/services/notification/download_foreground_service.dart:162:7)
+<asynchronous suspension>
+#4      main.<anonymous closure>.seedTwoDownloads (file:///E:/youtube%20downloader/test/services/download_foreground_service_bridge_test.dart:166:7)
+<asynchronous suspension>
+#5      main.<anonymous closure>.<anonymous closure> (file:///E:/youtube%20downloader/test/services/download_foreground_service_bridge_test.dart:200:9)
+<asynchronous suspension>
+#6      Declarer.test.<anonymous closure>.<anonymous closure> (package:test_api/src/backend/declarer.dart:253:15)
+<asynchronous suspension>
+#7      Declarer.test.<anonymous closure> (package:test_api/src/backend/declarer.dart:250:11)
+<asynchronous suspension>
+#8      Invoker._waitForOutstandingCallbacks.<anonymous closure> (package:test_api/src/backend/invoker.dart:318:9)
+<asynchronous suspension>
+
+[00:37:38] ℹ️ [DownloadForegroundService] Started download service for: d2
+[00:37:38] ⚠️ [DownloadForegroundService] Notification cancellation failed (non-fatal): MissingPluginException(No implementation found for method cancel on channel dexterous.com/flutter/local_notifications)
+  Stack: #0      MethodChannel._invokeMethod (package:flutter/src/services/platform_channel.dart:364:7)
+<asynchronous suspension>
+#1      FlutterLocalNotificationsPlugin.cancel (package:flutter_local_notifications/src/flutter_local_notifications_plugin.dart:277:7)
+<asynchronous suspension>
+#2      DownloadForegroundService._cancelNotification (package:youtube_downloader/services/notification/download_foreground_service.dart:403:9)
+<asynchronous suspension>
+#3      DownloadForegroundService.stopService (package:youtube_downloader/services/notification/download_foreground_service.dart:327:5)
+<asynchronous suspension>
+#4      DownloadForegroundService.completeDownload (package:youtube_downloader/services/notification/download_foreground_service.dart:303:7)
+<asynchronous suspension>
+#5      main.<anonymous closure>.<anonymous closure> (file:///E:/youtube%20downloader/test/services/download_foreground_service_bridge_test.dart:205:9)
+<asynchronous suspension>
+#6      Declarer.test.<anonymous closure>.<anonymous closure> (package:test_api/src/backend/declarer.dart:253:15)
+<asynchronous suspension>
+#7      Declarer.test.<anonymous closure> (package:test_api/src/backend/declarer.dart:250:11)
+<asynchronous suspension>
+#8      Invoker._waitForOutstandingCallbacks.<anonymous closure> (package:test_api/src/backend/invoker.dart:318:9)
+<asynchronous suspension>
+
+[00:37:38] ℹ️ [DownloadForegroundService] Download service stopped
+[00:37:38] ℹ️ [DownloadForegroundService] Download completed: d2
+[00:37:38] ⚠️ [DownloadForegroundService] Notification permission request failed: MissingPluginException(No implementation found for method checkPermissionStatus on channel flutter.baseflow.com/permissions/methods)
+[00:37:38] ⚠️ [DownloadForegroundService] Failed to check battery optimization status: MissingPluginException(No implementation found for method checkPermissionStatus on channel flutter.baseflow.com/permissions/methods)
+[00:37:38] ❌ [DownloadForegroundService] Failed to initialize DownloadForegroundService
+  Error: MissingPluginException(No implementation found for method initialize on channel dexterous.com/flutter/local_notifications)
+  Stack: #0      MethodChannel._invokeMethod (package:flutter/src/services/platform_channel.dart:364:7)
+<asynchronous suspension>
+#1      AndroidFlutterLocalNotificationsPlugin.initialize (package:flutter_local_notifications/src/platform_flutter_local_notifications.dart:143:12)
+<asynchronous suspension>
+#2      DownloadForegroundService.initialize (package:youtube_downloader/services/notification/download_foreground_service.dart:84:7)
+<asynchronous suspension>
+#3      DownloadForegroundService.startDownload (package:youtube_downloader/services/notification/download_foreground_service.dart:162:7)
+<asynchronous suspension>
+#4      main.<anonymous closure>.<anonymous closure> (file:///E:/youtube%20downloader/test/services/download_foreground_service_bridge_test.dart:212:9)
+<asynchronous suspension>
+#5      Declarer.test.<anonymous closure>.<anonymous closure> (package:test_api/src/backend/declarer.dart:253:15)
+<asynchronous suspension>
+#6      Declarer.test.<anonymous closure> (package:test_api/src/backend/declarer.dart:250:11)
+<asynchronous suspension>
+#7      Invoker._waitForOutstandingCallbacks.<anonymous closure> (package:test_api/src/backend/invoker.dart:318:9)
+<asynchronous suspension>
+
+[00:37:38] ℹ️ [DownloadForegroundService] Started download service for: d1
+00:03 +84: E:/youtube downloader/test/services/download_foreground_service_bridge_test.dart: R4: completion and cancellation cleanup cancel forwards native cancel and clears throttle state
+[00:37:38] ⚠️ [DownloadForegroundService] Notification permission request failed: MissingPluginException(No implementation found for method checkPermissionStatus on channel flutter.baseflow.com/permissions/methods)
+[00:37:38] ⚠️ [DownloadForegroundService] Failed to check battery optimization status: MissingPluginException(No implementation found for method checkPermissionStatus on channel flutter.baseflow.com/permissions/methods)
+[00:37:38] ❌ [DownloadForegroundService] Failed to initialize DownloadForegroundService
+  Error: MissingPluginException(No implementation found for method initialize on channel dexterous.com/flutter/local_notifications)
+  Stack: #0      MethodChannel._invokeMethod (package:flutter/src/services/platform_channel.dart:364:7)
+<asynchronous suspension>
+#1      AndroidFlutterLocalNotificationsPlugin.initialize (package:flutter_local_notifications/src/platform_flutter_local_notifications.dart:143:12)
+<asynchronous suspension>
+#2      DownloadForegroundService.initialize (package:youtube_downloader/services/notification/download_foreground_service.dart:84:7)
+<asynchronous suspension>
+#3      DownloadForegroundService.startDownload (package:youtube_downloader/services/notification/download_foreground_service.dart:162:7)
+<asynchronous suspension>
+#4      main.<anonymous closure>.seedTwoDownloads (file:///E:/youtube%20downloader/test/services/download_foreground_service_bridge_test.dart:160:7)
+<asynchronous suspension>
+#5      main.<anonymous closure>.<anonymous closure> (file:///E:/youtube%20downloader/test/services/download_foreground_service_bridge_test.dart:228:7)
+<asynchronous suspension>
+#6      Declarer.test.<anonymous closure>.<anonymous closure> (package:test_api/src/backend/declarer.dart:253:15)
+<asynchronous suspension>
+#7      Declarer.test.<anonymous closure> (package:test_api/src/backend/declarer.dart:250:11)
+<asynchronous suspension>
+#8      Invoker._waitForOutstandingCallbacks.<anonymous closure> (package:test_api/src/backend/invoker.dart:318:9)
+<asynchronous suspension>
+
+[00:37:38] ℹ️ [DownloadForegroundService] Started download service for: d1
+[00:37:38] ⚠️ [DownloadForegroundService] Notification permission request failed: MissingPluginException(No implementation found for method checkPermissionStatus on channel flutter.baseflow.com/permissions/methods)
+[00:37:38] ⚠️ [DownloadForegroundService] Failed to check battery optimization status: MissingPluginException(No implementation found for method checkPermissionStatus on channel flutter.baseflow.com/permissions/methods)
+[00:37:38] ❌ [DownloadForegroundService] Failed to initialize DownloadForegroundService
+  Error: MissingPluginException(No implementation found for method initialize on channel dexterous.com/flutter/local_notifications)
+  Stack: #0      MethodChannel._invokeMethod (package:flutter/src/services/platform_channel.dart:364:7)
+<asynchronous suspension>
+#1      AndroidFlutterLocalNotificationsPlugin.initialize (package:flutter_local_notifications/src/platform_flutter_local_notifications.dart:143:12)
+<asynchronous suspension>
+#2      DownloadForegroundService.initialize (package:youtube_downloader/services/notification/download_foreground_service.dart:84:7)
+<asynchronous suspension>
+#3      DownloadForegroundService.startDownload (package:youtube_downloader/services/notification/download_foreground_service.dart:162:7)
+<asynchronous suspension>
+#4      main.<anonymous closure>.seedTwoDownloads (file:///E:/youtube%20downloader/test/services/download_foreground_service_bridge_test.dart:166:7)
+<asynchronous suspension>
+#5      main.<anonymous closure>.<anonymous closure> (file:///E:/youtube%20downloader/test/services/download_foreground_service_bridge_test.dart:228:7)
+<asynchronous suspension>
+#6      Declarer.test.<anonymous closure>.<anonymous closure> (package:test_api/src/backend/declarer.dart:253:15)
+<asynchronous suspension>
+#7      Declarer.test.<anonymous closure> (package:test_api/src/backend/declarer.dart:250:11)
+<asynchronous suspension>
+#8      Invoker._waitForOutstandingCallbacks.<anonymous closure> (package:test_api/src/backend/invoker.dart:318:9)
+<asynchronous suspension>
+
+[00:37:38] ℹ️ [DownloadForegroundService] Started download service for: d2
+[00:37:38] ℹ️ [DownloadForegroundService] Download cancelled: d1
+00:03 +85: E:/youtube downloader/test/services/download_foreground_service_bridge_test.dart: R4: non-Android path unchanged on non-Android, updateProgress does not hit the native channel
+[00:37:38] ❌ [DownloadForegroundService] Failed to initialize DownloadForegroundService
+  Error: MissingPluginException(No implementation found for method initialize on channel dexterous.com/flutter/local_notifications)
+  Stack: #0      MethodChannel._invokeMethod (package:flutter/src/services/platform_channel.dart:364:7)
+<asynchronous suspension>
+#1      AndroidFlutterLocalNotificationsPlugin.initialize (package:flutter_local_notifications/src/platform_flutter_local_notifications.dart:143:12)
+<asynchronous suspension>
+#2      DownloadForegroundService.initialize (package:youtube_downloader/services/notification/download_foreground_service.dart:84:7)
+<asynchronous suspension>
+#3      DownloadForegroundService.startDownload (package:youtube_downloader/services/notification/download_foreground_service.dart:162:7)
+<asynchronous suspension>
+#4      main.<anonymous closure>.<anonymous closure> (file:///E:/youtube%20downloader/test/services/download_foreground_service_bridge_test.dart:245:7)
+<asynchronous suspension>
+#5      Declarer.test.<anonymous closure>.<anonymous closure> (package:test_api/src/backend/declarer.dart:253:15)
+<asynchronous suspension>
+#6      Declarer.test.<anonymous closure> (package:test_api/src/backend/declarer.dart:250:11)
+<asynchronous suspension>
+#7      Invoker._waitForOutstandingCallbacks.<anonymous closure> (package:test_api/src/backend/invoker.dart:318:9)
+<asynchronous suspension>
+
+[00:37:38] ⚠️ [DownloadForegroundService] Notification update failed (non-fatal): MissingPluginException(No implementation found for method show on channel dexterous.com/flutter/local_notifications)
+  Stack: #0      MethodChannel._invokeMethod (package:flutter/src/services/platform_channel.dart:364:7)
+<asynchronous suspension>
+#1      FlutterLocalNotificationsPlugin.show (package:flutter_local_notifications/src/flutter_local_notifications_plugin.dart:237:7)
+<asynchronous suspension>
+#2      DownloadForegroundService._showSingleDownloadNotification (package:youtube_downloader/services/notification/download_foreground_service.dart:465:5)
+<asynchronous suspension>
+#3      DownloadForegroundService._updateDownloadNotification (package:youtube_downloader/services/notification/download_foreground_service.dart:380:9)
+<asynchronous suspension>
+#4      DownloadForegroundService.startDownload (package:youtube_downloader/services/notification/download_foreground_service.dart:185:7)
+<asynchronous suspension>
+#5      main.<anonymous closure>.<anonymous closure> (file:///E:/youtube%20downloader/test/services/download_foreground_service_bridge_test.dart:245:7)
+<asynchronous suspension>
+#6      Declarer.test.<anonymous closure>.<anonymous closure> (package:test_api/src/backend/declarer.dart:253:15)
+<asynchronous suspension>
+#7      Declarer.test.<anonymous closure> (package:test_api/src/backend/declarer.dart:250:11)
+<asynchronous suspension>
+#8      Invoker._waitForOutstandingCallbacks.<anonymous closure> (package:test_api/src/backend/invoker.dart:318:9)
+<asynchronous suspension>
+
+[00:37:38] ℹ️ [DownloadForegroundService] Started download service for: d1
+[00:37:38] ⚠️ [DownloadForegroundService] Notification update failed (non-fatal): MissingPluginException(No implementation found for method show on channel dexterous.com/flutter/local_notifications)
+  Stack: #0      MethodChannel._invokeMethod (package:flutter/src/services/platform_channel.dart:364:7)
+<asynchronous suspension>
+#1      FlutterLocalNotificationsPlugin.show (package:flutter_local_notifications/src/flutter_local_notifications_plugin.dart:237:7)
+<asynchronous suspension>
+#2      DownloadForegroundService._showSingleDownloadNotification (package:youtube_downloader/services/notification/download_foreground_service.dart:465:5)
+<asynchronous suspension>
+#3      DownloadForegroundService._updateDownloadNotification (package:youtube_downloader/services/notification/download_foreground_service.dart:380:9)
+<asynchronous suspension>
+#4      DownloadForegroundService.updateProgress (package:youtube_downloader/services/notification/download_foreground_service.dart:235:7)
+<asynchronous suspension>
+#5      main.<anonymous closure>.<anonymous closure> (file:///E:/youtube%20downloader/test/services/download_foreground_service_bridge_test.dart:253:7)
+<asynchronous suspension>
+#6      Declarer.test.<anonymous closure>.<anonymous closure> (package:test_api/src/backend/declarer.dart:253:15)
+<asynchronous suspension>
+#7      Declarer.test.<anonymous closure> (package:test_api/src/backend/declarer.dart:250:11)
+<asynchronous suspension>
+#8      Invoker._waitForOutstandingCallbacks.<anonymous closure> (package:test_api/src/backend/invoker.dart:318:9)
+<asynchronous suspension>
+
+00:04 +86: E:/youtube downloader/test/services/ffmpeg_service_android_honesty_test.dart: NativeYtdlpAndroid.getFfmpegVersion returns the real version string from native
+00:04 +87: E:/youtube downloader/test/services/ffmpeg_service_android_honesty_test.dart: NativeYtdlpAndroid.getFfmpegVersion returns null when native returns null
+00:04 +88: E:/youtube downloader/test/services/ffmpeg_service_android_honesty_test.dart: NativeYtdlpAndroid.getFfmpegVersion returns null when native returns empty string
+00:04 +89: E:/youtube downloader/test/services/ffmpeg_service_android_honesty_test.dart: NativeYtdlpAndroid.getFfmpegVersion returns null when the method channel throws
+00:04 +90: E:/youtube downloader/test/services/ffmpeg_service_android_honesty_test.dart: FfmpegServiceAndroid honesty initialize stores the real native version
+[00:37:38] ℹ️ [FfmpegServiceAndroid] FFmpeg initialized (bundled with youtubedl-android): 7.1.1-youtubedl
+00:04 +91: E:/youtube downloader/test/services/ffmpeg_service_android_honesty_test.dart: FfmpegServiceAndroid honesty surfaces a bundled-library label from native as-is
+[00:37:38] ℹ️ [FfmpegServiceAndroid] FFmpeg initialized (bundled with youtubedl-android): bundled-0.18.1
+00:04 +92: E:/youtube downloader/test/services/ffmpeg_service_android_honesty_test.dart: FfmpegServiceAndroid honesty initialize never invents a placeholder version string
+[00:37:38] ℹ️ [FfmpegServiceAndroid] FFmpeg marked available after init; native version string was null (yt-dlp may still use its bundled FFmpeg for merging)
+00:04 +93: E:/youtube downloader/test/services/ffmpeg_service_android_honesty_test.dart: FfmpegServiceAndroid honesty null native version stays null and never becomes a fake upstream
+[00:37:38] ℹ️ [FfmpegServiceAndroid] FFmpeg marked available after init; native version string was null (yt-dlp may still use its bundled FFmpeg for merging)
+00:04 +94: E:/youtube downloader/test/services/ffmpeg_service_android_honesty_test.dart: FfmpegServiceAndroid honesty empty native version is treated as null, not invented
+[00:37:38] ℹ️ [FfmpegServiceAndroid] FFmpeg marked available after init; native version string was null (yt-dlp may still use its bundled FFmpeg for merging)
+00:04 +95: E:/youtube downloader/test/services/ffmpeg_service_android_honesty_test.dart: FfmpegServiceAndroid honesty does not expose mergeVideoAudio/convertVideo (deleted liars)
+00:04 +96: E:/youtube downloader/test/services/ffmpeg_service_android_honesty_test.dart: FfmpegServiceAndroid honesty update and downloadAndInstall return false honestly
+[00:37:38] ℹ️ [FfmpegServiceAndroid] FFmpeg initialized (bundled with youtubedl-android): 7.1.1-youtubedl
+[00:37:38] ℹ️ [FfmpegServiceAndroid] FFmpeg is bundled with youtubedl-android; no independent update path
+[00:37:38] ℹ️ [FfmpegServiceAndroid] FFmpeg is bundled with youtubedl-android; no independent install path
+00:04 +97: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 1: Whitespace Paths and Boundary Conditions rejects empty string across all actions
+00:04 +98: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 1: Whitespace Paths and Boundary Conditions rejects pure whitespace variations (spaces, tabs, newlines)
+00:04 +99: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 1: Whitespace Paths and Boundary Conditions successfully handles file paths containing spaces and symbols
+00:04 +100: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 1: Whitespace Paths and Boundary Conditions safely rejects path with untrimmed outer whitespace if file not found
+[00:37:39] ⚠️ [FileActionService] Cannot open file, not found:    C:\Users\mtech\AppData\Local\Temp\file_action_adversarial_55203ae8/sample_download.mp4   
+00:04 +101: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 2: Missing Files and Race Conditions rejects completely non-existent files without IPC calls
+[00:37:39] ⚠️ [FileActionService] Cannot open file, not found: C:\Users\mtech\AppData\Local\Temp\file_action_adversarial_3bf6002f/does_not_exist_anywhere.mp4
+[00:37:39] ⚠️ [FileActionService] Cannot share file, not found: C:\Users\mtech\AppData\Local\Temp\file_action_adversarial_3bf6002f/does_not_exist_anywhere.mp4
+00:04 +102: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 2: Missing Files and Race Conditions handles file deleted immediately before action invocation (TOCTOU race)
+[00:37:39] ⚠️ [FileActionService] Cannot open file, not found: C:\Users\mtech\AppData\Local\Temp\file_action_adversarial_b7983803/ephemeral.mp4
+00:04 +103: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 2: Missing Files and Race Conditions openFolder creates non-existent directory automatically before IPC
+00:04 +104: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 2: Missing Files and Race Conditions openFolder extracts parent directory when given an existing file path
+00:04 +105: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness throws ArgumentError or NoSuchMethodError when null passed dynamically to openFile
+00:04 +106: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness throws ArgumentError or NoSuchMethodError when null passed dynamically to shareFile
+00:04 +107: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness throws ArgumentError or NoSuchMethodError when null passed dynamically to openFolder
+00:04 +108: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness UI download item with null savePath safely falls back to outputPath
+00:05 +109: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness UI download item with null savePath safely falls back to outputPath
+00:05 +110: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness UI download item with null savePath safely falls back to outputPath
+00:05 +110: E:/youtube downloader/test/services/file_action_service_test.dart: FileActionService Singleton & Basics validates non-existent file path before native IPC
+[00:37:39] ⚠️ [FileActionService] Cannot open file, not found: C:\Users\mtech\AppData\Local\Temp\file_action_test_e6a34547/does_not_exist.mp4
+[00:37:39] ⚠️ [FileActionService] Cannot share file, not found: C:\Users\mtech\AppData\Local\Temp\file_action_test_e6a34547/does_not_exist.mp4
+00:05 +111: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness UI download item with null savePath safely falls back to outputPath
+00:05 +112: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness UI download item with null savePath safely falls back to outputPath
+00:05 +113: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness UI download item with null savePath safely falls back to outputPath
+00:05 +113: E:/youtube downloader/test/services/file_action_service_test.dart: FileActionService Android Native IPC openFile translates NO_APP_FOUND error gracefully
+[00:37:39] ⚠️ [FileActionService] openFile PlatformException: NO_APP_FOUND - Mock exception message
+  Error: PlatformException(NO_APP_FOUND, Mock exception message, null, null)
+  Stack: #0      StandardMethodCodec.decodeEnvelope (package:flutter/src/services/message_codecs.dart:653:7)
+#1      MethodChannel._invokeMethod (package:flutter/src/services/platform_channel.dart:366:18)
+<asynchronous suspension>
+#2      FileActionService.openFile (package:youtube_downloader/services/core/file_action_service.dart:63:24)
+<asynchronous suspension>
+#3      main.<anonymous closure>.<anonymous closure> (file:///E:/youtube%20downloader/test/services/file_action_service_test.dart:115:22)
+<asynchronous suspension>
+#4      Declarer.test.<anonymous closure>.<anonymous closure> (package:test_api/src/backend/declarer.dart:253:15)
+<asynchronous suspension>
+#5      Declarer.test.<anonymous closure> (package:test_api/src/backend/declarer.dart:250:11)
+<asynchronous suspension>
+#6      Invoker._waitForOutstandingCallbacks.<anonymous closure> (package:test_api/src/backend/invoker.dart:318:9)
+<asynchronous suspension>
+
+00:05 +114: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness UI download item with null savePath safely falls back to outputPath
+00:05 +114: E:/youtube downloader/test/services/file_action_service_test.dart: FileActionService Android Native IPC openFile handles generic PlatformException gracefully
+[00:37:39] ⚠️ [FileActionService] openFile PlatformException: OPEN_ERROR - Mock exception message
+  Error: PlatformException(OPEN_ERROR, Mock exception message, null, null)
+  Stack: #0      StandardMethodCodec.decodeEnvelope (package:flutter/src/services/message_codecs.dart:653:7)
+#1      MethodChannel._invokeMethod (package:flutter/src/services/platform_channel.dart:366:18)
+<asynchronous suspension>
+#2      FileActionService.openFile (package:youtube_downloader/services/core/file_action_service.dart:63:24)
+<asynchronous suspension>
+#3      main.<anonymous closure>.<anonymous closure> (file:///E:/youtube%20downloader/test/services/file_action_service_test.dart:122:22)
+<asynchronous suspension>
+#4      Declarer.test.<anonymous closure>.<anonymous closure> (package:test_api/src/backend/declarer.dart:253:15)
+<asynchronous suspension>
+#5      Declarer.test.<anonymous closure> (package:test_api/src/backend/declarer.dart:250:11)
+<asynchronous suspension>
+#6      Invoker._waitForOutstandingCallbacks.<anonymous closure> (package:test_api/src/backend/invoker.dart:318:9)
+<asynchronous suspension>
+
+00:05 +115: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness UI download item with null savePath safely falls back to outputPath
+00:05 +116: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness UI download item with null savePath safely falls back to outputPath
+00:05 +116: E:/youtube downloader/test/services/file_action_service_test.dart: FileActionService Android Native IPC shareFile handles NO_APP_FOUND gracefully
+[00:37:39] ⚠️ [FileActionService] shareFile PlatformException: NO_APP_FOUND - Mock exception message
+  Error: PlatformException(NO_APP_FOUND, Mock exception message, null, null)
+  Stack: #0      StandardMethodCodec.decodeEnvelope (package:flutter/src/services/message_codecs.dart:653:7)
+#1      MethodChannel._invokeMethod (package:flutter/src/services/platform_channel.dart:366:18)
+<asynchronous suspension>
+#2      FileActionService.shareFile (package:youtube_downloader/services/core/file_action_service.dart:147:24)
+<asynchronous suspension>
+#3      main.<anonymous closure>.<anonymous closure> (file:///E:/youtube%20downloader/test/services/file_action_service_test.dart:139:22)
+<asynchronous suspension>
+#4      Declarer.test.<anonymous closure>.<anonymous closure> (package:test_api/src/backend/declarer.dart:253:15)
+<asynchronous suspension>
+#5      Declarer.test.<anonymous closure> (package:test_api/src/backend/declarer.dart:250:11)
+<asynchronous suspension>
+#6      Invoker._waitForOutstandingCallbacks.<anonymous closure> (package:test_api/src/backend/invoker.dart:318:9)
+<asynchronous suspension>
+
+00:05 +117: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness UI download item with null savePath safely falls back to outputPath
+00:05 +118: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness UI download item with null savePath safely falls back to outputPath
+00:05 +119: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness UI download item with null savePath safely falls back to outputPath
+00:05 +119: E:/youtube downloader/test/services/file_action_service_test.dart: FileActionService Android Native IPC openFolder handles NO_APP_FOUND gracefully
+[00:37:39] ⚠️ [FileActionService] openFolder PlatformException: NO_APP_FOUND - Mock exception message
+  Error: PlatformException(NO_APP_FOUND, Mock exception message, null, null)
+  Stack: #0      StandardMethodCodec.decodeEnvelope (package:flutter/src/services/message_codecs.dart:653:7)
+#1      MethodChannel._invokeMethod (package:flutter/src/services/platform_channel.dart:366:18)
+<asynchronous suspension>
+#2      FileActionService.openFolder (package:youtube_downloader/services/core/file_action_service.dart:229:24)
+<asynchronous suspension>
+#3      main.<anonymous closure>.<anonymous closure> (file:///E:/youtube%20downloader/test/services/file_action_service_test.dart:162:22)
+<asynchronous suspension>
+#4      Declarer.test.<anonymous closure>.<anonymous closure> (package:test_api/src/backend/declarer.dart:253:15)
+<asynchronous suspension>
+#5      Declarer.test.<anonymous closure> (package:test_api/src/backend/declarer.dart:250:11)
+<asynchronous suspension>
+#6      Invoker._waitForOutstandingCallbacks.<anonymous closure> (package:test_api/src/backend/invoker.dart:318:9)
+<asynchronous suspension>
+
+00:05 +120: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness UI download item with null savePath safely falls back to outputPath
+00:05 +120: E:/youtube downloader/test/services/media_scanner_stress_test.dart: Empirical Stress: MediaScanner Special Paths & Edge Cases handles nonexistent file path gracefully without crashing
+[00:37:39] ℹ️ [AndroidStorageService] MediaScanner scanned file: /storage/emulated/0/Download/AeroTube/ghost_file_does_not_exist.mp4 (success=true)
+00:05 +121: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness UI download item with null savePath safely falls back to outputPath
+00:05 +121: E:/youtube downloader/test/services/media_scanner_stress_test.dart: Empirical Stress: MediaScanner Special Paths & Edge Cases handles paths with spaces and parentheses correctly
+[00:37:39] ℹ️ [AndroidStorageService] MediaScanner scanned file: /storage/emulated/0/Download/AeroTube/Rick Astley - Never Gonna Give You Up (Official Music Video).mp4 (success=true)
+00:05 +122: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness UI download item with null savePath safely falls back to outputPath
+00:05 +122: E:/youtube downloader/test/services/media_scanner_stress_test.dart: Empirical Stress: MediaScanner Special Paths & Edge Cases handles paths with special symbols (#, &, %, @, !, $, [, ])
+[00:37:39] ℹ️ [AndroidStorageService] MediaScanner scanned file: /storage/emulated/0/Download/AeroTube/[1080p] #Trending & Top Hits! 100% (2026) @Artist $Free.mkv (success=true)
+00:05 +123: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness UI download item with null savePath safely falls back to outputPath
+00:05 +123: E:/youtube downloader/test/services/media_scanner_stress_test.dart: Empirical Stress: MediaScanner Special Paths & Edge Cases handles unicode, CJK, and emoji characters in filenames
+[00:37:39] ℹ️ [AndroidStorageService] MediaScanner scanned file: /storage/emulated/0/Download/AeroTube/🎵 音楽 - 初音ミク [4K] ✨.mp4 (success=true)
+00:05 +124: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness UI download item with null savePath safely falls back to outputPath
+00:05 +124: E:/youtube downloader/test/services/media_scanner_stress_test.dart: Empirical Stress: MediaScanner Special Paths & Edge Cases handles native scan failure (channel returns false)
+[00:37:39] ℹ️ [AndroidStorageService] MediaScanner scanned file: /storage/emulated/0/Download/AeroTube/corrupt.mp4 (success=false)
+00:05 +125: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness UI download item with null savePath safely falls back to outputPath
+00:05 +125: E:/youtube downloader/test/services/media_scanner_stress_test.dart: Empirical Stress: MediaScanner Special Paths & Edge Cases handles native scan returning null safely
+[00:37:39] ℹ️ [AndroidStorageService] MediaScanner scanned file: /storage/emulated/0/Download/AeroTube/video.mp4 (success=null)
+00:05 +126: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness UI download item with null savePath safely falls back to outputPath
+00:05 +126: E:/youtube downloader/test/services/media_scanner_stress_test.dart: Empirical Stress: MediaScanner Special Paths & Edge Cases handles PlatformException (e.g. INVALID_ARGUMENT from native) without unhandled throw
+[00:37:39] ⚠️ [AndroidStorageService] Failed to scan media file:  (PlatformException(INVALID_ARGUMENT, filePath is required, null, null))
+  Error: PlatformException(INVALID_ARGUMENT, filePath is required, null, null)
+  Stack: #0      StandardMethodCodec.decodeEnvelope (package:flutter/src/services/message_codecs.dart:653:7)
+#1      MethodChannel._invokeMethod (package:flutter/src/services/platform_channel.dart:366:18)
+<asynchronous suspension>
+#2      AndroidStorageService.scanMediaFile (package:youtube_downloader/services/core/android_storage_service.dart:474:22)
+<asynchronous suspension>
+#3      main.<anonymous closure>.<anonymous closure> (file:///E:/youtube%20downloader/test/services/media_scanner_stress_test.dart:134:22)
+<asynchronous suspension>
+#4      Declarer.test.<anonymous closure>.<anonymous closure> (package:test_api/src/backend/declarer.dart:253:15)
+<asynchronous suspension>
+#5      Declarer.test.<anonymous closure> (package:test_api/src/backend/declarer.dart:250:11)
+<asynchronous suspension>
+#6      Invoker._waitForOutstandingCallbacks.<anonymous closure> (package:test_api/src/backend/invoker.dart:318:9)
+<asynchronous suspension>
+
+00:05 +127: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness UI download item with null savePath safely falls back to outputPath
+00:05 +127: E:/youtube downloader/test/services/media_scanner_stress_test.dart: Empirical Stress: MediaScanner Special Paths & Edge Cases handles MissingPluginException or unexpected channel error safely
+[00:37:39] ⚠️ [AndroidStorageService] Failed to scan media file: /storage/emulated/0/Download/AeroTube/video.mp4 (MissingPluginException(No implementation found for method scanMediaFile on channel com.aerotube.youtube_downloader/permissions))
+  Error: MissingPluginException(No implementation found for method scanMediaFile on channel com.aerotube.youtube_downloader/permissions)
+  Stack: #0      MethodChannel._invokeMethod (package:flutter/src/services/platform_channel.dart:364:7)
+<asynchronous suspension>
+#1      AndroidStorageService.scanMediaFile (package:youtube_downloader/services/core/android_storage_service.dart:474:22)
+<asynchronous suspension>
+#2      main.<anonymous closure>.<anonymous closure> (file:///E:/youtube%20downloader/test/services/media_scanner_stress_test.dart:143:22)
+<asynchronous suspension>
+#3      Declarer.test.<anonymous closure>.<anonymous closure> (package:test_api/src/backend/declarer.dart:253:15)
+<asynchronous suspension>
+#4      Declarer.test.<anonymous closure> (package:test_api/src/backend/declarer.dart:250:11)
+<asynchronous suspension>
+#5      Invoker._waitForOutstandingCallbacks.<anonymous closure> (package:test_api/src/backend/invoker.dart:318:9)
+<asynchronous suspension>
+
+00:05 +128: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness UI download item with null savePath safely falls back to outputPath
+00:05 +128: E:/youtube downloader/test/services/media_scanner_stress_test.dart: Empirical Stress: MediaScanner Special Paths & Edge Cases handles whitespace-only paths safely
+[00:37:39] ℹ️ [AndroidStorageService] MediaScanner scanned file:       (success=true)
+00:05 +129: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness UI download item with null savePath safely falls back to outputPath
+00:05 +130: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness UI download item with null savePath safely falls back to outputPath
+00:05 +131: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness UI download item with null savePath safely falls back to outputPath
+00:05 +131: E:/youtube downloader/test/services/media_scanner_stress_test.dart: Empirical Stress: getExternalDownloadDir Channel Scenarios handles native channel exception when resolving download directory
+[00:37:39] ⚠️ [AndroidStorageService] Failed to get native download directory: PlatformException(IO_ERROR, Storage unmounted, null, null)
+00:05 +132: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness UI download item with null savePath safely falls back to outputPath
+00:05 +133: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness UI download item with null savePath safely falls back to outputPath
+00:05 +134: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness UI download item with null savePath safely falls back to outputPath
+00:05 +135: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness UI download item with null savePath and missing outputPath displays SnackBar gracefully
+00:05 +136: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness UI download item with null savePath and missing outputPath displays SnackBar gracefully
+00:06 +137: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness UI download item with null savePath and missing outputPath displays SnackBar gracefully
+00:06 +138: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness UI download item with null savePath and missing outputPath displays SnackBar gracefully
+00:06 +139: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness UI download item with null savePath and missing outputPath displays SnackBar gracefully
+00:06 +140: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness UI download item with null savePath and missing outputPath displays SnackBar gracefully
+00:06 +141: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness UI download item with null savePath and missing outputPath displays SnackBar gracefully
+00:06 +142: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness UI download item with null savePath and missing outputPath displays SnackBar gracefully
+00:06 +143: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness UI download item with null savePath and missing outputPath displays SnackBar gracefully
+00:06 +144: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness UI download item with null savePath and missing outputPath displays SnackBar gracefully
+[00:37:40] ⚠️ [FileActionService] Cannot open file, not found: C:\Users\mtech\AppData\Local\Temp\file_action_adversarial_6354b4d6/missing_output.mp4
+00:06 +145: E:/youtube downloader/test/services/milestone1_empirical_stress_test.dart: CHALLENGE 1: Path Normalization & Edge Cases in AndroidStorageService repeated calls when native returns top-level /Download remain idempotent
+00:06 +146: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness UI download item with null savePath and empty outputPath displays empty error SnackBar
+00:06 +147: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness UI download item with null savePath and empty outputPath displays empty error SnackBar
+00:06 +148: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness UI download item with null savePath and empty outputPath displays empty error SnackBar
+00:06 +149: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness UI download item with null savePath and empty outputPath displays empty error SnackBar
+00:06 +149: E:/youtube downloader/test/services/milestone1_empirical_stress_test.dart: CHALLENGE 1: Path Normalization & Edge Cases in AndroidStorageService handles native PlatformException by falling back gracefully without crashing
+[00:37:40] ⚠️ [AndroidStorageService] Failed to get native download directory: PlatformException(ERROR, Native storage resolution failed, null, null)
+00:06 +150: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness UI download item with null savePath and empty outputPath displays empty error SnackBar
+00:06 +151: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness UI download item with null savePath and empty outputPath displays empty error SnackBar
+00:06 +152: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness UI download item with null savePath and empty outputPath displays empty error SnackBar
+00:06 +153: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness UI download item with null savePath and empty outputPath displays empty error SnackBar
+00:06 +154: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness UI download item with null savePath and empty outputPath displays empty error SnackBar
+00:06 +155: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness UI download item with null savePath and empty outputPath displays empty error SnackBar
+00:06 +156: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness UI download item with null savePath and empty outputPath displays empty error SnackBar
+00:06 +157: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness UI download item with null savePath and empty outputPath displays empty error SnackBar
+00:06 +158: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness UI download item with null savePath and empty outputPath displays empty error SnackBar
+00:06 +159: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness UI download item with null savePath and empty outputPath displays empty error SnackBar
+00:06 +160: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness UI download item with null savePath and empty outputPath displays empty error SnackBar
+00:06 +161: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness UI download item with null savePath and empty outputPath displays empty error SnackBar
+00:06 +162: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness UI download item with null savePath and empty outputPath displays empty error SnackBar
+00:06 +163: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 3: Null Paths and Untyped Input Robustness UI download item with null savePath and empty outputPath displays empty error SnackBar
+00:06 +164: E:/youtube downloader/test/services/milestone1_empirical_stress_test.dart: CHALLENGE 2: _shouldMigrateAndroidOutputPath Stress Testing repeated evaluation is fully idempotent
+00:06 +165: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 4: Rapid Consecutive Taps & High Concurrency Stress Harness stress tests 100 simultaneous concurrent openFile invocations
+00:06 +165: E:/youtube downloader/test/services/milestone1_empirical_stress_test.dart: CHALLENGE 3: MediaScanner Robustness & Adversarial Inputs handles file paths with spaces and punctuation
+[00:37:40] ℹ️ [AndroidStorageService] MediaScanner scanned file: /storage/emulated/0/Download/AeroTube/Rick Astley - Never Gonna Give You Up (Official Music Video) [4K].mp4 (success=true)
+00:06 +166: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 4: Rapid Consecutive Taps & High Concurrency Stress Harness stress tests 100 simultaneous concurrent openFile invocations
+00:06 +166: E:/youtube downloader/test/services/milestone1_empirical_stress_test.dart: CHALLENGE 3: MediaScanner Robustness & Adversarial Inputs handles platform exception without crashing
+[00:37:40] ⚠️ [AndroidStorageService] Failed to scan media file: /storage/emulated/0/Download/AeroTube/broken_scan.mp4 (PlatformException(SCAN_ERROR, Native media scanner crashed, null, null))
+  Error: PlatformException(SCAN_ERROR, Native media scanner crashed, null, null)
+  Stack: #0      StandardMethodCodec.decodeEnvelope (package:flutter/src/services/message_codecs.dart:653:7)
+#1      MethodChannel._invokeMethod (package:flutter/src/services/platform_channel.dart:366:18)
+<asynchronous suspension>
+#2      AndroidStorageService.scanMediaFile (package:youtube_downloader/services/core/android_storage_service.dart:474:22)
+<asynchronous suspension>
+#3      main.<anonymous closure>.<anonymous closure> (file:///E:/youtube%20downloader/test/services/milestone1_empirical_stress_test.dart:389:23)
+<asynchronous suspension>
+#4      Declarer.test.<anonymous closure>.<anonymous closure> (package:test_api/src/backend/declarer.dart:253:15)
+<asynchronous suspension>
+#5      Declarer.test.<anonymous closure> (package:test_api/src/backend/declarer.dart:250:11)
+<asynchronous suspension>
+#6      Invoker._waitForOutstandingCallbacks.<anonymous closure> (package:test_api/src/backend/invoker.dart:318:9)
+<asynchronous suspension>
+
+00:06 +167: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 4: Rapid Consecutive Taps & High Concurrency Stress Harness stress tests 100 simultaneous concurrent openFile invocations
+00:06 +168: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 4: Rapid Consecutive Taps & High Concurrency Stress Harness stress tests 100 simultaneous concurrent openFile invocations
+00:06 +169: E:/youtube downloader/test/services/milestone1_empirical_stress_test.dart: CHALLENGE 4: End-to-End Migration Simulation in PlatformSettingsProvider init() migrates existing files from trapped /Android/data/ to public AeroTube
+[00:37:40] ℹ️ [AndroidStorageService] MediaScanner scanned file: C:\Users\mtech\AppData\Local\Temp\aerotube_migration_test_8513b92d/Download/AeroTube\song2.mp3 (success=true)
+00:06 +170: E:/youtube downloader/test/services/milestone1_empirical_stress_test.dart: CHALLENGE 4: End-to-End Migration Simulation in PlatformSettingsProvider init() migrates existing files from trapped /Android/data/ to public AeroTube
+[00:37:40] ℹ️ [AndroidStorageService] MediaScanner scanned file: C:\Users\mtech\AppData\Local\Temp\aerotube_migration_test_8513b92d/Download/AeroTube\video1.mp4 (success=true)
+[00:37:40] ℹ️ [YtdlpServiceAndroid] Starting Android yt-dlp initialization (native library)
+[00:37:40] ℹ️ [YtdlpServiceAndroid] yt-dlp version: null
+[00:37:40] ℹ️ [YtdlpServiceAndroid] Android yt-dlp service initialized
+[00:37:40] ℹ️ [FfmpegServiceAndroid] FFmpeg marked available after init; native version string was null (yt-dlp may still use its bundled FFmpeg for merging)
+[00:37:40] ℹ️ [YtdlpServiceAndroid] Starting Android yt-dlp initialization (native library)
+[00:37:40] ℹ️ [YtdlpServiceAndroid] yt-dlp version: null
+[00:37:40] ℹ️ [YtdlpServiceAndroid] Android yt-dlp service initialized
+[00:37:40] ℹ️ [FfmpegServiceAndroid] FFmpeg marked available after init; native version string was null (yt-dlp may still use its bundled FFmpeg for merging)
+00:06 +171: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 4: Rapid Consecutive Taps & High Concurrency Stress Harness stress tests 100 simultaneous concurrent openFolder invocations
+00:06 +172: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 4: Rapid Consecutive Taps & High Concurrency Stress Harness stress tests 150 interleaved concurrent calls across all three operations
+00:06 +173: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 4: Rapid Consecutive Taps & High Concurrency Stress Harness survives rapid consecutive UI button taps without crashing or duplicate dialogs
+00:06 +174: E:/youtube downloader/test/ui/components_part_b_test.dart: Phase 2 Components (Part B) StatusPill renders label, dot, spinner and handles tap
+00:06 +175: E:/youtube downloader/test/ui/components_part_b_test.dart: Phase 2 Components (Part B) StatusPill renders label, dot, spinner and handles tap
+00:06 +176: E:/youtube downloader/test/ui/components_part_b_test.dart: Phase 2 Components (Part B) StatusPill renders label, dot, spinner and handles tap
+00:06 +177: E:/youtube downloader/test/ui/components_part_b_test.dart: Phase 2 Components (Part B) StatusPill renders label, dot, spinner and handles tap
+00:06 +177: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 5: Native Platform Channel Error Scenarios handles SecurityException / PermissionDenied from native channel
+[00:37:41] ⚠️ [FileActionService] openFile PlatformException: SECURITY_EXCEPTION - Permission Denial: reading com.aerotube.youtube_downloader.fileprovider
+  Error: PlatformException(SECURITY_EXCEPTION, Permission Denial: reading com.aerotube.youtube_downloader.fileprovider, null, null)
+  Stack: #0      StandardMethodCodec.decodeEnvelope (package:flutter/src/services/message_codecs.dart:653:7)
+#1      MethodChannel._invokeMethod (package:flutter/src/services/platform_channel.dart:366:18)
+<asynchronous suspension>
+#2      FileActionService.openFile (package:youtube_downloader/services/core/file_action_service.dart:63:24)
+<asynchronous suspension>
+#3      main.<anonymous closure>.<anonymous closure> (file:///E:/youtube%20downloader/test/services/file_action_service_adversarial_test.dart:390:19)
+<asynchronous suspension>
+#4      Declarer.test.<anonymous closure>.<anonymous closure> (package:test_api/src/backend/declarer.dart:253:15)
+<asynchronous suspension>
+#5      Declarer.test.<anonymous closure> (package:test_api/src/backend/declarer.dart:250:11)
+<asynchronous suspension>
+#6      Invoker._waitForOutstandingCallbacks.<anonymous closure> (package:test_api/src/backend/invoker.dart:318:9)
+<asynchronous suspension>
+
+00:06 +178: E:/youtube downloader/test/ui/components_part_b_test.dart: Phase 2 Components (Part B) StatusPill renders label, dot, spinner and handles tap
+00:06 +178: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 5: Native Platform Channel Error Scenarios handles FILE_NOT_FOUND error code from native channel
+[00:37:41] ⚠️ [FileActionService] openFile PlatformException: FILE_NOT_FOUND - File does not exist: /storage/emulated/0/...
+  Error: PlatformException(FILE_NOT_FOUND, File does not exist: /storage/emulated/0/..., null, null)
+  Stack: #0      StandardMethodCodec.decodeEnvelope (package:flutter/src/services/message_codecs.dart:653:7)
+#1      MethodChannel._invokeMethod (package:flutter/src/services/platform_channel.dart:366:18)
+<asynchronous suspension>
+#2      FileActionService.openFile (package:youtube_downloader/services/core/file_action_service.dart:63:24)
+<asynchronous suspension>
+#3      main.<anonymous closure>.<anonymous closure> (file:///E:/youtube%20downloader/test/services/file_action_service_adversarial_test.dart:399:19)
+<asynchronous suspension>
+#4      Declarer.test.<anonymous closure>.<anonymous closure> (package:test_api/src/backend/declarer.dart:253:15)
+<asynchronous suspension>
+#5      Declarer.test.<anonymous closure> (package:test_api/src/backend/declarer.dart:250:11)
+<asynchronous suspension>
+#6      Invoker._waitForOutstandingCallbacks.<anonymous closure> (package:test_api/src/backend/invoker.dart:318:9)
+<asynchronous suspension>
+
+00:06 +179: E:/youtube downloader/test/ui/components_part_b_test.dart: Phase 2 Components (Part B) StatusPill renders label, dot, spinner and handles tap
+00:06 +179: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 5: Native Platform Channel Error Scenarios handles NO_APP_FOUND error code on shareFile
+[00:37:41] ⚠️ [FileActionService] shareFile PlatformException: NO_APP_FOUND - No activity found to handle share
+  Error: PlatformException(NO_APP_FOUND, No activity found to handle share, null, null)
+  Stack: #0      StandardMethodCodec.decodeEnvelope (package:flutter/src/services/message_codecs.dart:653:7)
+#1      MethodChannel._invokeMethod (package:flutter/src/services/platform_channel.dart:366:18)
+<asynchronous suspension>
+#2      FileActionService.shareFile (package:youtube_downloader/services/core/file_action_service.dart:147:24)
+<asynchronous suspension>
+#3      main.<anonymous closure>.<anonymous closure> (file:///E:/youtube%20downloader/test/services/file_action_service_adversarial_test.dart:408:19)
+<asynchronous suspension>
+#4      Declarer.test.<anonymous closure>.<anonymous closure> (package:test_api/src/backend/declarer.dart:253:15)
+<asynchronous suspension>
+#5      Declarer.test.<anonymous closure> (package:test_api/src/backend/declarer.dart:250:11)
+<asynchronous suspension>
+#6      Invoker._waitForOutstandingCallbacks.<anonymous closure> (package:test_api/src/backend/invoker.dart:318:9)
+<asynchronous suspension>
+
+00:06 +180: E:/youtube downloader/test/ui/components_part_b_test.dart: Phase 2 Components (Part B) StatusPill renders label, dot, spinner and handles tap
+00:06 +180: E:/youtube downloader/test/services/file_action_service_adversarial_test.dart: CHALLENGE 5: Native Platform Channel Error Scenarios handles NO_APP_FOUND error code on openFolder
+[00:37:41] ⚠️ [FileActionService] openFolder PlatformException: NO_APP_FOUND - No file manager found to open folder
+  Error: PlatformException(NO_APP_FOUND, No file manager found to open folder, null, null)
+  Stack: #0      StandardMethodCodec.decodeEnvelope (package:flutter/src/services/message_codecs.dart:653:7)
+#1      MethodChannel._invokeMethod (package:flutter/src/services/platform_channel.dart:366:18)
+<asynchronous suspension>
+#2      FileActionService.openFolder (package:youtube_downloader/services/core/file_action_service.dart:229:24)
+<asynchronous suspension>
+#3      main.<anonymous closure>.<anonymous closure> (file:///E:/youtube%20downloader/test/services/file_action_service_adversarial_test.dart:417:19)
+<asynchronous suspension>
+#4      Declarer.test.<anonymous closure>.<anonymous closure> (package:test_api/src/backend/declarer.dart:253:15)
+<asynchronous suspension>
+#5      Declarer.test.<anonymous closure> (package:test_api/src/backend/declarer.dart:250:11)
+<asynchronous suspension>
+#6      Invoker._waitForOutstandingCallbacks.<anonymous closure> (package:test_api/src/backend/invoker.dart:318:9)
+<asynchronous suspension>
+
+00:06 +181: E:/youtube downloader/test/ui/components_part_b_test.dart: Phase 2 Components (Part B) StatusPill renders label, dot, spinner and handles tap
+00:07 +182: E:/youtube downloader/test/ui/components_part_c_test.dart: Phase 2 Components (Part C: AeroScaffold & UrlComposer) AeroScaffold renders body, topBar, bottomBar, and floatingTray in compact mode
+00:07 +183: E:/youtube downloader/test/ui/components_part_c_test.dart: Phase 2 Components (Part C: AeroScaffold & UrlComposer) AeroScaffold renders body, topBar, bottomBar, and floatingTray in compact mode
+00:07 +184: E:/youtube downloader/test/ui/components_part_c_test.dart: Phase 2 Components (Part C: AeroScaffold & UrlComposer) AeroScaffold renders body, topBar, bottomBar, and floatingTray in compact mode
+00:07 +185: E:/youtube downloader/test/ui/components_part_c_test.dart: Phase 2 Components (Part C: AeroScaffold & UrlComposer) AeroScaffold renders body, topBar, bottomBar, and floatingTray in compact mode
+00:07 +186: E:/youtube downloader/test/ui/components_part_c_test.dart: Phase 2 Components (Part C: AeroScaffold & UrlComposer) AeroScaffold renders body, topBar, bottomBar, and floatingTray in compact mode
+00:07 +187: E:/youtube downloader/test/ui/components_part_b_test.dart: Phase 2 Components (Part B) EmptyState renders 72px circle icon, title and action
+00:07 +188: E:/youtube downloader/test/ui/desktop_design_test.dart: home dark at 1280.0
+00:07 +189: E:/youtube downloader/test/ui/desktop_design_test.dart: home dark at 1280.0
+00:07 +190: E:/youtube downloader/test/ui/desktop_design_test.dart: home dark at 1280.0
+00:08 +191: E:/youtube downloader/test/ui/desktop_design_test.dart: home dark at 1280.0
+00:08 +192: E:/youtube downloader/test/ui/desktop_design_test.dart: home dark at 1280.0
+00:08 +193: E:/youtube downloader/test/ui/desktop_design_test.dart: home dark at 1280.0
+00:08 +194: E:/youtube downloader/test/ui/desktop_design_test.dart: home dark at 1280.0
+00:09 +195: E:/youtube downloader/test/ui/desktop_design_test.dart: home dark at 1280.0
+00:09 +196: E:/youtube downloader/test/ui/mobile_download_card_stress_test.dart: CHALLENGE 1: Status Matrix & Action Button Visibility status=pending: Completed actions NEVER appear and card tap is inert
+00:09 +197: E:/youtube downloader/test/ui/mobile_download_card_stress_test.dart: CHALLENGE 1: Status Matrix & Action Button Visibility status=pending: Completed actions NEVER appear and card tap is inert
+00:09 +198: E:/youtube downloader/test/ui/mobile_download_card_stress_test.dart: CHALLENGE 1: Status Matrix & Action Button Visibility status=pending: Completed actions NEVER appear and card tap is inert
+00:09 +199: E:/youtube downloader/test/ui/mobile_download_card_stress_test.dart: CHALLENGE 1: Status Matrix & Action Button Visibility status=pending: Completed actions NEVER appear and card tap is inert
+00:09 +200: E:/youtube downloader/test/ui/navigation_shell_test.dart: Phase 3 Shell & Navigation Tests AeroDesktopTopStrip renders breadcrumb and page title
+00:09 +201: E:/youtube downloader/test/ui/navigation_shell_test.dart: Phase 3 Shell & Navigation Tests AeroDesktopTopStrip renders breadcrumb and page title
+00:09 +202: E:/youtube downloader/test/ui/navigation_shell_test.dart: Phase 3 Shell & Navigation Tests AeroDesktopTopStrip renders breadcrumb and page title
+00:09 +203: E:/youtube downloader/test/ui/navigation_shell_test.dart: Phase 3 Shell & Navigation Tests AeroDesktopTopStrip renders breadcrumb and page title
+00:09 +204: E:/youtube downloader/test/ui/navigation_shell_test.dart: Phase 3 Shell & Navigation Tests AeroDesktopTopStrip renders breadcrumb and page title
+00:09 +205: E:/youtube downloader/test/ui/navigation_shell_test.dart: Phase 3 Shell & Navigation Tests AeroDesktopTopStrip renders breadcrumb and page title
+00:09 +206: E:/youtube downloader/test/ui/navigation_shell_test.dart: Phase 3 Shell & Navigation Tests AeroDesktopTopStrip renders breadcrumb and page title
+00:09 +207: E:/youtube downloader/test/ui/phase8_dialogs_and_onboarding_test.dart: Phase 8: OnboardingScreen Tests renders 3 pages, Skip button, and advances to last permissions page
+00:09 +208: E:/youtube downloader/test/ui/phase8_dialogs_and_onboarding_test.dart: Phase 8: OnboardingScreen Tests renders 3 pages, Skip button, and advances to last permissions page
+00:10 +209: E:/youtube downloader/test/ui/phase8_dialogs_and_onboarding_test.dart: Phase 8: OnboardingScreen Tests renders 3 pages, Skip button, and advances to last permissions page
+00:10 +210: E:/youtube downloader/test/ui/phase8_dialogs_and_onboarding_test.dart: Phase 8: OnboardingScreen Tests renders 3 pages, Skip button, and advances to last permissions page
+00:10 +211: E:/youtube downloader/test/ui/phase8_dialogs_and_onboarding_test.dart: Phase 8: OnboardingScreen Tests renders 3 pages, Skip button, and advances to last permissions page
+00:10 +212: E:/youtube downloader/test/ui/phase8_dialogs_and_onboarding_test.dart: Phase 8: OnboardingScreen Tests renders 3 pages, Skip button, and advances to last permissions page
+00:10 +213: E:/youtube downloader/test/ui/phase8_dialogs_and_onboarding_test.dart: Phase 8: OnboardingScreen Tests renders 3 pages, Skip button, and advances to last permissions page
+00:10 +214: E:/youtube downloader/test/ui/phase8_dialogs_and_onboarding_test.dart: Phase 8: OnboardingScreen Tests renders 3 pages, Skip button, and advances to last permissions page
+00:10 +215: E:/youtube downloader/test/ui/phase8_dialogs_and_onboarding_test.dart: Phase 8: OnboardingScreen Tests renders 3 pages, Skip button, and advances to last permissions page
+00:10 +216: E:/youtube downloader/test/ui/phase8_dialogs_and_onboarding_test.dart: Phase 8: OnboardingScreen Tests renders 3 pages, Skip button, and advances to last permissions page
+00:10 +217: E:/youtube downloader/test/ui/phase8_dialogs_and_onboarding_test.dart: Phase 8: OnboardingScreen Tests renders 3 pages, Skip button, and advances to last permissions page
+00:10 +218: E:/youtube downloader/test/ui/phase8_dialogs_and_onboarding_test.dart: Phase 8: OnboardingScreen Tests renders 3 pages, Skip button, and advances to last permissions page
+00:10 +219: E:/youtube downloader/test/ui/phase8_dialogs_and_onboarding_test.dart: Phase 8: OnboardingScreen Tests renders 3 pages, Skip button, and advances to last permissions page
+00:10 +220: E:/youtube downloader/test/ui/phase8_dialogs_and_onboarding_test.dart: Phase 8: OnboardingScreen Tests renders 3 pages, Skip button, and advances to last permissions page
+00:10 +221: E:/youtube downloader/test/ui/phase8_dialogs_and_onboarding_test.dart: Phase 8: OnboardingScreen Tests renders 3 pages, Skip button, and advances to last permissions page
+00:10 +222: E:/youtube downloader/test/ui/phase8_dialogs_and_onboarding_test.dart: Phase 8: OnboardingScreen Tests renders 3 pages, Skip button, and advances to last permissions page
+00:10 +222: E:/youtube downloader/test/ui/downloads_actions_test.dart: MobileDownloadItem Completed Card Actions displays SnackBar when file does not exist on disk
+[00:37:44] ⚠️ [FileActionService] Cannot open file, not found: C:\Users\mtech\AppData\Local\Temp\ui_actions_test_ddf9bd96/deleted_by_user.mp4
+00:10 +223: E:/youtube downloader/test/ui/phase8_dialogs_and_onboarding_test.dart: Phase 8: OnboardingScreen Tests renders 3 pages, Skip button, and advances to last permissions page
+00:10 +224: E:/youtube downloader/test/ui/phase8_dialogs_and_onboarding_test.dart: Phase 8: OnboardingScreen Tests renders 3 pages, Skip button, and advances to last permissions page
+00:10 +225: E:/youtube downloader/test/ui/phase8_dialogs_and_onboarding_test.dart: Phase 8: OnboardingScreen Tests renders 3 pages, Skip button, and advances to last permissions page
+00:10 +225: E:/youtube downloader/test/ui/downloads_actions_test.dart: MobileDownloadItem Completed Card Actions displays SnackBar when native channel reports NO_APP_FOUND
+[00:37:44] ⚠️ [FileActionService] openFile PlatformException: NO_APP_FOUND - No activity found
+  Error: PlatformException(NO_APP_FOUND, No activity found, null, null)
+  Stack: #0      StandardMethodCodec.decodeEnvelope (package:flutter/src/services/message_codecs.dart:653:7)
+#1      MethodChannel._invokeMethod (package:flutter/src/services/platform_channel.dart:366:18)
+<asynchronous suspension>
+#2      FileActionService.openFile (package:youtube_downloader/services/core/file_action_service.dart:63:24)
+<asynchronous suspension>
+#3      MobileDownloadItem._handleOpenFile (package:youtube_downloader/ui/screens/downloads_screen.dart:1499:21)
+<asynchronous suspension>
+
+00:10 +226: E:/youtube downloader/test/ui/phase8_dialogs_and_onboarding_test.dart: Phase 8: OnboardingScreen Tests renders 3 pages, Skip button, and advances to last permissions page
+00:10 +226: E:/youtube downloader/test/ui/downloads_actions_test.dart: MobileDownloadItem Completed Card Actions displays SnackBar when share action fails
+[00:37:44] ⚠️ [FileActionService] shareFile PlatformException: SHARE_FAILED - Could not share
+  Error: PlatformException(SHARE_FAILED, Could not share, null, null)
+  Stack: #0      StandardMethodCodec.decodeEnvelope (package:flutter/src/services/message_codecs.dart:653:7)
+#1      MethodChannel._invokeMethod (package:flutter/src/services/platform_channel.dart:366:18)
+<asynchronous suspension>
+#2      FileActionService.shareFile (package:youtube_downloader/services/core/file_action_service.dart:147:24)
+<asynchronous suspension>
+#3      MobileDownloadItem._handleShareFile (package:youtube_downloader/ui/screens/downloads_screen.dart:1518:21)
+<asynchronous suspension>
+
+00:10 +227: E:/youtube downloader/test/ui/phase8_dialogs_and_onboarding_test.dart: Phase 8: OnboardingScreen Tests renders 3 pages, Skip button, and advances to last permissions page
+00:10 +228: E:/youtube downloader/test/ui/phase8_dialogs_and_onboarding_test.dart: Phase 8: OnboardingScreen Tests renders 3 pages, Skip button, and advances to last permissions page
+00:10 +228: E:/youtube downloader/test/ui/desktop_design_test.dart: video-options dark at 1280.0
+[00:37:44] 🐛 [VideoProvider] Starting for url: https://vimeo.com/123456 (gen 1)
+00:10 +229: E:/youtube downloader/test/ui/phase8_dialogs_and_onboarding_test.dart: Phase 8: OnboardingScreen Tests renders 3 pages, Skip button, and advances to last permissions page
+00:10 +229: E:/youtube downloader/test/ui/desktop_design_test.dart: video-options dark at 1280.0
+[00:37:44] 🐛 [VideoProvider] Calling _ytdlpService.getVideoInfo
+[00:37:44] 🐛 [VideoProvider] Got video info: A walk through the Scottish Highlands
+00:10 +230: E:/youtube downloader/test/ui/phase8_dialogs_and_onboarding_test.dart: Phase 8: OnboardingScreen Tests renders 3 pages, Skip button, and advances to last permissions page
+00:11 +231: E:/youtube downloader/test/ui/phase8_dialogs_and_onboarding_test.dart: Phase 8: OnboardingScreen Tests renders 3 pages, Skip button, and advances to last permissions page
+00:11 +232: E:/youtube downloader/test/ui/desktop_design_test.dart: playlist dark at 1280.0
+00:11 +233: E:/youtube downloader/test/ui/desktop_design_test.dart: playlist dark at 1280.0
+00:11 +234: E:/youtube downloader/test/ui/desktop_design_test.dart: playlist dark at 1280.0
+00:11 +235: E:/youtube downloader/test/ui/desktop_design_test.dart: playlist dark at 1280.0
+00:11 +236: E:/youtube downloader/test/ui/desktop_design_test.dart: playlist dark at 1280.0
+00:11 +237: E:/youtube downloader/test/ui/desktop_design_test.dart: playlist dark at 1280.0
+00:11 +238: E:/youtube downloader/test/ui/desktop_design_test.dart: playlist dark at 1280.0
+00:11 +239: E:/youtube downloader/test/ui/desktop_design_test.dart: playlist dark at 1280.0
+00:11 +240: E:/youtube downloader/test/ui/desktop_design_test.dart: playlist dark at 1280.0
+00:11 +241: E:/youtube downloader/test/ui/desktop_design_test.dart: playlist dark at 1280.0
+00:11 +242: E:/youtube downloader/test/ui/desktop_design_test.dart: playlist dark at 1280.0
+00:11 +243: E:/youtube downloader/test/ui/desktop_design_test.dart: playlist dark at 1280.0
+00:11 +244: E:/youtube downloader/test/ui/desktop_design_test.dart: playlist dark at 1280.0
+00:11 +245: E:/youtube downloader/test/ui/desktop_design_test.dart: playlist dark at 1280.0
+00:11 +246: E:/youtube downloader/test/ui/desktop_design_test.dart: playlist dark at 1280.0
+00:11 +247: E:/youtube downloader/test/ui/desktop_design_test.dart: playlist dark at 1280.0
+00:11 +248: E:/youtube downloader/test/ui/mobile_download_card_stress_test.dart: CHALLENGE 2: More Actions Popup Menu Full Verification More actions "share" item launches shareFile
+00:11 +249: E:/youtube downloader/test/ui/mobile_download_card_stress_test.dart: CHALLENGE 2: More Actions Popup Menu Full Verification More actions "share" item launches shareFile
+00:11 +250: E:/youtube downloader/test/ui/desktop_design_test.dart: home dark at 960.0
+00:11 +251: E:/youtube downloader/test/ui/phase8_dialogs_and_onboarding_test.dart: Phase 8: ErrorDetailsDialog Tests renders AeroDialog with human summary and expandable technical details
+00:11 +252: E:/youtube downloader/test/ui/phase8_dialogs_and_onboarding_test.dart: Phase 8: ErrorDetailsDialog Tests renders AeroDialog with human summary and expandable technical details
+00:11 +253: E:/youtube downloader/test/ui/phase8_dialogs_and_onboarding_test.dart: Phase 8: ErrorDetailsDialog Tests renders AeroDialog with human summary and expandable technical details
+00:11 +254: E:/youtube downloader/test/ui/mobile_download_card_stress_test.dart: CHALLENGE 3: Error Feedback SnackBars Shows SnackBar when file is missing from disk
+00:11 +255: E:/youtube downloader/test/ui/mobile_download_card_stress_test.dart: CHALLENGE 3: Error Feedback SnackBars Shows SnackBar when file is missing from disk
+00:11 +256: E:/youtube downloader/test/ui/mobile_download_card_stress_test.dart: CHALLENGE 3: Error Feedback SnackBars Shows SnackBar when file is missing from disk
+[00:37:45] ⚠️ [FileActionService] Cannot open file, not found: C:\Users\mtech\AppData\Local\Temp\card_stress_test_9e086af0/deleted_by_user.mp4
+[00:37:45] ⚠️ [FileActionService] Cannot share file, not found: C:\Users\mtech\AppData\Local\Temp\card_stress_test_9e086af0/deleted_by_user.mp4
+00:11 +257: E:/youtube downloader/test/widget_test.dart: AnimatedButton triggers tap callback
+00:11 +258: E:/youtube downloader/test/widget_test.dart: AnimatedButton triggers tap callback
+00:11 +259: E:/youtube downloader/test/widget_test.dart: AnimatedButton triggers tap callback
+00:11 +260: E:/youtube downloader/test/widget_test.dart: AnimatedButton triggers tap callback
+00:11 +261: E:/youtube downloader/test/widget_test.dart: AnimatedButton triggers tap callback
+00:11 +261: E:/youtube downloader/test/ui/mobile_download_card_stress_test.dart: CHALLENGE 3: Error Feedback SnackBars Shows SnackBar when native channel throws NO_APP_FOUND on openFile
+[00:37:46] ⚠️ [FileActionService] openFile PlatformException: NO_APP_FOUND - No activity found to handle Intent
+  Error: PlatformException(NO_APP_FOUND, No activity found to handle Intent, null, null)
+  Stack: #0      StandardMethodCodec.decodeEnvelope (package:flutter/src/services/message_codecs.dart:653:7)
+#1      MethodChannel._invokeMethod (package:flutter/src/services/platform_channel.dart:366:18)
+<asynchronous suspension>
+#2      FileActionService.openFile (package:youtube_downloader/services/core/file_action_service.dart:63:24)
+<asynchronous suspension>
+#3      MobileDownloadItem._handleOpenFile (package:youtube_downloader/ui/screens/downloads_screen.dart:1499:21)
+<asynchronous suspension>
+
+00:12 +262: E:/youtube downloader/test/widget_test.dart: AnimatedButton triggers tap callback
+00:12 +262: E:/youtube downloader/test/ui/mobile_download_card_stress_test.dart: CHALLENGE 3: Error Feedback SnackBars Shows SnackBar when native channel throws NO_APP_FOUND on shareFile
+[00:37:46] ⚠️ [FileActionService] shareFile PlatformException: NO_APP_FOUND - No activity found to handle Intent
+  Error: PlatformException(NO_APP_FOUND, No activity found to handle Intent, null, null)
+  Stack: #0      StandardMethodCodec.decodeEnvelope (package:flutter/src/services/message_codecs.dart:653:7)
+#1      MethodChannel._invokeMethod (package:flutter/src/services/platform_channel.dart:366:18)
+<asynchronous suspension>
+#2      FileActionService.shareFile (package:youtube_downloader/services/core/file_action_service.dart:147:24)
+<asynchronous suspension>
+#3      MobileDownloadItem._handleShareFile (package:youtube_downloader/ui/screens/downloads_screen.dart:1518:21)
+<asynchronous suspension>
+
+00:12 +263: E:/youtube downloader/test/widget_test.dart: AnimatedButton triggers tap callback
+00:12 +263: E:/youtube downloader/test/ui/desktop_design_test.dart: video-options dark at 960.0
+[00:37:46] 🐛 [VideoProvider] Starting for url: https://vimeo.com/123456 (gen 1)
+[00:37:46] 🐛 [VideoProvider] Calling _ytdlpService.getVideoInfo
+[00:37:46] 🐛 [VideoProvider] Got video info: A walk through the Scottish Highlands
+00:12 +264: E:/youtube downloader/test/widget_test.dart: AnimatedButton triggers tap callback
+00:12 +264: E:/youtube downloader/test/ui/mobile_download_card_stress_test.dart: CHALLENGE 3: Error Feedback SnackBars Shows SnackBar when native channel throws NO_APP_FOUND on openFolder
+[00:37:46] ⚠️ [FileActionService] openFolder PlatformException: NO_APP_FOUND - No activity found to handle Intent
+  Error: PlatformException(NO_APP_FOUND, No activity found to handle Intent, null, null)
+  Stack: #0      StandardMethodCodec.decodeEnvelope (package:flutter/src/services/message_codecs.dart:653:7)
+#1      MethodChannel._invokeMethod (package:flutter/src/services/platform_channel.dart:366:18)
+<asynchronous suspension>
+#2      FileActionService.openFolder (package:youtube_downloader/services/core/file_action_service.dart:229:24)
+<asynchronous suspension>
+#3      MobileDownloadItem._handleOpenFolder (package:youtube_downloader/ui/screens/downloads_screen.dart:1540:21)
+<asynchronous suspension>
+
+00:12 +265: E:/youtube downloader/test/widget_test.dart: AnimatedButton triggers tap callback
+00:12 +266: E:/youtube downloader/test/ui/desktop_design_test.dart: playlist dark at 960.0
+00:12 +266: E:/youtube downloader/test/ui/mobile_download_card_stress_test.dart: CHALLENGE 3: Error Feedback SnackBars Shows SnackBar when native channel throws FILE_NOT_FOUND on openFile
+[00:37:46] ⚠️ [FileActionService] openFile PlatformException: FILE_NOT_FOUND - Native reported missing file
+  Error: PlatformException(FILE_NOT_FOUND, Native reported missing file, null, null)
+  Stack: #0      StandardMethodCodec.decodeEnvelope (package:flutter/src/services/message_codecs.dart:653:7)
+#1      MethodChannel._invokeMethod (package:flutter/src/services/platform_channel.dart:366:18)
+<asynchronous suspension>
+#2      FileActionService.openFile (package:youtube_downloader/services/core/file_action_service.dart:63:24)
+<asynchronous suspension>
+#3      MobileDownloadItem._handleOpenFile (package:youtube_downloader/ui/screens/downloads_screen.dart:1499:21)
+<asynchronous suspension>
+
+00:12 +267: E:/youtube downloader/test/ui/desktop_design_test.dart: playlist dark at 960.0
+00:12 +268: E:/youtube downloader/test/ui/mobile_download_card_stress_test.dart: CHALLENGE 3: Error Feedback SnackBars Shows SnackBar with message on arbitrary PlatformException
+[00:37:46] ⚠️ [FileActionService] openFile PlatformException: PERMISSION_DENIED - Security manager denied read access
+  Error: PlatformException(PERMISSION_DENIED, Security manager denied read access, null, null)
+  Stack: #0      StandardMethodCodec.decodeEnvelope (package:flutter/src/services/message_codecs.dart:653:7)
+#1      MethodChannel._invokeMethod (package:flutter/src/services/platform_channel.dart:366:18)
+<asynchronous suspension>
+#2      FileActionService.openFile (package:youtube_downloader/services/core/file_action_service.dart:63:24)
+<asynchronous suspension>
+#3      MobileDownloadItem._handleOpenFile (package:youtube_downloader/ui/screens/downloads_screen.dart:1499:21)
+<asynchronous suspension>
+
+00:12 +269: E:/youtube downloader/test/ui/desktop_design_test.dart: home dark at 640.0
+00:12 +270: E:/youtube downloader/test/ui/mobile_download_card_stress_test.dart: CHALLENGE 3: Error Feedback SnackBars Shows SnackBar when native channel returns false (generic failure)
+00:12 +271: E:/youtube downloader/test/ui/desktop_design_test.dart: search dark at 640.0
+00:12 +272: E:/youtube downloader/test/ui/desktop_design_test.dart: search dark at 640.0
+00:12 +273: E:/youtube downloader/test/ui/mobile_download_card_stress_test.dart: CHALLENGE 4: Fallback Paths, Unicode Filenames & Stress Harness Fallback: When savePath is null and outputPath is directory, openFolder targets directory safely
+[00:37:46] ⚠️ [FileActionService] Cannot open file, not found: C:\Users\mtech\AppData\Local\Temp\card_stress_test_e2cf8230
+00:12 +274: E:/youtube downloader/test/ui/desktop_design_test.dart: library dark at 640.0
+00:12 +275: E:/youtube downloader/test/ui/mobile_download_card_stress_test.dart: CHALLENGE 4: Fallback Paths, Unicode Filenames & Stress Harness Handles unicode, spaces, and special symbols in file path correctly
+00:12 +276: E:/youtube downloader/test/ui/desktop_design_test.dart: settings dark at 640.0
+00:12 +277: E:/youtube downloader/test/ui/desktop_design_test.dart: settings dark at 640.0
+00:12 +278: E:/youtube downloader/test/ui/desktop_design_test.dart: video-options dark at 640.0
+[00:37:47] 🐛 [VideoProvider] Starting for url: https://vimeo.com/123456 (gen 1)
+[00:37:47] 🐛 [VideoProvider] Calling _ytdlpService.getVideoInfo
+[00:37:47] 🐛 [VideoProvider] Got video info: A walk through the Scottish Highlands
+00:13 +279: E:/youtube downloader/test/ui/desktop_design_test.dart: playlist dark at 640.0
+00:13 +280: E:/youtube downloader/test/ui/desktop_design_test.dart: home light at 1280.0
+00:13 +281: E:/youtube downloader/test/ui/desktop_design_test.dart: search light at 1280.0
+00:13 +282: E:/youtube downloader/test/ui/desktop_design_test.dart: library light at 1280.0
+00:13 +283: E:/youtube downloader/test/ui/desktop_design_test.dart: settings light at 1280.0
+00:13 +284: E:/youtube downloader/test/ui/desktop_design_test.dart: video-options light at 1280.0
+[00:37:47] 🐛 [VideoProvider] Starting for url: https://vimeo.com/123456 (gen 1)
+[00:37:47] 🐛 [VideoProvider] Calling _ytdlpService.getVideoInfo
+[00:37:47] 🐛 [VideoProvider] Got video info: A walk through the Scottish Highlands
+00:13 +285: E:/youtube downloader/test/ui/desktop_design_test.dart: playlist light at 1280.0
+00:13 +286: E:/youtube downloader/test/ui/desktop_design_test.dart: home light at 960.0
+00:13 +287: E:/youtube downloader/test/ui/desktop_design_test.dart: search light at 960.0
+00:13 +288: E:/youtube downloader/test/ui/desktop_design_test.dart: library light at 960.0
+00:14 +289: E:/youtube downloader/test/ui/desktop_design_test.dart: settings light at 960.0
+00:14 +290: E:/youtube downloader/test/ui/desktop_design_test.dart: video-options light at 960.0
+[00:37:48] 🐛 [VideoProvider] Starting for url: https://vimeo.com/123456 (gen 1)
+[00:37:48] 🐛 [VideoProvider] Calling _ytdlpService.getVideoInfo
+[00:37:48] 🐛 [VideoProvider] Got video info: A walk through the Scottish Highlands
+00:14 +291: E:/youtube downloader/test/ui/desktop_design_test.dart: playlist light at 960.0
+00:14 +292: E:/youtube downloader/test/ui/desktop_design_test.dart: home light at 640.0
+00:14 +293: E:/youtube downloader/test/ui/desktop_design_test.dart: search light at 640.0
+00:14 +294: E:/youtube downloader/test/ui/desktop_design_test.dart: library light at 640.0
+00:14 +295: E:/youtube downloader/test/ui/desktop_design_test.dart: settings light at 640.0
+00:14 +296: E:/youtube downloader/test/ui/desktop_design_test.dart: video-options light at 640.0
+[00:37:49] 🐛 [VideoProvider] Starting for url: https://vimeo.com/123456 (gen 1)
+[00:37:49] 🐛 [VideoProvider] Calling _ytdlpService.getVideoInfo
+[00:37:49] 🐛 [VideoProvider] Got video info: A walk through the Scottish Highlands
+00:14 +297: E:/youtube downloader/test/ui/desktop_design_test.dart: playlist light at 640.0
+00:15 +298: E:/youtube downloader/test/ui/desktop_design_test.dart: (tearDownAll)
+00:15 +298: All tests passed!

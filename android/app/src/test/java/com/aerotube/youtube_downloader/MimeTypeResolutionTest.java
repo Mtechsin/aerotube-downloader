@@ -14,24 +14,25 @@ public class MimeTypeResolutionTest {
 
     public static String resolveMimeType(File file) {
         String ext = getExtension(file).toLowerCase();
-        return switch (ext) {
-            case "mp4" -> "video/mp4";
-            case "mkv" -> "video/x-matroska";
-            case "webm" -> "video/webm";
-            case "m4a" -> "audio/mp4";
-            case "mp3" -> "audio/mpeg";
-            case "opus" -> "audio/opus";
-            case "aac" -> "audio/aac";
-            case "ogg" -> "audio/ogg";
-            case "wav" -> "audio/wav";
-            case "flac" -> "audio/flac";
-            case "ts" -> "video/mp2t";
-            case "mov" -> "video/quicktime";
-            case "avi" -> "video/x-msvideo";
-            case "3gp" -> "video/3gpp";
-            case "apk" -> "application/vnd.android.package-archive";
-            default -> "*/*";
-        };
+        // Java 11-compatible switch (switch expressions require source 14+)
+        switch (ext) {
+            case "mp4": return "video/mp4";
+            case "mkv": return "video/x-matroska";
+            case "webm": return "video/webm";
+            case "m4a": return "audio/mp4";
+            case "mp3": return "audio/mpeg";
+            case "opus": return "audio/opus";
+            case "aac": return "audio/aac";
+            case "ogg": return "audio/ogg";
+            case "wav": return "audio/wav";
+            case "flac": return "audio/flac";
+            case "ts": return "video/mp2t";
+            case "mov": return "video/quicktime";
+            case "avi": return "video/x-msvideo";
+            case "3gp": return "video/3gpp";
+            case "apk": return "application/vnd.android.package-archive";
+            default: return "*/*";
+        }
     }
 
     public static void main(String[] args) {

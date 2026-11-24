@@ -44,6 +44,19 @@ class NativeYtdlpAndroid {
     }
   }
 
+  /// Get the real FFmpeg version string from the bundled youtubedl-android
+  /// library, or null when unavailable.
+  static Future<String?> getFfmpegVersion() async {
+    try {
+      final result = await _channel
+          .invokeMethod<String>('getFfmpegVersion')
+          .timeout(const Duration(seconds: 10));
+      return (result == null || result.isEmpty) ? null : result;
+    } catch (e) {
+      return null;
+    }
+  }
+
   /// Get video information using youtubedl-android
   static Future<Map<String, dynamic>> getVideoInfo(
     String url, {
@@ -103,6 +116,7 @@ class NativeYtdlpAndroid {
     String url, {
     String? cookiesPath,
     String? userAgent,
+    String? playlistItems,
   }) async {
     try {
       final validatedUrl = _validateUrl(url);
@@ -111,6 +125,7 @@ class NativeYtdlpAndroid {
         'url': validatedUrl,
         'cookies_path': cookiesPath,
         'user_agent': userAgent,
+        'playlist_items': playlistItems,
       }).timeout(const Duration(seconds: 90));
 
       if (result == null) {
@@ -131,7 +146,48 @@ class NativeYtdlpAndroid {
     }
   }
 
-  /// Download video with progress tracking
+  /// yt-dlp `ytsearchN:query` fallback when youtube_explode search fails.
+  static Future<Map<String, dynamic>> searchVideos(
+    String query, {
+    int limit = 10,
+    String? cookiesPath,
+    String? userAgent,
+  }) async {
+    try {
+      // Search query is not a URL — validate non-empty only.
+      final trimmed = query.trim();
+      if (trimmed.isEmpty) {
+        throw Exception('Search query is empty');
+      }
+      final result = await _channel.invokeMethod<String>('searchVideos', {
+        'query': trimmed,
+        'limit': limit,
+        'cookies_path': cookiesPath,
+        'user_agent': userAgent,
+      }).timeout(const Duration(seconds: 60));
+
+      if (result == null) {
+        throw Exception('Failed to search videos: null response');
+      }
+
+      final parsed = jsonDecode(result) as Map<String, dynamic>;
+      if (parsed['success'] == false) {
+        throw Exception(parsed['error'] ?? 'Unknown error');
+      }
+      return parsed;
+    } on PlatformException catch (e) {
+      throw Exception('Platform error: ${e.message}');
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  /// Enqueue a download on the native side and return once the work is
+  /// queued — NOT when the download finishes.
+  ///
+  /// Completes with `{success:true, process_id}` after native accepts the job.
+  /// Terminal outcomes (completed / error / cancelled) arrive only via
+  /// [downloadEvents]; callers must not treat the method return as success.
   static Future<Map<String, dynamic>> downloadVideo({
     required String url,
     required String outputPath,
@@ -145,10 +201,14 @@ class NativeYtdlpAndroid {
     bool sponsorBlock = false,
     bool embedThumbnail = true,
     bool embedMetadata = true,
+    bool audioOnly = false,
+    int? targetHeight,
+    String? audioQuality,
+    int? concurrentFragments,
   }) async {
     try {
       final validatedUrl = _validateUrl(url);
-      // Rely on native completion/error events; invokeMethod initiates the background download task
+      // B24 defense: short call that only enqueues, so a 30s timeout is safe.
       final result = await _channel.invokeMethod<String>('downloadVideo', {
         'url': validatedUrl,
         'output_path': outputPath,
@@ -162,10 +222,14 @@ class NativeYtdlpAndroid {
         'sponsor_block': sponsorBlock,
         'embed_thumbnail': embedThumbnail,
         'embed_metadata': embedMetadata,
-      });
+        'audio_only': audioOnly,
+        'target_height': targetHeight,
+        'audio_quality': audioQuality,
+        'concurrent_fragments': concurrentFragments,
+      }).timeout(const Duration(seconds: 30));
 
       if (result == null) {
-        throw Exception('Failed to download video: null response');
+        throw Exception('Failed to enqueue download: null response');
       }
 
       final parsed = jsonDecode(result) as Map<String, dynamic>;
@@ -186,6 +250,29 @@ class NativeYtdlpAndroid {
       return result ?? false;
     } catch (e) {
       return false;
+    }
+  }
+
+  /// Cancel every active native download.
+  ///
+  /// Prefers a native `cancelAll` method when the Kotlin side exposes it.
+  /// Falls back to cancelling each known [processIds] individually via
+  /// [cancelDownload] when cancelAll is unavailable or fails.
+  static Future<void> cancelAll({Iterable<String>? processIds}) async {
+    var cancelledViaNative = false;
+    try {
+      final result = await _channel
+          .invokeMethod<bool>('cancelAll')
+          .timeout(const Duration(seconds: 10));
+      cancelledViaNative = result == true;
+    } catch (_) {
+      // cancelAll not implemented on this native build — fall through.
+    }
+    if (cancelledViaNative) return;
+    if (processIds == null) return;
+    for (final id in processIds) {
+      if (id.isEmpty) continue;
+      await cancelDownload(id);
     }
   }
 

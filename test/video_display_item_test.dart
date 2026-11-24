@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_symbols_icons/symbols.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:youtube_downloader/models/video_display_item.dart';
 import 'package:youtube_downloader/models/video_info.dart';
@@ -78,11 +78,27 @@ void main() {
 
   group('UrlValidator.isYouTubeUrl', () {
     test('identifies YouTube URLs accurately', () {
-      expect(UrlValidator.isYouTubeUrl('https://www.youtube.com/watch?v=dQw4w9WgXcQ'), isTrue);
+      expect(
+        UrlValidator.isYouTubeUrl(
+          'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+        ),
+        isTrue,
+      );
       expect(UrlValidator.isYouTubeUrl('https://youtu.be/dQw4w9WgXcQ'), isTrue);
-      expect(UrlValidator.isYouTubeUrl('https://music.youtube.com/watch?v=dQw4w9WgXcQ'), isTrue);
-      expect(UrlValidator.isYouTubeUrl('https://m.youtube.com/watch?v=dQw4w9WgXcQ'), isTrue);
-      expect(UrlValidator.isYouTubeUrl('youtube.com/watch?v=dQw4w9WgXcQ'), isTrue);
+      expect(
+        UrlValidator.isYouTubeUrl(
+          'https://music.youtube.com/watch?v=dQw4w9WgXcQ',
+        ),
+        isTrue,
+      );
+      expect(
+        UrlValidator.isYouTubeUrl('https://m.youtube.com/watch?v=dQw4w9WgXcQ'),
+        isTrue,
+      );
+      expect(
+        UrlValidator.isYouTubeUrl('youtube.com/watch?v=dQw4w9WgXcQ'),
+        isTrue,
+      );
       expect(UrlValidator.isYouTubeUrl('https://vimeo.com/12345'), isFalse);
       expect(UrlValidator.isYouTubeUrl('https://google.com'), isFalse);
       expect(UrlValidator.isYouTubeUrl(''), isFalse);
@@ -136,33 +152,79 @@ void main() {
     });
 
     test('rejects invalid input', () {
-      expect(() => UrlValidator.validate(''), throwsA(isA<UrlValidationException>()));
-      expect(() => UrlValidator.validate('-rm_rf'), throwsA(isA<UrlValidationException>()));
-      expect(() => UrlValidator.validate('ftp://example.com/file'), throwsA(isA<UrlValidationException>()));
-      expect(() => UrlValidator.validate('not a url'), throwsA(isA<UrlValidationException>()));
+      expect(
+        () => UrlValidator.validate(''),
+        throwsA(isA<UrlValidationException>()),
+      );
+      expect(
+        () => UrlValidator.validate('-rm_rf'),
+        throwsA(isA<UrlValidationException>()),
+      );
+      expect(
+        () => UrlValidator.validate('ftp://example.com/file'),
+        throwsA(isA<UrlValidationException>()),
+      );
+      expect(
+        () => UrlValidator.validate('not a url'),
+        throwsA(isA<UrlValidationException>()),
+      );
     });
   });
 
   group('UrlValidator.looksLikePlaylist', () {
     test('detects YouTube playlist URLs', () {
-      expect(UrlValidator.looksLikePlaylist('https://youtube.com/playlist?list=PL123'), isTrue);
-      expect(UrlValidator.looksLikePlaylist('https://youtube.com/watch?v=abc&list=PL123'), isTrue);
-      expect(UrlValidator.looksLikePlaylist('https://youtube.com/watch?v=abc'), isFalse);
+      expect(
+        UrlValidator.looksLikePlaylist(
+          'https://youtube.com/playlist?list=PL123',
+        ),
+        isTrue,
+      );
+      expect(
+        UrlValidator.looksLikePlaylist(
+          'https://youtube.com/watch?v=abc&list=PL123',
+        ),
+        isTrue,
+      );
+      expect(
+        UrlValidator.looksLikePlaylist('https://youtube.com/watch?v=abc'),
+        isFalse,
+      );
     });
 
     test('detects generic playlist paths', () {
-      expect(UrlValidator.looksLikePlaylist('https://vimeo.com/album/123/playlist'), isTrue);
+      expect(
+        UrlValidator.looksLikePlaylist('https://vimeo.com/album/123/playlist'),
+        isTrue,
+      );
     });
   });
 
   group('UrlInputHelper.getStatusIcon', () {
     test('returns expected icons based on status message content', () {
-      expect(UrlInputHelper.getStatusIcon('Connecting to server...'), Icons.wifi_rounded);
-      expect(UrlInputHelper.getStatusIcon('Fetching video metadata...'), Icons.cloud_download_rounded);
-      expect(UrlInputHelper.getStatusIcon('Processing video...'), Icons.settings_rounded);
-      expect(UrlInputHelper.getStatusIcon('Found playlist with 10 videos'), Icons.playlist_play_rounded);
-      expect(UrlInputHelper.getStatusIcon('Retrying connection...'), Icons.refresh_rounded);
-      expect(UrlInputHelper.getStatusIcon('Unknown status'), Icons.hourglass_empty_rounded);
+      expect(
+        UrlInputHelper.getStatusIcon('Connecting to server...'),
+        Symbols.wifi_rounded,
+      );
+      expect(
+        UrlInputHelper.getStatusIcon('Fetching video metadata...'),
+        Symbols.cloud_download_rounded,
+      );
+      expect(
+        UrlInputHelper.getStatusIcon('Processing video...'),
+        Symbols.settings_rounded,
+      );
+      expect(
+        UrlInputHelper.getStatusIcon('Found playlist with 10 videos'),
+        Symbols.playlist_play_rounded,
+      );
+      expect(
+        UrlInputHelper.getStatusIcon('Retrying connection...'),
+        Symbols.refresh_rounded,
+      );
+      expect(
+        UrlInputHelper.getStatusIcon('Unknown status'),
+        Symbols.hourglass_empty_rounded,
+      );
     });
   });
 }

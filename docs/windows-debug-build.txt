@@ -1,0 +1,2 @@
+Building Windows application...                                    20.8s
+√ Built build\windows\x64\runner\Debug\youtube_downloader.exe

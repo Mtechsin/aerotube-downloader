@@ -1,11 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/physics.dart';
 import 'package:provider/provider.dart';
 
 import '../../providers/platform_settings_provider.dart';
 
 /// Motion tokens following the Material 3 Expressive motion hierarchy:
-/// primary transitions get energetic, spring-based motion while small
+/// transitions use continuous linear motion while small
 /// feedback stays quick and subtle. Durations and curves should come from
 /// here (or [appMotionDuration]) so the hierarchy stays consistent app-wide.
 abstract final class AppMotion {
@@ -21,67 +20,17 @@ abstract final class AppMotion {
   /// Large transitions: page pushes, hero sections.
   static const Duration long = Duration(milliseconds: 500);
 
-  /// M3 emphasized easing for spatial transitions.
-  static const Curve emphasized = Curves.easeInOutCubicEmphasized;
+  /// Constant-speed spatial transitions.
+  static const Curve emphasized = Curves.linear;
 
-  /// Decelerate curve for things entering the screen.
-  static const Curve decelerate = Curves.easeOutCubic;
+  /// Constant-speed entrance transitions.
+  static const Curve decelerate = Curves.linear;
 
-  /// Accelerate curve for things leaving the screen.
-  static const Curve accelerate = Curves.easeInCubic;
+  /// Constant-speed exit transitions.
+  static const Curve accelerate = Curves.linear;
 
-  /// Gentle overshoot spring for entrances and shape morphs.
-  static final SpringDescription spatialSpring =
-      SpringDescription.withDampingRatio(mass: 1, stiffness: 380, ratio: 0.9);
-
-  /// Fast spring for press release and other quick returns.
-  static final SpringDescription snappySpring =
-      SpringDescription.withDampingRatio(mass: 1, stiffness: 700, ratio: 0.85);
-
-  /// Looser spring reserved for celebratory one-shots (completion pop).
-  static final SpringDescription bounceSpring =
-      SpringDescription.withDampingRatio(mass: 1, stiffness: 320, ratio: 0.65);
-
-  /// Spring curve sampling [spatialSpring] over [medium].
-  static final Curve spatialSpringCurve = SpringCurve(
-    spring: spatialSpring,
-    duration: medium,
-  );
-
-  /// Spring curve sampling [snappySpring] over [fast].
-  static final Curve snappySpringCurve = SpringCurve(
-    spring: snappySpring,
-    duration: fast,
-  );
-
-  /// Spring curve sampling [bounceSpring] over [medium].
-  static final Curve bounceSpringCurve = SpringCurve(
-    spring: bounceSpring,
-    duration: medium,
-  );
-}
-
-/// A [Curve] backed by a real [SpringSimulation]. Lets spring physics plug
-/// into TweenAnimationBuilder/AnimatedScale/flutter_animate, which all take
-/// curves, without hand-rolling controllers. The [duration] window must be
-/// long enough for the spring to settle; the response is normalized so the
-/// curve ends exactly at 1 while overshoot is preserved.
-class SpringCurve extends Curve {
-  final SpringDescription spring;
-  final Duration duration;
-
-  SpringCurve({
-    required this.spring,
-    this.duration = const Duration(milliseconds: 500),
-  });
-
-  late final SpringSimulation _simulation = SpringSimulation(spring, 0, 1, 0);
-
-  @override
-  double transformInternal(double t) {
-    final seconds = duration.inMicroseconds / Duration.microsecondsPerSecond;
-    return _simulation.x(seconds * t) / _simulation.x(seconds);
-  }
+  /// Constant-speed motion shared by components and progress indicators.
+  static const Curve linear = Curves.linear;
 }
 
 /// Resolves the effective duration for an animation, honoring the user's
@@ -91,13 +40,20 @@ class SpringCurve extends Curve {
 /// registered there. Contexts without the settings provider (tests, isolated
 /// previews) default to animations enabled.
 Duration appMotionDuration(BuildContext context, Duration base) {
-  bool enabled;
+  bool enabled = true;
   try {
     enabled = context.select<PlatformSettingsProvider, bool>(
       (p) => p.enableAnimations,
     );
-  } on ProviderNotFoundException {
-    enabled = true;
+  } catch (_) {
+    try {
+      enabled = Provider.of<PlatformSettingsProvider>(
+        context,
+        listen: false,
+      ).enableAnimations;
+    } catch (_) {
+      enabled = true;
+    }
   }
   if (!enabled) return Duration.zero;
   final reduceMotion = MediaQuery.maybeDisableAnimationsOf(context) ?? false;

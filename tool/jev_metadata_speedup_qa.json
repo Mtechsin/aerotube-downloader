@@ -1,0 +1,36 @@
+{
+  "note": "Final Jev QA after recheck with tighter evidence.",
+  "results": [
+    {
+      "claim": "happy_path_faster",
+      "action": "keep",
+      "support": "supported",
+      "confidence": 0.97
+    },
+    {
+      "claim": "slow_network_still_reliable",
+      "action": "keep",
+      "support": "supported",
+      "confidence": 0.96
+    },
+    {
+      "claim": "content_errors_not_slower",
+      "action": "keep",
+      "support": "supported",
+      "confidence": 0.8
+    },
+    {
+      "claim": "no_regression_cancel",
+      "action": "keep",
+      "support": "supported",
+      "confidence": 0.99
+    },
+    {
+      "claim": "ui_still_instant",
+      "action": "flag",
+      "support": "supported",
+      "confidence": 0.7,
+      "note": "Explode preview and cache paths were not modified; claim holds as 'unchanged' but Jev would not state perceived-latency improvement as hard fact."
+    }
+  ]
+}

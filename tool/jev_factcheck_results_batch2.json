@@ -1,0 +1,66 @@
+[
+  {
+    "finding": "oauth_placeholder",
+    "claim": "Google OAuth login is broken because the client id is the literal placeholder 'YOUR_CLIENT_ID.apps.googleusercontent.com'; authorize and token-exchange requests will be rejected by Google. There is no working client id in the login path.",
+    "action": "keep",
+    "support": "supported",
+    "confidence": 1.0,
+    "probabilities": {
+      "not_in_evidence": 0.0,
+      "contradicted": 0.0,
+      "supported": 1.0,
+      "misquoted": 0.0
+    },
+    "reasons": [
+      "support=supported conf=1.00"
+    ]
+  },
+  {
+    "finding": "mobile_cancelled_invisible",
+    "claim": "On mobile, cancelled downloads become invisible: they are removed from active lists as terminal, persisted to history, but HistoryDownloadsTab only renders completedDownloads + failedDownloads, so cancelled items never appear. Desktop history shows them.",
+    "action": "keep",
+    "support": "supported",
+    "confidence": 1.0,
+    "probabilities": {
+      "not_in_evidence": 0.0,
+      "contradicted": 0.0,
+      "supported": 1.0,
+      "misquoted": 0.0
+    },
+    "reasons": [
+      "support=supported conf=1.00"
+    ]
+  },
+  {
+    "finding": "fixed_card_height",
+    "claim": "DownloadItemCard's fixed 136px height can clip or overflow when a failed item shows a long title (2 lines) plus an error line, because the layout must fit title + badge row + progress + error inside a hard-coded height.",
+    "action": "keep",
+    "support": "supported",
+    "confidence": 0.91,
+    "probabilities": {
+      "not_in_evidence": 0.01,
+      "contradicted": 0.03,
+      "supported": 0.93,
+      "misquoted": 0.03
+    },
+    "reasons": [
+      "support=supported conf=0.91"
+    ]
+  },
+  {
+    "finding": "auth_dialog_resurface",
+    "claim": "After the user dismisses the authentication dialog, any later VideoProvider notify while the same error is still set re-opens the dialog, because the guard only tracks whether a dialog is currently open, not whether this error was already acknowledged.",
+    "action": "keep",
+    "support": "supported",
+    "confidence": 1.0,
+    "probabilities": {
+      "not_in_evidence": 0.0,
+      "contradicted": 0.0,
+      "supported": 1.0,
+      "misquoted": 0.0
+    },
+    "reasons": [
+      "support=supported conf=1.00"
+    ]
+  }
+]

@@ -1,13 +1,18 @@
+import 'package:material_symbols_icons/symbols.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../../core/theme/tokens/colors.dart';
+import '../../core/theme/tokens/typography.dart';
 import '../../core/utils/platform_utils.dart';
 import '../../providers/platform_settings_provider.dart';
 import '../../providers/tool_update_provider.dart';
 import '../../services/core/bug_report_service.dart';
 import '../../services/core/logging_service.dart';
+import '../components/aero_button.dart';
+import '../components/aero_dialog.dart';
 
 /// User-facing "Report a Bug" form.
 ///
@@ -32,7 +37,7 @@ class BugReportDialog extends StatefulWidget {
     String? initialErrorDetail,
     String? initialCategory,
   }) {
-    return showDialog<void>(
+    return showAeroDialog<void>(
       context: context,
       builder: (context) => BugReportDialog(
         initialSummary: initialSummary,
@@ -247,262 +252,192 @@ class _BugReportDialogState extends State<BugReportDialog> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final colors = context.aero;
+    final maxContentHeight = (MediaQuery.sizeOf(context).height - 200)
+        .clamp(200.0, 720.0)
+        .toDouble();
 
-    return Dialog(
-      backgroundColor: Colors.transparent,
-      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-      child: Container(
-        constraints: const BoxConstraints(maxWidth: 520, maxHeight: 720),
+    return AeroDialog(
+      maxWidth: 600,
+      leading: Container(
+        padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(
-          color: theme.colorScheme.surface,
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(
-            color: theme.colorScheme.outlineVariant.withValues(alpha: 0.35),
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.28),
-              blurRadius: 32,
-              offset: const Offset(0, 12),
-            ),
-          ],
+          color: colors.primarySoft,
+          shape: BoxShape.circle,
         ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(24),
+        child: Icon(
+          Symbols.bug_report_rounded,
+          color: colors.primary,
+          size: 20,
+        ),
+      ),
+      title: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Report a Bug',
+            style: AeroText.title.copyWith(
+              color: colors.onSurface,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            'Review the details, then choose how to share the report.',
+            style: AeroText.caption.copyWith(color: colors.onSurfaceMuted),
+          ),
+        ],
+      ),
+      showCloseButton: true,
+      content: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: maxContentHeight),
+        child: SingleChildScrollView(
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Expanded(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
+              _DiagnosticsBanner(loading: _loadingDiagnostics),
+              const SizedBox(height: 16),
+              TextField(
+                controller: _summaryController,
+                decoration: const InputDecoration(
+                  labelText: 'What went wrong? *',
+                  hintText: 'Download stops at 99% for every video',
+                  border: OutlineInputBorder(),
+                  counterText: '',
+                ),
+                maxLength: 160,
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                initialValue: _selectedCategory,
+                decoration: const InputDecoration(
+                  labelText: 'Category (optional)',
+                  border: OutlineInputBorder(),
+                ),
+                items: [
+                  const DropdownMenuItem(value: null, child: Text('Not sure')),
+                  ..._categories.map(
+                    (c) => DropdownMenuItem(value: c, child: Text(c)),
+                  ),
+                ],
+                onChanged: (value) {
+                  setState(() => _selectedCategory = value);
+                },
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _stepsController,
+                decoration: const InputDecoration(
+                  labelText: 'Steps to reproduce',
+                  hintText:
+                      '1. Paste a video link\n2. Choose 1080p\n3. Start download',
+                  border: OutlineInputBorder(),
+                ),
+                minLines: 3,
+                maxLines: 5,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _expectedController,
+                decoration: const InputDecoration(
+                  labelText: 'What did you expect?',
+                  hintText: 'File appears in Downloads/AeroTube',
+                  border: OutlineInputBorder(),
+                ),
+                minLines: 1,
+                maxLines: 3,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _actualController,
+                decoration: const InputDecoration(
+                  labelText: 'What actually happened?',
+                  hintText: 'Error dialog: network connection error',
+                  border: OutlineInputBorder(),
+                ),
+                minLines: 2,
+                maxLines: 4,
+              ),
+              if (widget.initialErrorDetail != null) ...[
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.errorContainer.withValues(
+                      alpha: 0.25,
+                    ),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: theme.colorScheme.primary
-                                  .withValues(alpha: 0.12),
-                              shape: BoxShape.circle,
-                            ),
-                            child: Icon(
-                              Icons.bug_report_rounded,
-                              color: theme.colorScheme.primary,
-                              size: 24,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Report a Bug',
-                                  style: theme.textTheme.titleMedium?.copyWith(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 18,
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  'Builds a report with sanitized logs. Nothing is sent until you file it.',
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    color: theme.colorScheme.onSurface
-                                        .withValues(alpha: 0.65),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          IconButton(
-                            onPressed: () => Navigator.of(context).pop(),
-                            icon: const Icon(Icons.close_rounded),
-                            tooltip: 'Close',
-                          ),
-                        ],
+                      Text(
+                        'Attached error details',
+                        style: theme.textTheme.labelMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: theme.colorScheme.error,
+                        ),
                       ),
-                      const SizedBox(height: 16),
-                      _DiagnosticsBanner(loading: _loadingDiagnostics),
-                      const SizedBox(height: 16),
-                      TextField(
-                        controller: _summaryController,
-                        decoration: const InputDecoration(
-                          labelText: 'What went wrong? *',
-                          hintText: 'Download stops at 99% for every video',
-                          border: OutlineInputBorder(),
-                          counterText: '',
-                        ),
-                        maxLength: 160,
-                      ),
-                      const SizedBox(height: 12),
-                      DropdownButtonFormField<String>(
-                        initialValue: _selectedCategory,
-                        decoration: const InputDecoration(
-                          labelText: 'Category (optional)',
-                          border: OutlineInputBorder(),
-                        ),
-                        items: [
-                          const DropdownMenuItem(
-                            value: null,
-                            child: Text('Not sure'),
+                      const SizedBox(height: 6),
+                      Text(
+                        widget.initialErrorDetail!,
+                        maxLines: 6,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontFamily: 'monospace',
+                          fontSize: 11,
+                          color: theme.colorScheme.onSurface.withValues(
+                            alpha: 0.8,
                           ),
-                          ..._categories.map(
-                            (c) => DropdownMenuItem(value: c, child: Text(c)),
-                          ),
-                        ],
-                        onChanged: (value) {
-                          setState(() => _selectedCategory = value);
-                        },
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: _stepsController,
-                        decoration: const InputDecoration(
-                          labelText: 'Steps to reproduce',
-                          hintText:
-                              '1. Paste a video link\n2. Choose 1080p\n3. Start download',
-                          border: OutlineInputBorder(),
-                        ),
-                        minLines: 3,
-                        maxLines: 5,
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: _expectedController,
-                        decoration: const InputDecoration(
-                          labelText: 'What did you expect?',
-                          hintText: 'File appears in Downloads/AeroTube',
-                          border: OutlineInputBorder(),
-                        ),
-                        minLines: 1,
-                        maxLines: 3,
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: _actualController,
-                        decoration: const InputDecoration(
-                          labelText: 'What actually happened?',
-                          hintText: 'Error dialog: network connection error',
-                          border: OutlineInputBorder(),
-                        ),
-                        minLines: 2,
-                        maxLines: 4,
-                      ),
-                      if (widget.initialErrorDetail != null) ...[
-                        const SizedBox(height: 12),
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: theme.colorScheme.errorContainer
-                                .withValues(alpha: 0.25),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Attached error details',
-                                style: theme.textTheme.labelMedium?.copyWith(
-                                  fontWeight: FontWeight.bold,
-                                  color: theme.colorScheme.error,
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                widget.initialErrorDetail!,
-                                maxLines: 6,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontFamily: 'monospace',
-                                  fontSize: 11,
-                                  color: theme.colorScheme.onSurface
-                                      .withValues(alpha: 0.8),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                      if (_statusMessage != null) ...[
-                        const SizedBox(height: 12),
-                        Text(
-                          _statusMessage!,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: _statusIsError
-                                ? theme.colorScheme.error
-                                : theme.colorScheme.primary,
-                          ),
-                        ),
-                      ],
-                      const SizedBox(height: 8),
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: theme.colorScheme.surfaceContainerHighest
-                              .withValues(alpha: 0.4),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Where does this go?',
-                              style: theme.textTheme.labelMedium?.copyWith(
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              '• Copy — stays on your clipboard\n'
-                              '• Save — writes a local .md file you choose\n'
-                              '• File on GitHub — opens the issue form; you still press Submit\n\n'
-                              'AeroTube does not upload reports in the background. '
-                              'Cookies and tokens are redacted before sharing.',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                height: 1.4,
-                                color: theme.colorScheme.onSurface
-                                    .withValues(alpha: 0.7),
-                              ),
-                            ),
-                          ],
                         ),
                       ),
                     ],
                   ),
                 ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                child: Wrap(
-                  alignment: WrapAlignment.end,
-                  spacing: 8,
-                  runSpacing: 8,
+              ],
+              if (_statusMessage != null) ...[
+                const SizedBox(height: 12),
+                Text(
+                  _statusMessage!,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: _statusIsError
+                        ? theme.colorScheme.error
+                        : theme.colorScheme.primary,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.surfaceContainerHighest.withValues(
+                    alpha: 0.4,
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    OutlinedButton.icon(
-                      onPressed: _busy ? null : _copyReport,
-                      icon: const Icon(Icons.copy_rounded, size: 16),
-                      label: const Text('Copy'),
+                    Text(
+                      'Where does this go?',
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
-                    OutlinedButton.icon(
-                      onPressed: _busy ? null : _saveReport,
-                      icon: const Icon(Icons.save_alt_rounded, size: 16),
-                      label: const Text('Save'),
-                    ),
-                    FilledButton.icon(
-                      onPressed: _busy ? null : _openGitHub,
-                      icon: _busy
-                          ? const SizedBox(
-                              width: 14,
-                              height: 14,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
-                            )
-                          : const Icon(Icons.open_in_new_rounded, size: 16),
-                      label: const Text('File on GitHub'),
+                    const SizedBox(height: 6),
+                    Text(
+                      '• Copy — stays on your clipboard\n'
+                      '• Save — writes a local .md file you choose\n'
+                      '• File on GitHub — opens the issue form; you still press Submit\n\n'
+                      'AeroTube does not upload reports in the background. '
+                      'Cookies and tokens are redacted before sharing.',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        height: 1.4,
+                        color: theme.colorScheme.onSurface.withValues(
+                          alpha: 0.7,
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -511,6 +446,36 @@ class _BugReportDialogState extends State<BugReportDialog> {
           ),
         ),
       ),
+      actions: [
+        Expanded(
+          child: Wrap(
+            alignment: WrapAlignment.end,
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              AeroButton(
+                variant: AeroButtonVariant.ghost,
+                onPressed: _busy ? null : _copyReport,
+                icon: const Icon(Symbols.content_copy_rounded, size: 16),
+                text: 'Copy',
+              ),
+              AeroButton(
+                variant: AeroButtonVariant.tonal,
+                onPressed: _busy ? null : _saveReport,
+                icon: const Icon(Symbols.save_alt_rounded, size: 16),
+                text: 'Save',
+              ),
+              AeroButton(
+                variant: AeroButtonVariant.primary,
+                isLoading: _busy,
+                onPressed: _busy ? null : _openGitHub,
+                icon: const Icon(Symbols.open_in_new_rounded, size: 16),
+                text: 'File on GitHub',
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
@@ -529,8 +494,9 @@ class _DiagnosticsBanner extends StatelessWidget {
       return Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: theme.colorScheme.surfaceContainerHighest
-              .withValues(alpha: 0.35),
+          color: theme.colorScheme.surfaceContainerHighest.withValues(
+            alpha: 0.35,
+          ),
           borderRadius: BorderRadius.circular(12),
         ),
         child: Row(
@@ -550,8 +516,11 @@ class _DiagnosticsBanner extends StatelessWidget {
     final chips = <Widget>[
       _chip(context, PlatformUtils.platformName),
       _chip(context, 'session ${logging.sessionId}'),
-      _chip(context, logging.isEnabled ? 'logs on' : 'logs off',
-          warn: !logging.isEnabled),
+      _chip(
+        context,
+        logging.isEnabled ? 'logs on' : 'logs off',
+        warn: !logging.isEnabled,
+      ),
       if (logging.errorCount > 0)
         _chip(
           context,

@@ -257,19 +257,40 @@ class UpdateService {
             }
           }
         } else {
-          // ── Windows: keep existing .exe / .zip / .msix logic ──────────────
+          // ── Windows: prefer x64/win64/amd64 installers ───────────────────
+          // M23: do not take the first asset that merely contains 'windows'
+          // (that can pick arm64/x86 builds on multi-arch releases).
+          String? fallbackUrl;
+          String? fallbackName;
+          int? fallbackSize;
           for (final asset in assets) {
-            final name = asset['name'] as String? ?? '';
-            if (name.contains('windows') ||
+            final rawName = asset['name'] as String? ?? '';
+            final name = rawName.toLowerCase();
+            final isWindowsAsset = name.contains('windows') ||
                 name.endsWith('.exe') ||
                 name.endsWith('.zip') ||
-                name.endsWith('.msix')) {
+                name.endsWith('.msix');
+            if (!isWindowsAsset) continue;
+
+            fallbackUrl ??= asset['browser_download_url'] as String?;
+            fallbackName ??= rawName;
+            fallbackSize ??= asset['size'] as int?;
+
+            final isArm = name.contains('arm64') || name.contains('aarch64');
+            final isPreferredArch = !isArm &&
+                (name.contains('x64') ||
+                    name.contains('win64') ||
+                    name.contains('amd64'));
+            if (isPreferredArch) {
               downloadUrl = asset['browser_download_url'] as String?;
-              assetName = name;
+              assetName = rawName;
               assetSize = asset['size'] as int?;
               break;
             }
           }
+          downloadUrl ??= fallbackUrl;
+          assetName ??= fallbackName;
+          assetSize ??= fallbackSize;
         }
       }
 

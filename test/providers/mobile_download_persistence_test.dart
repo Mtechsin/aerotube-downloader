@@ -33,12 +33,17 @@ void main() {
   const permissionsChannel = 'com.aerotube.youtube_downloader/permissions';
   const downloadServiceChannel = 'com.aerotube.youtube_downloader/download_service';
   const ytdlpChannel = 'com.aerotube.youtube_downloader/ytdlp_android';
+  const eventsChannelName = 'com.aerotube.youtube_downloader/ytdlp_android/events';
 
   late Directory tempDir;
   late Directory downloadsDir;
   final List<MethodCall> permissionsCalls = [];
   final List<MethodCall> serviceCalls = [];
   final List<MethodCall> ytdlpCalls = [];
+
+  /// Sink for EventChannel terminal/progress events. Held across tests
+  /// because NativeYtdlpAndroid caches its broadcast stream.
+  MockStreamHandlerEventSink? nativeEventSink;
 
   String mockManufacturer = 'Xiaomi';
   bool mockAutostartSuccess = true;
@@ -117,14 +122,31 @@ void main() {
         switch (call.method) {
           case 'downloadVideo':
             final id = call.arguments?['process_id'] ?? 'mock_process_1';
-            return '{"success": true, "process_id": "$id", "message": "Download started"}';
+            return '{"success": true, "process_id": "$id", "message": "Download enqueued"}';
           case 'cancelDownload':
             return true;
+          case 'getFfmpegVersion':
+            return '7.0-test';
           default:
             return true;
         }
       },
     );
+
+    // Sole terminal signal path: EventChannel completed/error/cancelled.
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockStreamHandler(
+      const EventChannel(eventsChannelName),
+      MockStreamHandler.inline(
+        onListen: (arguments, events) {
+          nativeEventSink = events;
+        },
+        onCancel: (arguments) {
+          nativeEventSink = null;
+        },
+      ),
+    );
+
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
       const MethodChannel('flutter.baseflow.com/permissions/methods'),
@@ -157,6 +179,8 @@ void main() {
         .setMockMethodCallHandler(const MethodChannel(downloadServiceChannel), null);
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(const MethodChannel(ytdlpChannel), null);
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockStreamHandler(const EventChannel(eventsChannelName), null);
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(const MethodChannel('flutter.baseflow.com/permissions/methods'), null);
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -392,7 +416,23 @@ void main() {
       );
 
       final item = provider.downloads.first;
-      // Give async completion a brief moment
+      // Wait for enqueue (downloadVideo returns process_id, does NOT complete).
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+
+      // Enqueue success alone must leave the item non-terminal.
+      expect(
+        provider.downloads.any((d) => d.id == item.id && d.status == DownloadStatus.completed),
+        isFalse,
+        reason: 'method-return from downloadVideo is enqueue-only; '
+            'completion must come from EventChannel',
+      );
+
+      // Sole terminal-success signal: EventChannel 'completed'.
+      nativeEventSink?.success({
+        'event': 'completed',
+        'process_id': item.id,
+        'ffmpeg_skipped': false,
+      });
       await Future<void>.delayed(const Duration(milliseconds: 100));
 
       // Verify item transitioned to completed and was removed from active box

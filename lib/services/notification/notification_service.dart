@@ -1,3 +1,4 @@
+import 'package:material_symbols_icons/symbols.dart';
 
 import 'package:flutter/material.dart';
 import 'package:local_notifier/local_notifier.dart';
@@ -22,9 +23,13 @@ class NotificationService {
     required String body,
     bool isError = false,
     VoidCallback? onTap,
+    /// When false, only the in-app SnackBar is shown (no Windows toast).
+    /// Use for routine complete/fail so the OS toast does not duplicate
+    /// the on-screen SnackBar.
+    bool alsoSystemNotification = true,
   }) async {
     // 1. Show System Notification (only when the user has it enabled)
-    if (systemNotificationsEnabled) {
+    if (alsoSystemNotification && systemNotificationsEnabled) {
       final notification = LocalNotification(
         title: title,
         body: body,
@@ -62,7 +67,7 @@ class NotificationService {
                   shape: BoxShape.circle,
                 ),
                 child: Icon(
-                  isError ? Icons.error_outline_rounded : Icons.check_circle_outline_rounded,
+                  isError ? Symbols.error_rounded : Symbols.check_circle_rounded,
                   color: isError ? Colors.redAccent : Colors.greenAccent,
                   size: 24,
                 ),

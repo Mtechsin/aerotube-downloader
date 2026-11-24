@@ -71,10 +71,37 @@ class UrlValidator {
 
   /// True when [url] looks like a playlist (YouTube `list=` param or a
   /// `/playlist` path segment used by several sites).
+  /// M1: require a real playlist signal — a non-empty `list` query param
+  /// or a `/playlist` path segment — not a bare `list=` substring match.
   static bool looksLikePlaylist(String url) {
     final lower = url.trim().toLowerCase();
     if (lower.isEmpty) return false;
-    return lower.contains('list=') || lower.contains('/playlist');
+    if (_hasPlaylistPathSegment(lower)) return true;
+    return _hasNonEmptyListParam(lower);
+  }
+
+  static bool _hasPlaylistPathSegment(String lower) {
+    final uri = Uri.tryParse(
+      lower.contains('://') ? lower : 'https://$lower',
+    );
+    if (uri != null && uri.pathSegments.contains('playlist')) {
+      return true;
+    }
+    // Fallback for unparseable input: require /playlist as a path-ish segment.
+    return lower.contains('/playlist');
+  }
+
+  static bool _hasNonEmptyListParam(String lower) {
+    final uri = Uri.tryParse(
+      lower.contains('://') ? lower : 'https://$lower',
+    );
+    if (uri != null) {
+      final list = uri.queryParameters['list'];
+      return list != null && list.isNotEmpty;
+    }
+    // Last resort: real `list=<value>` (not just the substring `list=`).
+    final match = RegExp(r'[?&]list=([^&#\s]+)').firstMatch(lower);
+    return match != null && match.group(1)!.isNotEmpty;
   }
 }
 

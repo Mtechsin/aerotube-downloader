@@ -5,10 +5,20 @@ import 'package:youtube_explode_dart/youtube_explode_dart.dart'
 import '../../models/search_video_result.dart';
 import 'logging_service.dart';
 
+/// Optional yt-dlp `ytsearchN:` fallback used when youtube_explode fails.
+typedef YtdlpSearchFallback = Future<List<SearchVideoResult>> Function(
+  String query, {
+  int limit,
+});
+
 class SearchService {
   final YoutubeExplode _yt = YoutubeExplode();
   final LoggingService _logger = LoggingService();
   VideoSearchList? _currentSearchPage;
+
+  /// Injected by SearchProvider when a platform yt-dlp service is available.
+  final YtdlpSearchFallback? ytdlpFallback;
+  SearchService({this.ytdlpFallback});
 
   // Simple in-memory cache for VPN / repeated queries
   final Map<String, List<SearchVideoResult>> _cache = {};
@@ -91,8 +101,32 @@ class SearchService {
     }
 
     _logger.error('Search failed after $maxAttempts attempts for "$trimmed"', component: 'SearchService', error: lastError, stackTrace: lastStack);
-    // Return cached stale if available, else empty
+    // Return cached stale if available
     if (cached != null) return List<SearchVideoResult>.from(cached);
+
+    // yt-dlp fallback when explode is broken / bot-blocked.
+    final fallback = ytdlpFallback;
+    if (fallback != null) {
+      try {
+        _logger.info(
+          'Explode search failed for "$trimmed" — trying yt-dlp ytsearch fallback',
+          component: 'SearchService',
+        );
+        final results = await fallback(trimmed, limit: 15);
+        if (results.isNotEmpty) {
+          _cache[trimmed] = results;
+          _cacheTime[trimmed] = DateTime.now();
+          return results;
+        }
+      } catch (e, stack) {
+        _logger.warning(
+          'yt-dlp search fallback also failed for "$trimmed": $e',
+          component: 'SearchService',
+          error: e,
+          stackTrace: stack,
+        );
+      }
+    }
     return [];
   }
 

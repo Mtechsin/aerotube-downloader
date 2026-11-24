@@ -397,9 +397,44 @@ class CookieServiceAndroid extends CookieService {
   Future<String?> get webViewPath async => null;
 
   /// Clear all cookies/tokens
+  ///
+  /// Clears OAuth tokens in secure storage AND deletes on-disk cookie
+  /// artifacts that yt-dlp may still point at:
+  /// - cookies.txt (WebView-exported Netscape file at app support dir)
+  /// - youtube_auth.json (token export path returned by [cookieFilePath])
   @override
   Future<void> clearCookies() async {
     await logout();
+    await _deleteCookieArtifacts();
+  }
+
+  Future<void> _deleteCookieArtifacts() async {
+    try {
+      final dir = await getApplicationSupportDirectory();
+      final cookiesTxt = File(p.join(dir.path, 'cookies.txt'));
+      if (await cookiesTxt.exists()) {
+        await cookiesTxt.delete();
+        _logger.info(
+          'Deleted WebView-exported cookies.txt',
+          component: 'CookieServiceAndroid',
+        );
+      }
+      final authJson = File(p.join(dir.path, 'youtube_auth.json'));
+      if (await authJson.exists()) {
+        await authJson.delete();
+        _logger.info(
+          'Deleted youtube_auth.json cookie export',
+          component: 'CookieServiceAndroid',
+        );
+      }
+    } catch (e, stackTrace) {
+      _logger.warning(
+        'Failed to delete cookie files on disk',
+        component: 'CookieServiceAndroid',
+        error: e,
+        stackTrace: stackTrace,
+      );
+    }
   }
 
   /// Export cookies to file (for compatibility with yt-dlp if needed)

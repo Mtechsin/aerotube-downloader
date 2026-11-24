@@ -1,351 +1,573 @@
+import 'package:material_symbols_icons/symbols.dart';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:provider/provider.dart';
+
 import '../../../core/theme/app_motion.dart';
-import '../../../providers/navigation_provider.dart';
+import '../../../core/theme/tokens/colors.dart';
+import '../../../core/theme/tokens/radius.dart';
+import '../../../core/theme/tokens/typography.dart';
 import '../../../providers/download_provider.dart';
+import '../../../providers/navigation_provider.dart';
 import '../../../providers/platform_settings_provider.dart';
 
+class _DesktopNavItemConfig {
+  final IconData iconOutlined;
+  final IconData iconFilled;
+  final String label;
+  final String shortcut;
+  final bool showBadge;
+
+  const _DesktopNavItemConfig({
+    required this.iconOutlined,
+    required this.iconFilled,
+    required this.label,
+    required this.shortcut,
+    this.showBadge = false,
+  });
+}
+
+/// One persistent desktop sidebar. All geometry uses the same expansion value.
 class AppNavigationRail extends StatelessWidget {
   final AnimationController entranceController;
-
   const AppNavigationRail({super.key, required this.entranceController});
 
   static const _navItems = [
-    _NavItemConfig(icon: Icons.home_outlined, label: 'Home'),
-    _NavItemConfig(icon: Icons.search_outlined, label: 'Search'),
-    _NavItemConfig(
-      icon: Icons.download_outlined,
+    _DesktopNavItemConfig(
+      iconOutlined: Symbols.home_rounded,
+      iconFilled: Symbols.home_rounded,
+      label: 'Home',
+      shortcut: 'Ctrl+1',
+    ),
+    _DesktopNavItemConfig(
+      iconOutlined: Symbols.search_rounded,
+      iconFilled: Symbols.search_rounded,
+      label: 'Search',
+      shortcut: 'Ctrl+2',
+    ),
+    _DesktopNavItemConfig(
+      iconOutlined: Symbols.download_rounded,
+      iconFilled: Symbols.download_rounded,
       label: 'Library',
+      shortcut: 'Ctrl+3',
       showBadge: true,
     ),
-    _NavItemConfig(icon: Icons.settings_outlined, label: 'Settings'),
+    _DesktopNavItemConfig(
+      iconOutlined: Symbols.settings_rounded,
+      iconFilled: Symbols.settings_rounded,
+      label: 'Settings',
+      shortcut: 'Ctrl+4, Ctrl+,',
+    ),
   ];
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-    final enableAnimations = context.select<PlatformSettingsProvider, bool>(
-      (p) => p.enableAnimations,
+    final colors = context.aero;
+    final settings = context.watch<PlatformSettingsProvider>();
+    final wideWindow = MediaQuery.sizeOf(context).width >= 1000;
+    final isExpanded = settings.isSidebarExpanded && wideWindow;
+    final nav = context.watch<NavigationProvider>();
+    final activeCount = context.select<DownloadProvider, int>(
+      (p) => p.activeCount,
     );
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final isAmoled = isDark && settings.amoledDark;
+    final themeLabel = isAmoled ? 'AMOLED' : (isDark ? 'Dark' : 'Light');
+    final loggedIn = settings.isYouTubeLoggedIn;
+    final statusColor = loggedIn
+        ? colors.success
+        : settings.isCookieActive
+        ? colors.info
+        : colors.onSurfaceFaint;
 
-    return Container(
-          width: 80,
-          decoration: BoxDecoration(
-            color:
-                theme.navigationRailTheme.backgroundColor ??
-                theme.scaffoldBackgroundColor,
-            border: Border(
-              right: BorderSide(
-                color: isDark
-                    ? Colors.white.withValues(alpha: 0.05)
-                    : Colors.black.withValues(alpha: 0.05),
-                width: 1.0,
-              ),
-            ),
+    return TweenAnimationBuilder<double>(
+          tween: Tween<double>(
+            begin: isExpanded ? 1 : 0,
+            end: isExpanded ? 1 : 0,
           ),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 32.0),
+          duration: appMotionDuration(context, AppMotion.medium),
+          curve: AppMotion.emphasized,
+          builder: (context, expansion, _) => Container(
+            width: 72 + 160 * expansion,
+            clipBehavior: Clip.hardEdge,
+            decoration: BoxDecoration(
+              color: colors.surface1,
+              border: Border(right: BorderSide(color: colors.outline)),
+            ),
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Spacer(),
-                Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: List.generate(_navItems.length, (index) {
-                    return Padding(
-                      padding: EdgeInsets.only(
-                        bottom: index < _navItems.length - 1 ? 32.0 : 0,
+                // The same header button, logo and wordmark stay mounted in both states.
+                Tooltip(
+                  message: wideWindow
+                      ? (isExpanded ? 'Collapse sidebar' : 'Expand sidebar')
+                      : 'Widen the window to show labels',
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: wideWindow
+                          ? () => settings.setSidebarExpanded(!isExpanded)
+                          : null,
+                      child: Container(
+                        height: 56,
+                        padding: EdgeInsets.symmetric(
+                          horizontal: 19.5 - 6 * expansion,
+                        ),
+                        decoration: BoxDecoration(
+                          border: Border(
+                            bottom: BorderSide(color: colors.outline),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 32,
+                              height: 32,
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  colors: [
+                                    colors.primary,
+                                    colors.primary.withValues(alpha: 0.75),
+                                  ],
+                                ),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: const Icon(
+                                Symbols.play_arrow_rounded,
+                                size: 20,
+                                color: Colors.white,
+                              ),
+                            ),
+                            Expanded(
+                              child: _RailDetails(
+                                expansion: expansion,
+                                width: 172,
+                                child: Row(
+                                  children: [
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: RichText(
+                                        text: TextSpan(
+                                          children: [
+                                            TextSpan(
+                                              text: 'Aero',
+                                              style: TextStyle(
+                                                fontFamily: 'Manrope',
+                                                fontSize: 18,
+                                                fontWeight: FontWeight.w800,
+                                                color: colors.onSurface,
+                                                letterSpacing: -0.4,
+                                              ),
+                                            ),
+                                            TextSpan(
+                                              text: 'Tube',
+                                              style: TextStyle(
+                                                fontFamily: 'Manrope',
+                                                fontSize: 18,
+                                                fontWeight: FontWeight.w400,
+                                                color: colors.primary,
+                                                letterSpacing: -0.4,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                    Icon(
+                                      Symbols.menu_open_rounded,
+                                      size: 18,
+                                      color: colors.onSurfaceMuted,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                      child: _NavItem(
-                        index: index,
-                        config: _navItems[index],
-                        entranceController: entranceController,
-                      ),
-                    );
-                  }),
+                    ),
+                  ),
                 ),
-                const Spacer(),
-                _UserAvatar(entranceController: entranceController),
+                SizedBox(
+                  height: 10 + 26 * expansion,
+                  child: _RailDetails(
+                    expansion: expansion,
+                    width: 232,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+                      child: Text(
+                        'WORKSPACE',
+                        style: AeroText.caption.copyWith(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          color: colors.onSurfaceFaint,
+                          letterSpacing: 1.2,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: ListView.separated(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 4,
+                    ),
+                    itemCount: _navItems.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 4),
+                    itemBuilder: (context, index) {
+                      final item = _navItems[index];
+                      final selected = nav.currentIndex == index;
+                      final count = item.showBadge ? activeCount : 0;
+                      return _RailRow(
+                        key: ValueKey('sidebar-${item.label}'),
+                        expansion: expansion,
+                        selected: selected,
+                        tooltip: '${item.label} (${item.shortcut})',
+                        onTap: () => nav.setIndex(index),
+                        icon: Icon(
+                          selected ? item.iconFilled : item.iconOutlined,
+                          fill: selected ? 1 : 0,
+                          size: 20,
+                          color: selected
+                              ? colors.primary
+                              : colors.onSurfaceMuted,
+                        ),
+                        badgeCount: count,
+                        details: Row(
+                          children: [
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                item.label,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: AeroText.bodySm.copyWith(
+                                  fontSize: 13,
+                                  fontWeight: selected
+                                      ? FontWeight.w600
+                                      : FontWeight.w500,
+                                  color: selected
+                                      ? colors.primary
+                                      : colors.onSurface,
+                                ),
+                              ),
+                            ),
+                            if (count == 0)
+                              _Shortcut(
+                                text: item.shortcut.split(',').first.trim(),
+                              ),
+                            // The single badge is positioned by _RailRow throughout the animation.
+                            if (count > 0) const SizedBox(width: 28),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    border: Border(top: BorderSide(color: colors.outline)),
+                  ),
+                  child: Column(
+                    children: [
+                      _RailRow(
+                        key: const ValueKey('sidebar-account'),
+                        expansion: expansion,
+                        height: 44,
+                        tooltip: loggedIn
+                            ? 'Signed in (Cookies active)'
+                            : 'Guest Account',
+                        onTap: () => nav.setIndex(3),
+                        icon: Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            Container(
+                              width: 28,
+                              height: 28,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: colors.surface2,
+                                border: Border.all(color: colors.outline),
+                              ),
+                              child: ClipOval(
+                                child:
+                                    loggedIn &&
+                                        settings.youtubeProfileImageUrl != null
+                                    ? Image.network(
+                                        settings.youtubeProfileImageUrl!,
+                                        fit: BoxFit.cover,
+                                        errorBuilder: (_, __, ___) => Icon(
+                                          Symbols.person_rounded,
+                                          size: 15,
+                                          color: colors.primary,
+                                        ),
+                                      )
+                                    : Icon(
+                                        loggedIn
+                                            ? Symbols.person_rounded
+                                            : Symbols.person_rounded,
+                                        size: 15,
+                                        color: colors.onSurfaceMuted,
+                                      ),
+                              ),
+                            ),
+                            Positioned(
+                              right: -1,
+                              bottom: -1,
+                              child: Container(
+                                width: 7.5,
+                                height: 7.5,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: statusColor,
+                                  border: Border.all(
+                                    color: colors.surface1,
+                                    width: 1.5,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        details: Row(
+                          children: [
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    loggedIn ? 'YouTube User' : 'Guest',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: AeroText.bodySm.copyWith(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      color: colors.onSurface,
+                                    ),
+                                  ),
+                                  Text(
+                                    loggedIn
+                                        ? 'Signed in'
+                                        : settings.isCookieActive
+                                        ? 'Cookies active'
+                                        : 'Not signed in',
+                                    maxLines: 1,
+                                    style: AeroText.caption.copyWith(
+                                      fontSize: 10,
+                                      height: 1.2,
+                                      color: statusColor,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Icon(
+                              Symbols.chevron_right_rounded,
+                              size: 16,
+                              color: colors.onSurfaceFaint,
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      _RailRow(
+                        key: const ValueKey('sidebar-theme'),
+                        expansion: expansion,
+                        height: 38,
+                        tooltip: 'Toggle theme ($themeLabel)',
+                        onTap: () => settings.setThemeMode(
+                          isDark ? ThemeMode.light : ThemeMode.dark,
+                        ),
+                        icon: Icon(
+                          isAmoled
+                              ? Symbols.contrast_rounded
+                              : isDark
+                              ? Symbols.dark_mode_rounded
+                              : Symbols.light_mode_rounded,
+                          size: 18,
+                          color: colors.onSurfaceMuted,
+                        ),
+                        details: Row(
+                          children: [
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                '$themeLabel Theme',
+                                maxLines: 1,
+                                style: AeroText.caption.copyWith(
+                                  fontSize: 12,
+                                  color: colors.onSurfaceMuted,
+                                ),
+                              ),
+                            ),
+                            _Shortcut(text: themeLabel),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ],
             ),
           ),
         )
         .animate(controller: entranceController)
         .fadeIn(
-          duration: enableAnimations ? 220.ms : Duration.zero,
-          curve: Curves.easeOut,
+          duration: appMotionDuration(context, 220.ms),
+          curve: Curves.linear,
         )
         .slideX(
-          begin: enableAnimations ? -0.08 : 0,
+          begin: settings.enableAnimations ? -0.06 : 0,
           end: 0,
-          duration: enableAnimations ? 280.ms : Duration.zero,
-          curve: Curves.easeOutCubic,
+          duration: appMotionDuration(context, 280.ms),
+          curve: Curves.linear,
         );
   }
 }
 
-class _UserAvatar extends StatelessWidget {
-  final AnimationController entranceController;
-  const _UserAvatar({required this.entranceController});
-
-  @override
-  Widget build(BuildContext context) {
-    return Consumer<PlatformSettingsProvider>(
-      builder: (context, provider, _) {
-        final isAuth = provider.isCookieActive;
-        final theme = Theme.of(context);
-        final enableAnimations = provider.enableAnimations;
-        return Tooltip(
-              message: isAuth ? 'YouTube Profile' : 'Guest Account',
-              preferBelow: false,
-              decoration: BoxDecoration(
-                color: theme.colorScheme.primary,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              textStyle: const TextStyle(
-                color: Colors.white,
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-              ),
-              child: Container(
-                width: 42,
-                height: 42,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: isAuth
-                      ? theme.colorScheme.primary.withValues(alpha: 0.18)
-                      : theme.colorScheme.onSurface.withValues(alpha: 0.1),
-                  border: Border.all(
-                    color: isAuth
-                        ? theme.colorScheme.primary.withValues(alpha: 0.45)
-                        : theme.colorScheme.onSurface.withValues(alpha: 0.2),
-                    width: 1,
-                  ),
-                ),
-                child: Center(
-                  child: isAuth
-                      ? (provider.youtubeProfileImageUrl != null
-                            ? ClipRRect(
-                                borderRadius: BorderRadius.circular(100),
-                                child: Image.network(
-                                  provider.youtubeProfileImageUrl!,
-                                  width: 42,
-                                  height: 42,
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (_, __, ___) => Icon(
-                                    Icons.person,
-                                    color: theme.colorScheme.primary,
-                                    size: 20,
-                                  ),
-                                ),
-                              )
-                            : Icon(
-                                Icons.person,
-                                color: theme.colorScheme.primary,
-                                size: 20,
-                              ))
-                      : const Text(
-                          'G',
-                          style: TextStyle(
-                            color: Color(0xFF9E9EA4),
-                            fontWeight: FontWeight.w700,
-                            fontSize: 14,
-                          ),
-                        ),
-                ),
-              ),
-            )
-            .animate(controller: entranceController)
-            .fadeIn(
-              delay: enableAnimations ? 500.ms : Duration.zero,
-              duration: enableAnimations ? 400.ms : Duration.zero,
-            )
-            .scale(
-              delay: enableAnimations ? 500.ms : Duration.zero,
-              duration: enableAnimations ? 400.ms : Duration.zero,
-              curve: Curves.easeOutBack,
-            );
-      },
-    );
-  }
-}
-
-class _NavItem extends StatefulWidget {
-  final int index;
-  final _NavItemConfig config;
-  final AnimationController entranceController;
-  const _NavItem({
-    required this.index,
-    required this.config,
-    required this.entranceController,
+/// Fixed-width text stays mounted and fades within its shrinking slot.
+class _RailDetails extends StatelessWidget {
+  final double expansion;
+  final double width;
+  final Widget child;
+  const _RailDetails({
+    required this.expansion,
+    required this.child,
+    this.width = 162,
   });
-
   @override
-  State<_NavItem> createState() => _NavItemState();
+  Widget build(BuildContext context) => ExcludeSemantics(
+    excluding: expansion < 1,
+    child: IgnorePointer(
+      ignoring: expansion < 1,
+      child: ClipRect(
+        child: OverflowBox(
+          alignment: Alignment.centerLeft,
+          minWidth: width,
+          maxWidth: width,
+          child: Opacity(
+            opacity: expansion,
+            child: SizedBox(width: width, child: child),
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
-class _NavItemState extends State<_NavItem>
-    with SingleTickerProviderStateMixin {
-  bool _isHovered = false;
-  late AnimationController _bounceController;
-  bool _wasSelected = false;
-
+class _RailRow extends StatefulWidget {
+  final double expansion;
+  final double height;
+  final bool selected;
+  final int badgeCount;
+  final String tooltip;
+  final VoidCallback onTap;
+  final Widget icon;
+  final Widget details;
+  const _RailRow({
+    super.key,
+    required this.expansion,
+    required this.tooltip,
+    required this.onTap,
+    required this.icon,
+    required this.details,
+    this.height = 42,
+    this.selected = false,
+    this.badgeCount = 0,
+  });
   @override
-  void initState() {
-    super.initState();
-    _bounceController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 300),
-    );
-  }
+  State<_RailRow> createState() => _RailRowState();
+}
 
-  @override
-  void dispose() {
-    _bounceController.dispose();
-    super.dispose();
-  }
-
-  @override
-  void didUpdateWidget(_NavItem oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.index != widget.index) {
-      _wasSelected = false;
-    }
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final isSelected =
-        context.read<NavigationProvider>().currentIndex == widget.index;
-    final enableAnimations = context
-        .read<PlatformSettingsProvider>()
-        .enableAnimations;
-    if (isSelected && !_wasSelected && enableAnimations) {
-      _bounceController.forward(from: 0);
-    }
-    _wasSelected = isSelected;
-  }
-
+class _RailRowState extends State<_RailRow> {
+  bool _hovered = false;
   @override
   Widget build(BuildContext context) {
-    final currentIndex = context.select<NavigationProvider, int>(
-      (p) => p.currentIndex,
-    );
-    final isSelected = currentIndex == widget.index;
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-    final badgeCount = widget.config.showBadge
-        ? context.select<DownloadProvider, int>((p) => p.activeCount)
-        : 0;
-
-    final activeColor =
-        theme.navigationRailTheme.selectedIconTheme?.color ??
-        theme.colorScheme.primary;
-    final inactiveColor =
-        theme.navigationRailTheme.unselectedIconTheme?.color ??
-        (isDark ? const Color(0xFF9C9CA1) : const Color(0xFF6D6D72));
-    final hoverColor = isDark
-        ? const Color(0xFFD1D5DB)
-        : const Color(0xFF374151);
-
-    return RepaintBoundary(
+    final colors = context.aero;
+    return Tooltip(
+      message: widget.tooltip,
+      waitDuration: const Duration(milliseconds: 400),
       child: MouseRegion(
-        onEnter: (_) => setState(() => _isHovered = true),
-        onExit: (_) => setState(() => _isHovered = false),
         cursor: SystemMouseCursors.click,
-        child: GestureDetector(
-          behavior: HitTestBehavior.translucent,
-          onTap: () {
-            FocusScope.of(context).unfocus();
-            final nav = context.read<NavigationProvider>();
-            if (nav.currentIndex != widget.index) nav.setIndex(widget.index);
-          },
-          child: Tooltip(
-            message: widget.config.label,
-            waitDuration: const Duration(milliseconds: 500),
-            preferBelow: false,
-            decoration: BoxDecoration(
-              color: theme.colorScheme.primary,
-              borderRadius: BorderRadius.circular(8),
-              boxShadow: [
-                BoxShadow(
-                  color: theme.colorScheme.primary.withValues(alpha: 0.3),
-                  blurRadius: 8,
-                ),
-              ],
-            ),
-            textStyle: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w600,
-              fontSize: 12,
-            ),
-            child: AnimatedContainer(
-              duration: appMotionDuration(context, AppMotion.short),
-              curve: AppMotion.emphasized,
-              width: 48,
-              height: 48,
+        onEnter: (_) => setState(() => _hovered = true),
+        onExit: (_) => setState(() => _hovered = false),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: AeroRadius.smBorderRadius,
+            onTap: widget.onTap,
+            child: Container(
+              height: widget.height,
               decoration: BoxDecoration(
-                color: isSelected
-                    ? activeColor.withValues(alpha: 0.16)
-                    : (_isHovered
-                          ? (isDark
-                                ? Colors.white.withValues(alpha: 0.06)
-                                : Colors.black.withValues(alpha: 0.04))
-                          : Colors.transparent),
-                borderRadius: BorderRadius.circular(12),
+                color: widget.selected
+                    ? colors.primarySoft
+                    : _hovered
+                    ? colors.surface2
+                    : Colors.transparent,
+                borderRadius: AeroRadius.smBorderRadius,
                 border: Border.all(
-                  color: isSelected
-                      ? activeColor.withValues(alpha: 0.4)
+                  color: widget.selected
+                      ? colors.primary.withValues(alpha: 0.28)
+                      : _hovered
+                      ? colors.outline.withValues(alpha: 0.4)
                       : Colors.transparent,
                 ),
               ),
-              transform: Matrix4.diagonal3Values(
-                _isHovered && !isSelected ? 1.05 : 1.0,
-                _isHovered && !isSelected ? 1.05 : 1.0,
-                1.0,
-              ),
-              transformAlignment: Alignment.center,
               child: Stack(
-                clipBehavior: Clip.none,
+                alignment: Alignment.centerLeft,
                 children: [
-                  Center(
-                    child: AnimatedBuilder(
-                      animation: _bounceController,
-                      builder: (context, child) {
-                        final bounceValue = AppMotion.bounceSpringCurve
-                            .transform(_bounceController.value);
-                        final scale =
-                            1.0 +
-                            (bounceValue *
-                                0.15 *
-                                (1 - _bounceController.value));
-                        final rotation = widget.index == 3 && isSelected
-                            ? bounceValue * 0.5
-                            : 0.0;
-                        return Transform.scale(
-                          scale: scale,
-                          child: Transform.rotate(
-                            angle: rotation,
-                            child: child,
+                  if (widget.selected)
+                    Positioned(
+                      left: 0,
+                      top: 8,
+                      bottom: 8,
+                      child: Container(
+                        width: 3,
+                        decoration: BoxDecoration(
+                          color: colors.primary,
+                          borderRadius: const BorderRadius.horizontal(
+                            right: Radius.circular(3),
                           ),
-                        );
-                      },
-                      child: Icon(
-                        widget.config.icon,
-                        color: isSelected
-                            ? activeColor
-                            : (_isHovered ? hoverColor : inactiveColor),
-                        size: 24,
+                        ),
                       ),
                     ),
+                  Padding(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: 10.5 - widget.expansion,
+                    ),
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: 28,
+                          height: 28,
+                          child: Center(child: widget.icon),
+                        ),
+                        Expanded(
+                          child: _RailDetails(
+                            expansion: widget.expansion,
+                            child: widget.details,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                  if (badgeCount > 0)
+                  if (widget.badgeCount > 0)
                     Positioned(
-                      right: 4,
-                      top: 4,
-                      child: _Badge(count: badgeCount, theme: theme),
+                      right: 4 + 6 * widget.expansion,
+                      top: 2 + 10 * widget.expansion,
+                      child: _Shortcut(
+                        text: widget.badgeCount > 99
+                            ? '99+'
+                            : '${widget.badgeCount}',
+                        badge: true,
+                      ),
                     ),
                 ],
               ),
@@ -357,62 +579,28 @@ class _NavItemState extends State<_NavItem>
   }
 }
 
-class _Badge extends StatelessWidget {
-  final int count;
-  final ThemeData theme;
-  const _Badge({required this.count, required this.theme});
-
+class _Shortcut extends StatelessWidget {
+  final String text;
+  final bool badge;
+  const _Shortcut({required this.text, this.badge = false});
   @override
   Widget build(BuildContext context) {
-    return AnimatedSwitcher(
-      duration: appMotionDuration(context, AppMotion.short),
-      transitionBuilder: (child, animation) =>
-          ScaleTransition(scale: animation, child: child),
-      child: Container(
-        key: ValueKey(count),
-        padding: const EdgeInsets.all(4),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              theme.colorScheme.error,
-              theme.colorScheme.error.withValues(alpha: 0.85),
-            ],
-          ),
-          shape: BoxShape.circle,
-          boxShadow: [
-            BoxShadow(
-              color: theme.colorScheme.error.withValues(alpha: 0.4),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
-            ),
-          ],
-          border: Border.all(color: Colors.white, width: 1.5),
-        ),
-        constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
-        child: Center(
-          child: Text(
-            count > 9 ? '9+' : '$count',
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 9,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
+    final colors = context.aero;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+      decoration: BoxDecoration(
+        color: badge ? colors.primary : colors.surface2,
+        borderRadius: BorderRadius.circular(badge ? 12 : 4),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontFamily: badge ? 'Manrope' : 'Consolas',
+          fontSize: 9.5,
+          fontWeight: FontWeight.w600,
+          color: badge ? colors.onPrimary : colors.onSurfaceFaint,
         ),
       ),
     );
   }
-}
-
-class _NavItemConfig {
-  final IconData icon;
-  final String label;
-  final bool showBadge;
-  const _NavItemConfig({
-    required this.icon,
-    required this.label,
-    this.showBadge = false,
-  });
 }

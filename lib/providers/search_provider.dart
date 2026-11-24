@@ -3,11 +3,69 @@ import 'package:flutter/material.dart';
 import '../models/search_video_result.dart';
 import '../services/core/search_service.dart';
 import '../services/core/logging_service.dart';
+import '../services/ytdlp/ytdlp_service_android.dart';
+import '../services/ytdlp/ytdlp_service_windows.dart';
 import '../core/utils/error_helper.dart';
 
 class SearchProvider extends ChangeNotifier {
-  final SearchService _searchService = SearchService();
+  late final SearchService _searchService;
   Timer? _debounceTimer;
+
+  SearchProvider({dynamic ytdlpService}) {
+    _searchService = SearchService(
+      ytdlpFallback: ytdlpService == null
+          ? null
+          : (query, {int limit = 10}) =>
+                _searchViaYtdlp(ytdlpService, query, limit),
+    );
+  }
+
+  /// Platform-aware yt-dlp `ytsearchN:` fallback used when explode search fails.
+  Future<List<SearchVideoResult>> _searchViaYtdlp(
+    dynamic service,
+    String query,
+    int limit,
+  ) async {
+    Map<String, dynamic> raw;
+    if (service is YtdlpServiceAndroid) {
+      raw = await service.searchVideosRaw(query, limit: limit);
+    } else if (service is YtdlpService) {
+      raw = await service.searchVideosRaw(query, limit: limit);
+    } else {
+      return const [];
+    }
+
+    final resultsObj = raw['results'] as Map<String, dynamic>?;
+    final entries = (resultsObj?['entries'] as List?) ?? const [];
+    final mapped = <SearchVideoResult>[];
+    for (final e in entries) {
+      if (e is! Map) continue;
+      final id = (e['id'] ?? e['url'] ?? '').toString();
+      if (id.isEmpty) continue;
+      // Flat entries may store a full watch URL in `url`.
+      final videoId = id.contains('watch?v=')
+          ? id.split('watch?v=').last.split('&').first
+          : id;
+      if (videoId.isEmpty) continue;
+      final durationSec = e['duration'];
+      mapped.add(
+        SearchVideoResult(
+          id: videoId,
+          title: (e['title'] ?? 'Untitled').toString(),
+          author: (e['channel'] ?? e['uploader'] ?? 'Unknown').toString(),
+          thumbnailUrl: (e['thumbnail'] ??
+                  'https://i.ytimg.com/vi/$videoId/mqdefault.jpg')
+              .toString(),
+          duration: durationSec is num
+              ? Duration(seconds: durationSec.toInt())
+              : null,
+          viewCount: (e['view_count'] as num?)?.toInt(),
+          uploadDate: e['upload_date']?.toString(),
+        ),
+      );
+    }
+    return mapped;
+  }
 
   List<SearchVideoResult> _searchResults = [];
   List<SearchVideoResult> _trendingVideos = [];

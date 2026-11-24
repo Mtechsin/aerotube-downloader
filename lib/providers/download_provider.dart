@@ -50,6 +50,10 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
   List<DownloadItem> _historyDownloads = [];
 
   final Map<String, Process> _activeProcesses = {};
+  // C1/C2: ids currently inside _startDownloadInternal (including pre-flight).
+  // Prevents double-start while status is still queued and prevents
+  // cancel-during-pre-flight from spawning an orphan process.
+  final Set<String> _currentlyProcessingIds = {};
 
   late Box<DownloadItem> _downloadsBox;
   late Box<DownloadItem> _activeDownloadsBox;
@@ -64,6 +68,8 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
   // Mirrors ToolUpdateProvider throttling (tool_update_provider:87-90)
   DateTime _lastNotify = DateTime.fromMillisecondsSinceEpoch(0);
   static const int _throttleMs = 100;
+  // Trailing-edge flush so the last progress tick in a burst is never dropped.
+  Timer? _pendingProgressNotify;
   // Compat aliases for existing code/tests expecting _lastProgressNotify naming
   // ignore: unused_element, unnecessary_getters_setters
   DateTime get _lastProgressNotify => _lastNotify;
@@ -73,13 +79,27 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
   static const int _progressThrottleMs = _throttleMs;
 
   void _throttledNotify() {
+    if (_isDisposed) return;
     final now = DateTime.now();
-    if (now.difference(_lastNotify).inMilliseconds >= _throttleMs) {
+    final sinceLast = now.difference(_lastNotify).inMilliseconds;
+    if (sinceLast >= _throttleMs) {
       _lastNotify = now;
       // PF2 cache invalidation: progress mutates _activeDownloads
       _markActiveDirty();
       notifyListeners();
+      return;
     }
+    // Schedule trailing flush so a burst that stops still delivers the last update.
+    _pendingProgressNotify ??= Timer(
+      Duration(milliseconds: _throttleMs - sinceLast),
+      () {
+        _pendingProgressNotify = null;
+        if (_isDisposed) return;
+        _lastNotify = DateTime.now();
+        _markActiveDirty();
+        notifyListeners();
+      },
+    );
   }
 
   DownloadProvider(
@@ -123,7 +143,17 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
           stackTrace: retrySt,
         );
         try {
-          return await Hive.openBox<DownloadItem>('${boxName}_recovered');
+          final recovered = await Hive.openBox<DownloadItem>(
+            '${boxName}_recovered',
+          );
+          // M10: surface the silent box switch so users know history was
+          // recovered into a fallback box and may be incomplete.
+          LoggingService().showUserLog(
+            'Download history was recovered into a fallback storage box. '
+            'Some past entries may be missing.',
+            isWarning: true,
+          );
+          return recovered;
         } catch (fallbackErr, fallbackSt) {
           LoggingService().error(
             'Failed to open fallback box for "$boxName": $fallbackErr',
@@ -184,8 +214,9 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.detached ||
-        state == AppLifecycleState.hidden) {
+    // C6: On Windows, AppLifecycleState.hidden fires on minimize/occlusion —
+    // only detached means the app is actually exiting. Never shut down on hidden.
+    if (state == AppLifecycleState.detached) {
       _initiateGracefulShutdown();
     }
   }
@@ -359,7 +390,8 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
   int get completedCount => _historyDownloads
       .length; // Approximate, assuming history is completed/failed
 
-  Future<void> startDownload({
+  /// Returns true when a new item was queued, false when it was a duplicate.
+  Future<bool> startDownload({
     required VideoInfo video,
     required String outputPath,
     required DownloadMode mode,
@@ -393,7 +425,11 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
         'Download already in queue: ${video.title}',
         component: 'DownloadProvider',
       );
-      return;
+      LoggingService().showUserLog(
+        'Already downloading: ${video.title}',
+        isWarning: true,
+      );
+      return false;
     }
 
     // Normalize estimatedFileSize: treat 0 or negative as unknown (null)
@@ -428,6 +464,7 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
 
     _processQueue();
+    return true;
   }
 
   /// PF10 fix: batched enqueue — single Hive write + single notify + single queue processing.
@@ -545,9 +582,14 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
     final availableSlots = maxConcurrent - currentlyRunning;
     if (availableSlots <= 0) return;
 
-    // Start queued downloads (skip paused items)
+    // C1: skip items already inside _startDownloadInternal (still marked queued
+    // during pre-flight) so a second _processQueue cannot double-start them.
     final queuedItems = _activeDownloads
-        .where((item) => item.status == DownloadStatus.queued)
+        .where(
+          (item) =>
+              item.status == DownloadStatus.queued &&
+              !_currentlyProcessingIds.contains(item.id),
+        )
         .take(availableSlots)
         .toList();
 
@@ -558,14 +600,23 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   /// Internal method to actually start a download process
   Future<void> _startDownloadInternal(DownloadItem item) async {
+    // C1/C2: claim the item synchronously before any await.
+    if (_currentlyProcessingIds.contains(item.id)) return;
+    _currentlyProcessingIds.add(item.id);
     try {
       // Disk-space pre-flight (B10 fix): check available space before spawning yt-dlp
       if (item.totalBytes != null && item.totalBytes! > 0) {
         final available = await _getAvailableDiskSpace(item.outputPath);
+        // C2: re-validate after await — user may have cancelled/paused.
+        if (!_isActiveAndStillQueued(item)) return;
         if (available != null) {
           const bufferBytes = 100 * 1024 * 1024; // 100 MiB safety margin
           final required = item.totalBytes! + bufferBytes;
-          if (available < required) {
+          // H30: totalBytes is often a bitrate-table estimate. Only hard-fail
+          // when free space is critically low; otherwise warn and proceed —
+          // yt-dlp reports a real ENOSPC if the download actually fills the disk.
+          const criticalFloorBytes = 50 * 1024 * 1024;
+          if (available < criticalFloorBytes) {
             LoggingService().warning(
               'Insufficient disk space for ${item.title}: need ${_formatBytes(required)}, available ${_formatBytes(available)}',
               component: 'DownloadProvider',
@@ -582,19 +633,26 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
               _markActiveDirty();
               _saveActiveDownloads();
               await _addToHistory(failedItem);
-              LoggingService().showUserLog(
-                'Download failed: ${item.title} — insufficient disk space',
-                isError: true,
-              );
+              // Single in-app surface: SnackBar only.
               _notificationService?.show(
                 title: 'Download Failed',
                 body: 'Insufficient disk space for ${item.title}',
                 isError: true,
+                alsoSystemNotification: false,
               );
               notifyListeners();
               _processQueue();
               return;
             }
+          } else if (available < required) {
+            LoggingService().warning(
+              'Disk space may be tight for ${item.title}: estimated need ${_formatBytes(required)}, available ${_formatBytes(available)}',
+              component: 'DownloadProvider',
+            );
+            LoggingService().showUserLog(
+              'Disk space may be tight — estimated ${_formatBytes(required)} needed, ${_formatBytes(available)} free',
+              isWarning: true,
+            );
           } else {
             LoggingService().debug(
               'Disk-space pre-flight passed for ${item.title}: need ${_formatBytes(required)}, available ${_formatBytes(available)}',
@@ -614,9 +672,16 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
         );
       }
 
-      // yt-dlp --windows-filenames (set in _buildCommonArgs) strips
-      // | : * ? " < > \ so titles like "A | B" don't fail on NTFS.
-      final templatePath = '${item.outputPath}\\%(title)s.%(ext)s';
+      // C2: final re-check before spawning the process.
+      if (!_isActiveAndStillQueued(item)) return;
+
+      // Platform-aware output template. --windows-filenames (set in
+      // _buildCommonArgs) strips | : * ? " < > \ so titles like "A | B" don't
+      // fail on NTFS. Include %(id)s so same-title videos never collide (C5).
+      final templatePath = p.join(
+        item.outputPath,
+        '%(title)s [%(id)s].%(ext)s',
+      );
 
       // Build archive path if enabled
       // PF4 fix: async dir check/create to avoid blocking main isolate
@@ -626,8 +691,10 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
         if (!await dir.exists()) {
           await dir.create(recursive: true);
         }
-        archivePath = '${item.outputPath}\\download_archive.txt';
+        archivePath = p.join(item.outputPath, 'download_archive.txt');
       }
+      // C2: re-check once more after the optional directory create.
+      if (!_isActiveAndStillQueued(item)) return;
 
       final process = await _ytdlpService.downloadVideo(
         url: item.url,
@@ -685,7 +752,10 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
             }
           }
 
-          final progress = YtdlpService.parseProgress(line);
+          final progress = YtdlpService.parseProgress(
+            line,
+            audioOnly: item.audioOnly,
+          );
           if (progress != null) {
             final idx = _activeDownloads.indexWhere((d) => d.id == item.id);
             if (idx != -1) {
@@ -778,13 +848,20 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
             component: 'DownloadProvider',
           );
 
-          LoggingService().showUserLog('Download complete: ${finalItem.title}');
-
+          // Single in-app surface: SnackBar only. History already holds the record.
           _notificationService?.show(
             title: 'Download Complete',
             body: finalItem.title,
+            alsoSystemNotification: false,
             onTap: () {
-              Process.run('explorer', [finalItem.outputPath]);
+              final openPath = finalItem.savePath ?? finalItem.outputPath;
+              if (Platform.isWindows) {
+                Process.run('explorer.exe', [openPath]);
+              } else if (Platform.isMacOS) {
+                Process.run('open', [openPath]);
+              } else {
+                Process.run('xdg-open', [openPath]);
+              }
             },
           );
         } else {
@@ -813,17 +890,14 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
               component: 'DownloadProvider',
             );
 
-            LoggingService().showUserLog(
-              'Download failed: ${finalItem.title} — $errorMsg',
-              isError: true,
-            );
-
+            // Single in-app surface: SnackBar only. History already holds the error.
             _notificationService?.show(
               title: 'Download Failed',
               body: errorMsg.length > 120
                   ? '${errorMsg.substring(0, 117)}...'
                   : errorMsg,
               isError: true,
+              alsoSystemNotification: false,
             );
           } else {
             _activeDownloads.removeAt(idx);
@@ -870,15 +944,12 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
           _saveActiveDownloads();
           _addToHistory(finalItem);
 
-          logger.showUserLog(
-            'Download failed: ${finalItem.title}',
-            isError: true,
-          );
-
+          // Single in-app surface: SnackBar only.
           _notificationService?.show(
             title: 'Download Failed',
             body: 'Failed to download ${finalItem.title}',
             isError: true,
+            alsoSystemNotification: false,
           );
         }
       }
@@ -887,10 +958,24 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
 
       // Process queue after failure
       _processQueue();
+    } finally {
+      _currentlyProcessingIds.remove(item.id);
     }
   }
 
+  /// C2: true when [item] is still in _activeDownloads and still queued/pending.
+  /// Used after awaits in _startDownloadInternal so cancel/pause during
+  /// pre-flight does not spawn an orphan yt-dlp process.
+  bool _isActiveAndStillQueued(DownloadItem item) {
+    final idx = _activeDownloads.indexWhere((d) => d.id == item.id);
+    if (idx == -1) return false;
+    final status = _activeDownloads[idx].status;
+    return status == DownloadStatus.queued ||
+        status == DownloadStatus.pending;
+  }
+
   void cancelDownload(String id) {
+    _currentlyProcessingIds.remove(id);
     if (_activeProcesses.containsKey(id)) {
       _activeProcesses[id]?.kill();
       _activeProcesses.remove(id);
@@ -928,6 +1013,7 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   void pauseDownload(String id) {
+    _currentlyProcessingIds.remove(id);
     if (_activeProcesses.containsKey(id)) {
       _activeProcesses[id]?.kill();
       _activeProcesses.remove(id);
@@ -975,13 +1061,22 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
       key = newId;
     }
     await _downloadsBox.put(key, itemToStore);
-    // P6 fix: trim history to max 200 entries to prevent unbounded growth
+    // P6 fix: trim history to max 200 entries to prevent unbounded growth.
+    // H12: per-key safe read — a corrupted entry must not throw while trimming.
     if (_downloadsBox.length > 200) {
-      final entries = _downloadsBox.keys
-          .map((k) => MapEntry(k, _downloadsBox.get(k)!))
-          .toList()
-        ..sort((a, b) => (a.value.completedDate ?? DateTime(1970))
-            .compareTo(b.value.completedDate ?? DateTime(1970)));
+      final entries = <MapEntry<dynamic, DownloadItem>>[];
+      for (final k in _downloadsBox.keys) {
+        try {
+          final v = _downloadsBox.get(k);
+          if (v != null) entries.add(MapEntry(k, v));
+        } catch (_) {
+          unawaited(_downloadsBox.delete(k).catchError((Object _, StackTrace __) {}));
+        }
+      }
+      entries.sort(
+        (a, b) => (a.value.completedDate ?? DateTime(1970))
+            .compareTo(b.value.completedDate ?? DateTime(1970)),
+      );
       final excess = entries.length - 200;
       for (int i = 0; i < excess; i++) {
         await _downloadsBox.delete(entries[i].key);
@@ -1005,8 +1100,15 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> clearCompleted() async {
     if (!_isInit) return;
 
+    // M12: unify with mobile Clear Finished — removes completed, failed,
+    // and cancelled history entries.
     final keysToDelete = _historyDownloads
-        .where((item) => item.status == DownloadStatus.completed)
+        .where(
+          (item) =>
+              item.status == DownloadStatus.completed ||
+              item.status == DownloadStatus.failed ||
+              item.status == DownloadStatus.cancelled,
+        )
         .map((item) => item.id)
         .toList();
 
@@ -1058,10 +1160,17 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
-  /// Persist active downloads to Hive so they can be recovered on restart
+  /// Persist active downloads to Hive so they can be recovered on restart.
+  /// H13: diff-and-put instead of clear-then-put so a crash mid-save cannot
+  /// wipe every in-flight item.
   Future<void> _saveActiveDownloads() async {
     if (!_isInit) return;
-    await _activeDownloadsBox.clear();
+    final activeIds = _activeDownloads.map((item) => item.id).toSet();
+    final currentKeys = _activeDownloadsBox.keys.toSet();
+    final keysToDelete = currentKeys.difference(activeIds);
+    if (keysToDelete.isNotEmpty) {
+      await _activeDownloadsBox.deleteAll(keysToDelete);
+    }
     for (final item in _activeDownloads) {
       await _activeDownloadsBox.put(item.id, item);
     }
@@ -1342,12 +1451,15 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
     // P5 fix: cancel idle timer to prevent post-dispose box access
     _activeBoxIdleTimer?.cancel();
     _activeBoxIdleTimer = null;
+    _pendingProgressNotify?.cancel();
+    _pendingProgressNotify = null;
     for (final process in _activeProcesses.values) {
       try {
         process.kill(ProcessSignal.sigkill);
       } catch (_) {}
     }
     _activeProcesses.clear();
+    _currentlyProcessingIds.clear();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }

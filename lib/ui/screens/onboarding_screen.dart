@@ -1,10 +1,27 @@
+import 'package:material_symbols_icons/symbols.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
-import '../../core/theme/app_theme.dart';
+
+import '../../core/theme/app_motion.dart';
+import '../../core/theme/tokens/colors.dart';
+import '../../core/theme/tokens/radius.dart';
+import '../../core/theme/tokens/spacing.dart';
+import '../../core/theme/tokens/typography.dart';
 import '../../core/utils/platform_utils.dart';
 import '../../services/core/android_storage_service.dart';
+import '../components/aero_button.dart';
+import '../components/aero_chip.dart';
+import '../components/aero_density.dart';
 
+/// Aero-styled onboarding flow for AeroTube.
+///
+/// Features (redesign_spec 7.6):
+/// - 3 pages max with full-bleed black background.
+/// - Large icon centered in a violet glow circle.
+/// - Headline + one-line description, animated dots indicator, Skip top-right.
+/// - Last page requests notification and storage permissions with clear reasons.
+/// - Built strictly with Aero design tokens (AeroColors, AeroText, AeroRadius, AeroSpace).
 class OnboardingScreen extends StatefulWidget {
   final VoidCallback onComplete;
 
@@ -18,33 +35,36 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   final PageController _pageController = PageController();
   int _currentPage = 0;
   bool _requestingPermission = false;
+  bool _storageGranted = false;
+  bool _notificationGranted = false;
 
-  static const _violet = AppTheme.primaryPurple;
-
-  final _pages = const [
-    _OnboardingPage(
-      icon: Icons.play_circle_filled_rounded,
+  final List<_OnboardingPageData> _pages = const [
+    _OnboardingPageData(
+      icon: Symbols.play_circle_rounded,
       title: 'Welcome to AeroTube',
-      subtitle: 'Download videos and audio from YouTube with ease.',
-      description: 'Fast, simple, and ad-free.',
-    ),
-    _OnboardingPage(
-      icon: Icons.folder_rounded,
-      title: 'Storage Access',
-      subtitle: 'AeroTube needs storage permission to save your downloads.',
       description:
-          'Your files are saved to Downloads/AeroTube so you can find them easily.',
+          'Download videos and audio in original quality, fast and ad-free.',
+    ),
+    _OnboardingPageData(
+      icon: Symbols.tune_rounded,
+      title: 'Formats & Quality',
+      description:
+          'Save 4K 60fps video, pure MP3 audio, playlists, and subtitles.',
+    ),
+    _OnboardingPageData(
+      icon: Symbols.verified_user_rounded,
+      title: 'Permissions & Setup',
+      description:
+          'Grant storage and notification access to save and track your downloads.',
       isPermissionPage: true,
     ),
-    _OnboardingPage(
-      icon: Icons.notifications_rounded,
-      title: 'Stay Updated',
-      subtitle: 'Get notified when your downloads finish.',
-      description:
-          'We\'ll only send notifications for download progress and completion.',
-      isNotificationPage: true,
-    ),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _checkPermissions();
+  }
 
   @override
   void dispose() {
@@ -52,38 +72,70 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     super.dispose();
   }
 
-  void _nextPage() {
-    if (_currentPage < _pages.length - 1) {
-      // Request storage when leaving the storage page so the user sees the
-      // system dialog / All-files-access settings while still onboarding.
-      if (_pages[_currentPage].isPermissionPage) {
-        _requestPermissionsThenAdvance();
-        return;
+  Future<void> _checkPermissions() async {
+    if (!PlatformUtils.isAndroid) {
+      if (mounted) {
+        setState(() {
+          _storageGranted = true;
+          _notificationGranted = true;
+        });
       }
-      _pageController.nextPage(
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeOutCubic,
-      );
-    } else {
-      _finish();
+      return;
+    }
+
+    try {
+      final storageService = AndroidStorageService();
+      final hasStorage = await storageService.hasStoragePermission();
+      final notificationStatus = await Permission.notification.status;
+      if (mounted) {
+        setState(() {
+          _storageGranted = hasStorage;
+          _notificationGranted = notificationStatus.isGranted;
+        });
+      }
+    } catch (_) {
+      // Fallback silently if platform checks fail
     }
   }
 
-  Future<void> _requestPermissionsThenAdvance() async {
+  Future<void> _requestStorage() async {
     if (_requestingPermission) return;
     setState(() => _requestingPermission = true);
     try {
       final storageService = AndroidStorageService();
       await storageService.requestStoragePermission();
     } catch (_) {
-      // Denied is fine — app falls back to app-specific storage + MediaStore.
+      // Denied is fine — app falls back to app-specific storage + MediaStore
     }
-    if (!mounted) return;
-    setState(() => _requestingPermission = false);
-    _pageController.nextPage(
-      duration: const Duration(milliseconds: 300),
-      curve: Curves.easeOutCubic,
-    );
+    await _checkPermissions();
+    if (mounted) {
+      setState(() => _requestingPermission = false);
+    }
+  }
+
+  Future<void> _requestNotifications() async {
+    if (_requestingPermission) return;
+    setState(() => _requestingPermission = true);
+    try {
+      if (PlatformUtils.isAndroid) {
+        await Permission.notification.request();
+      }
+    } catch (_) {}
+    await _checkPermissions();
+    if (mounted) {
+      setState(() => _requestingPermission = false);
+    }
+  }
+
+  void _nextPage() {
+    if (_currentPage < _pages.length - 1) {
+      _pageController.nextPage(
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.linear,
+      );
+    } else {
+      _finish();
+    }
   }
 
   Future<void> _finish() async {
@@ -91,19 +143,22 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     setState(() => _requestingPermission = true);
 
     try {
-      final storageService = AndroidStorageService();
-      final hasStorage = await storageService.hasStoragePermission();
-      if (!hasStorage) {
-        await storageService.requestStoragePermission();
-      }
-      // Notification permission (Android 13+) shows a real system dialog.
       if (PlatformUtils.isAndroid) {
+        final storageService = AndroidStorageService();
+        final hasStorage = await storageService.hasStoragePermission();
+        if (!hasStorage) {
+          await storageService.requestStoragePermission();
+        }
         try {
           await Permission.notification.request();
         } catch (_) {}
       }
     } catch (_) {
       // Permission denied is okay - app still works with limited storage
+    } finally {
+      if (mounted) {
+        setState(() => _requestingPermission = false);
+      }
     }
 
     if (mounted) {
@@ -113,120 +168,96 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final colors = context.aero;
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: SystemUiOverlayStyle(
+      value: const SystemUiOverlayStyle(
         statusBarColor: Colors.transparent,
-        statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
-        systemNavigationBarColor:
-            isDark ? const Color(0xFF0E0E11) : Colors.white,
-        systemNavigationBarIconBrightness:
-            isDark ? Brightness.light : Brightness.dark,
+        statusBarIconBrightness: Brightness.light,
+        systemNavigationBarColor: Colors.black,
+        systemNavigationBarIconBrightness: Brightness.light,
       ),
       child: Scaffold(
-        backgroundColor: isDark ? const Color(0xFF0E0E11) : Colors.white,
+        backgroundColor: colors.bg,
         body: SafeArea(
           child: Column(
             children: [
-              // Skip button
-              Align(
-                alignment: Alignment.topRight,
-                child: Padding(
-                  padding: const EdgeInsets.only(top: 8, right: 16),
-                  child: TextButton(
-                    onPressed: _finish,
-                    child: Text(
-                      'Skip',
-                      style: TextStyle(
-                        color: isDark
-                            ? Colors.white.withValues(alpha: 0.5)
-                            : Colors.black.withValues(alpha: 0.4),
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
+              // Top Bar: Skip button
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AeroSpace.lg,
+                  vertical: AeroSpace.xs,
+                ),
+                child: Align(
+                  alignment: Alignment.topRight,
+                  child: AeroButton(
+                    variant: AeroButtonVariant.ghost,
+                    density: AeroDensity.compact,
+                    text: 'Skip',
+                    tooltip: 'Skip onboarding',
+                    onPressed: widget.onComplete,
                   ),
                 ),
               ),
 
-              // Page view
+              // Paged Content
               Expanded(
                 child: PageView.builder(
                   controller: _pageController,
                   itemCount: _pages.length,
                   onPageChanged: (index) {
                     setState(() => _currentPage = index);
+                    // M18: if user navigates to the permissions page, refresh statuses
+                    if (_pages[index].isPermissionPage) {
+                      _checkPermissions();
+                    }
                   },
                   itemBuilder: (context, index) {
-                    return _buildPage(_pages[index], isDark);
+                    return _buildPage(_pages[index], colors);
                   },
                 ),
               ),
 
-              // Page indicators
+              // Page indicators (dots)
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: List.generate(_pages.length, (index) {
                   final isActive = index == _currentPage;
+                  final duration = appMotionDuration(
+                    context,
+                    const Duration(milliseconds: 250),
+                  );
                   return AnimatedContainer(
-                    duration: const Duration(milliseconds: 250),
+                    duration: duration,
+                    curve: Curves.linear,
                     margin: const EdgeInsets.symmetric(horizontal: 4),
                     width: isActive ? 24 : 8,
                     height: 8,
                     decoration: BoxDecoration(
-                      color: isActive
-                          ? _violet
-                          : (isDark
-                              ? Colors.white.withValues(alpha: 0.15)
-                              : Colors.black.withValues(alpha: 0.1)),
-                      borderRadius: BorderRadius.circular(4),
+                      color: isActive ? colors.primary : colors.outlineStrong,
+                      borderRadius: AeroRadius.fullBorderRadius,
                     ),
                   );
                 }),
               ),
 
-              const SizedBox(height: 32),
+              const SizedBox(height: AeroSpace.xxl),
 
-              // Next / Get Started button
+              // Primary Action (Next / Get Started)
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: SizedBox(
-                  width: double.infinity,
-                  height: 52,
-                  child: ElevatedButton(
-                    onPressed: _requestingPermission ? null : _nextPage,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: _violet,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      elevation: 0,
-                    ),
-                    child: _requestingPermission
-                        ? const SizedBox(
-                            width: 22,
-                            height: 22,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2.5,
-                              color: Colors.white,
-                            ),
-                          )
-                        : Text(
-                            _currentPage == _pages.length - 1
-                                ? 'Get Started'
-                                : 'Next',
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                  ),
+                padding: const EdgeInsets.symmetric(horizontal: AeroSpace.xxl),
+                child: AeroButton(
+                  variant: AeroButtonVariant.primary,
+                  expand: true,
+                  isLoading: _requestingPermission,
+                  text: _currentPage == _pages.length - 1
+                      ? 'Get Started'
+                      : 'Next',
+                  onPressed: _requestingPermission ? null : _nextPage,
                 ),
               ),
 
-              const SizedBox(height: 24),
+              const SizedBox(height: AeroSpace.xl),
             ],
           ),
         ),
@@ -234,87 +265,172 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     );
   }
 
-  Widget _buildPage(_OnboardingPage page, bool isDark) {
+  Widget _buildPage(_OnboardingPageData page, AeroColors colors) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 32),
+      padding: const EdgeInsets.symmetric(horizontal: AeroSpace.xxl),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          // Icon
+          // Large icon in violet glow circle
           Container(
-            width: 88,
-            height: 88,
+            width: 96,
+            height: 96,
             decoration: BoxDecoration(
-              color: _violet.withValues(alpha: 0.12),
               shape: BoxShape.circle,
+              color: colors.primarySoft,
+              boxShadow: [
+                BoxShadow(
+                  color: colors.primaryGlow,
+                  blurRadius: 32,
+                  spreadRadius: 2,
+                ),
+              ],
             ),
-            child: Icon(page.icon, size: 40, color: _violet),
+            child: Icon(page.icon, size: 48, color: colors.primary),
           ),
 
-          const SizedBox(height: 36),
+          const SizedBox(height: AeroSpace.xxl),
 
-          // Title
+          // Headline
           Text(
             page.title,
             textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 26,
+            style: AeroText.headline.copyWith(
+              color: colors.onSurface,
               fontWeight: FontWeight.w700,
-              color: isDark ? Colors.white : Colors.black87,
               letterSpacing: -0.5,
             ),
           ),
 
-          const SizedBox(height: 14),
+          const SizedBox(height: AeroSpace.md),
 
-          // Subtitle
-          Text(
-            page.subtitle,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w500,
-              color: isDark
-                  ? Colors.white.withValues(alpha: 0.7)
-                  : Colors.black54,
-              height: 1.4,
-            ),
-          ),
-
-          const SizedBox(height: 10),
-
-          // Description
+          // One-line description
           Text(
             page.description,
             textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 13,
-              color: isDark
-                  ? Colors.white.withValues(alpha: 0.4)
-                  : Colors.black38,
+            style: AeroText.body.copyWith(
+              color: colors.onSurfaceMuted,
               height: 1.4,
             ),
           ),
+
+          if (page.isPermissionPage) ...[
+            const SizedBox(height: AeroSpace.xxl),
+            _buildPermissionCard(
+              colors: colors,
+              icon: Symbols.folder_rounded,
+              title: 'Storage Access',
+              reason: 'Save videos and audio directly to Downloads/AeroTube.',
+              isGranted: _storageGranted,
+              onRequest: _requestStorage,
+            ),
+            const SizedBox(height: AeroSpace.md),
+            _buildPermissionCard(
+              colors: colors,
+              icon: Symbols.notifications_active_rounded,
+              title: 'Notifications',
+              reason: 'Receive alerts when downloads finish in the background.',
+              isGranted: _notificationGranted,
+              onRequest: _requestNotifications,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPermissionCard({
+    required AeroColors colors,
+    required IconData icon,
+    required String title,
+    required String reason,
+    required bool isGranted,
+    required VoidCallback onRequest,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(AeroSpace.md),
+      decoration: BoxDecoration(
+        color: colors.surface1,
+        borderRadius: AeroRadius.lgBorderRadius,
+        border: Border.all(
+          color: isGranted
+              ? colors.success.withValues(alpha: 0.3)
+              : colors.outline,
+          width: 1.0,
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: isGranted
+                  ? colors.success.withValues(alpha: 0.15)
+                  : colors.surface2,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              icon,
+              size: 20,
+              color: isGranted ? colors.success : colors.onSurface,
+            ),
+          ),
+          const SizedBox(width: AeroSpace.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: AeroText.label.copyWith(
+                    color: colors.onSurface,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  reason,
+                  style: AeroText.caption.copyWith(
+                    color: colors.onSurfaceMuted,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: AeroSpace.sm),
+          if (isGranted)
+            AeroChip(
+              text: 'Allowed',
+              icon: Icon(
+                Symbols.check_rounded,
+                size: 14,
+                color: colors.success,
+              ),
+              density: AeroDensity.compact,
+            )
+          else
+            AeroButton(
+              variant: AeroButtonVariant.tonal,
+              density: AeroDensity.compact,
+              text: 'Allow',
+              onPressed: onRequest,
+            ),
         ],
       ),
     );
   }
 }
 
-class _OnboardingPage {
+class _OnboardingPageData {
   final IconData icon;
   final String title;
-  final String subtitle;
   final String description;
   final bool isPermissionPage;
-  final bool isNotificationPage;
 
-  const _OnboardingPage({
+  const _OnboardingPageData({
     required this.icon,
     required this.title,
-    required this.subtitle,
     required this.description,
     this.isPermissionPage = false,
-    this.isNotificationPage = false,
   });
 }

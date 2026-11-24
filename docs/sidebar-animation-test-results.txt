@@ -1,0 +1,69 @@
+00:00 +0: loading E:/youtube downloader/test/ui/navigation_shell_test.dart
+00:00 +0: E:/youtube downloader/test/ui/navigation_shell_test.dart: (setUpAll)
+00:00 +0: E:/youtube downloader/test/ui/navigation_shell_test.dart: Sidebar collapse and expansion width and contents animate together in both directions
+00:01 +1: E:/youtube downloader/test/ui/navigation_shell_test.dart: Sidebar collapse and expansion rapid reversal and window resizing settle without overflow
+00:02 +2: E:/youtube downloader/test/ui/navigation_shell_test.dart: Sidebar collapse and expansion one download badge remains mounted and destinations work when collapsed
+00:02 +3: E:/youtube downloader/test/ui/navigation_shell_test.dart: Sidebar collapse and expansion motion preference skips width and content animation, reduced=false
+00:02 +4: E:/youtube downloader/test/ui/navigation_shell_test.dart: Sidebar collapse and expansion motion preference skips width and content animation, reduced=true
+00:02 +5: E:/youtube downloader/test/ui/navigation_shell_test.dart: Phase 3 Shell & Navigation Tests AeroDesktopTopStrip renders breadcrumb and page title
+00:02 +6: E:/youtube downloader/test/ui/navigation_shell_test.dart: Phase 3 Shell & Navigation Tests AppNavigationRail renders navigation destinations and wordmark
+00:02 +7: E:/youtube downloader/test/ui/navigation_shell_test.dart: Phase 3 Shell & Navigation Tests MiniDownloadTray returns empty widget when no active downloads
+00:03 +8: E:/youtube downloader/test/ui/navigation_shell_test.dart: Phase 3 Shell & Navigation Tests MiniDownloadTray renders active download item and progress
+00:03 +9: E:/youtube downloader/test/ui/navigation_shell_test.dart: (tearDownAll)
+00:03 +9: E:/youtube downloader/test/ui/desktop_design_test.dart: (setUpAll)
+00:03 +9: E:/youtube downloader/test/ui/desktop_design_test.dart: home dark at 1280.0
+00:04 +10: E:/youtube downloader/test/ui/desktop_design_test.dart: search dark at 1280.0
+00:04 +11: E:/youtube downloader/test/ui/desktop_design_test.dart: library dark at 1280.0
+00:05 +12: E:/youtube downloader/test/ui/desktop_design_test.dart: settings dark at 1280.0
+00:05 +13: E:/youtube downloader/test/ui/desktop_design_test.dart: video-options dark at 1280.0
+[01:40:11] 🐛 [VideoProvider] Starting for url: https://vimeo.com/123456 (gen 1)
+[01:40:11] 🐛 [VideoProvider] Calling _ytdlpService.getVideoInfo
+[01:40:11] 🐛 [VideoProvider] Got video info: A walk through the Scottish Highlands
+00:05 +14: E:/youtube downloader/test/ui/desktop_design_test.dart: playlist dark at 1280.0
+00:05 +15: E:/youtube downloader/test/ui/desktop_design_test.dart: home dark at 960.0
+00:05 +16: E:/youtube downloader/test/ui/desktop_design_test.dart: search dark at 960.0
+00:06 +17: E:/youtube downloader/test/ui/desktop_design_test.dart: library dark at 960.0
+00:06 +18: E:/youtube downloader/test/ui/desktop_design_test.dart: settings dark at 960.0
+00:06 +19: E:/youtube downloader/test/ui/desktop_design_test.dart: video-options dark at 960.0
+[01:40:11] 🐛 [VideoProvider] Starting for url: https://vimeo.com/123456 (gen 1)
+[01:40:11] 🐛 [VideoProvider] Calling _ytdlpService.getVideoInfo
+[01:40:11] 🐛 [VideoProvider] Got video info: A walk through the Scottish Highlands
+00:06 +20: E:/youtube downloader/test/ui/desktop_design_test.dart: playlist dark at 960.0
+00:06 +21: E:/youtube downloader/test/ui/desktop_design_test.dart: home dark at 640.0
+00:06 +22: E:/youtube downloader/test/ui/desktop_design_test.dart: search dark at 640.0
+00:06 +23: E:/youtube downloader/test/ui/desktop_design_test.dart: library dark at 640.0
+00:06 +24: E:/youtube downloader/test/ui/desktop_design_test.dart: settings dark at 640.0
+00:06 +25: E:/youtube downloader/test/ui/desktop_design_test.dart: video-options dark at 640.0
+[01:40:12] 🐛 [VideoProvider] Starting for url: https://vimeo.com/123456 (gen 1)
+[01:40:12] 🐛 [VideoProvider] Calling _ytdlpService.getVideoInfo
+[01:40:12] 🐛 [VideoProvider] Got video info: A walk through the Scottish Highlands
+00:07 +26: E:/youtube downloader/test/ui/desktop_design_test.dart: playlist dark at 640.0
+00:07 +27: E:/youtube downloader/test/ui/desktop_design_test.dart: home light at 1280.0
+00:07 +28: E:/youtube downloader/test/ui/desktop_design_test.dart: search light at 1280.0
+00:07 +29: E:/youtube downloader/test/ui/desktop_design_test.dart: library light at 1280.0
+00:07 +30: E:/youtube downloader/test/ui/desktop_design_test.dart: settings light at 1280.0
+00:07 +31: E:/youtube downloader/test/ui/desktop_design_test.dart: video-options light at 1280.0
+[01:40:13] 🐛 [VideoProvider] Starting for url: https://vimeo.com/123456 (gen 1)
+[01:40:13] 🐛 [VideoProvider] Calling _ytdlpService.getVideoInfo
+[01:40:13] 🐛 [VideoProvider] Got video info: A walk through the Scottish Highlands
+00:07 +32: E:/youtube downloader/test/ui/desktop_design_test.dart: playlist light at 1280.0
+00:07 +33: E:/youtube downloader/test/ui/desktop_design_test.dart: home light at 960.0
+00:07 +34: E:/youtube downloader/test/ui/desktop_design_test.dart: search light at 960.0
+00:08 +35: E:/youtube downloader/test/ui/desktop_design_test.dart: library light at 960.0
+00:08 +36: E:/youtube downloader/test/ui/desktop_design_test.dart: settings light at 960.0
+00:08 +37: E:/youtube downloader/test/ui/desktop_design_test.dart: video-options light at 960.0
+[01:40:13] 🐛 [VideoProvider] Starting for url: https://vimeo.com/123456 (gen 1)
+[01:40:13] 🐛 [VideoProvider] Calling _ytdlpService.getVideoInfo
+[01:40:13] 🐛 [VideoProvider] Got video info: A walk through the Scottish Highlands
+00:08 +38: E:/youtube downloader/test/ui/desktop_design_test.dart: playlist light at 960.0
+00:08 +39: E:/youtube downloader/test/ui/desktop_design_test.dart: home light at 640.0
+00:08 +40: E:/youtube downloader/test/ui/desktop_design_test.dart: search light at 640.0
+00:08 +41: E:/youtube downloader/test/ui/desktop_design_test.dart: library light at 640.0
+00:08 +42: E:/youtube downloader/test/ui/desktop_design_test.dart: settings light at 640.0
+00:08 +43: E:/youtube downloader/test/ui/desktop_design_test.dart: video-options light at 640.0
+[01:40:14] 🐛 [VideoProvider] Starting for url: https://vimeo.com/123456 (gen 1)
+[01:40:14] 🐛 [VideoProvider] Calling _ytdlpService.getVideoInfo
+[01:40:14] 🐛 [VideoProvider] Got video info: A walk through the Scottish Highlands
+00:08 +44: E:/youtube downloader/test/ui/desktop_design_test.dart: playlist light at 640.0
+00:08 +45: E:/youtube downloader/test/ui/desktop_design_test.dart: (tearDownAll)
+00:09 +45: All tests passed!
