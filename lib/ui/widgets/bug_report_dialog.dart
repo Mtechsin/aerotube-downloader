@@ -179,7 +179,8 @@ class _BugReportDialogState extends State<BugReportDialog> {
       final report = await _buildReport();
       if (report == null) return;
 
-      final picked = await FilePicker.platform.getDirectoryPath(
+      // ignore: deprecated_member_use
+      final picked = await FilePicker.getDirectoryPath(
         dialogTitle: 'Choose a folder for the bug report',
       );
       if (picked == null) {

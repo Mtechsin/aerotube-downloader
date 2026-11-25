@@ -785,8 +785,8 @@ class _MobileVideoConfigurationWidgetState
                           : 'Select Destination Folder',
                       tooltip: outputPath,
                       onPressed: () async {
-                        final picked = await FilePicker.platform
-                            .getDirectoryPath();
+                        // ignore: deprecated_member_use
+                        final picked = await FilePicker.getDirectoryPath();
                         if (picked != null && picked.isNotEmpty) {
                           await settingsProvider.setOutputPath(picked);
                         }

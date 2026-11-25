@@ -130,7 +130,7 @@ class _AeroChipState extends State<AeroChip> {
 
     final duration = appMotionDuration(
       context,
-      const Duration(milliseconds: 120),
+      const Duration(milliseconds: 90),
     );
 
     final BoxBorder effectiveBorder = _isFocused
@@ -143,7 +143,7 @@ class _AeroChipState extends State<AeroChip> {
 
     Widget chip = AnimatedContainer(
       duration: duration,
-      curve: Curves.linear,
+      curve: AppMotion.emphasized,
       height: height,
       padding: effectivePadding,
       decoration: BoxDecoration(
@@ -355,12 +355,12 @@ class _FormatChipState extends State<FormatChip> {
 
     final duration = appMotionDuration(
       context,
-      const Duration(milliseconds: 120),
+      const Duration(milliseconds: 90),
     );
 
     Widget chip = AnimatedContainer(
       duration: duration,
-      curve: Curves.linear,
+      curve: AppMotion.emphasized,
       constraints: BoxConstraints(minHeight: minHeight),
       padding: effectivePadding,
       decoration: BoxDecoration(

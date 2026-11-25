@@ -420,14 +420,14 @@ class AppNavigationRail extends StatelessWidget {
         )
         .animate(controller: entranceController)
         .fadeIn(
-          duration: appMotionDuration(context, 220.ms),
-          curve: Curves.linear,
+          duration: appMotionDuration(context, 150.ms),
+          curve: AppMotion.decelerate,
         )
         .slideX(
           begin: settings.enableAnimations ? -0.06 : 0,
           end: 0,
-          duration: appMotionDuration(context, 280.ms),
-          curve: Curves.linear,
+          duration: appMotionDuration(context, 180.ms),
+          curve: AppMotion.decelerate,
         );
   }
 }

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
@@ -50,6 +51,7 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
   List<DownloadItem> _historyDownloads = [];
 
   final Map<String, Process> _activeProcesses = {};
+  final Map<String, int> _startGeneration = {};
   // C1/C2: ids currently inside _startDownloadInternal (including pre-flight).
   // Prevents double-start while status is still queued and prevents
   // cancel-during-pre-flight from spawning an orphan process.
@@ -174,10 +176,12 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
     if (_initCompleter != null) return _initCompleter!.future;
     _initCompleter = Completer<void>();
     try {
-      _downloadsBox =
-          await _openBoxWithRecovery(AppConstants.downloadsHistoryBox);
-      _activeDownloadsBox =
-          await _openBoxWithRecovery(AppConstants.activeDownloadsBox);
+      final boxes = await Future.wait([
+        _openBoxWithRecovery(AppConstants.downloadsHistoryBox),
+        _openBoxWithRecovery(AppConstants.activeDownloadsBox),
+      ]);
+      _downloadsBox = boxes[0];
+      _activeDownloadsBox = boxes[1];
       await _restoreOrphanedDownloads();
       _loadHistory();
       if (!_initCompleter!.isCompleted) {
@@ -252,52 +256,94 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> _pauseDownloadGracefully(String id) async {
-    final process = _activeProcesses[id];
+    // Status first. The stdout/exit handler runs as soon as yt-dlp dies and
+    // would otherwise record a failure before this method marks the item paused.
+    _markPaused(id);
+    _bumpStartGeneration(id);
+    final process = _activeProcesses.remove(id);
     if (process != null) {
       try {
-        process.kill(ProcessSignal.sigterm);
+        await _killProcessTree(process);
         try {
           await process.exitCode.timeout(const Duration(seconds: 2));
         } on TimeoutException {
-          try {
-            process.kill(ProcessSignal.sigkill);
-          } catch (_) {}
           try {
             await process.exitCode.timeout(const Duration(seconds: 1));
           } catch (_) {}
         }
       } catch (e) {
         LoggingService().warning(
-          'Failed to send SIGTERM to download $id: $e',
+          'Failed to stop download $id: $e',
           component: 'DownloadProvider',
         );
-        try {
-          process.kill(ProcessSignal.sigkill);
-        } catch (_) {}
-      } finally {
-        _activeProcesses.remove(id);
       }
     }
+  }
 
+  void _markPaused(String id) {
     final index = _activeDownloads.indexWhere((d) => d.id == id);
-    if (index != -1) {
-      final item = _activeDownloads[index];
-      if (item.status == DownloadStatus.downloadingVideo ||
-          item.status == DownloadStatus.downloadingAudio ||
-          item.status == DownloadStatus.merging ||
-          item.status == DownloadStatus.queued ||
-          item.status == DownloadStatus.pending) {
-        _activeDownloads[index] = item.copyWith(status: DownloadStatus.paused);
-        _markActiveDirty();
-      }
+    if (index == -1) return;
+    final item = _activeDownloads[index];
+    if (item.status == DownloadStatus.downloadingVideo ||
+        item.status == DownloadStatus.downloadingAudio ||
+        item.status == DownloadStatus.merging ||
+        item.status == DownloadStatus.queued ||
+        item.status == DownloadStatus.pending) {
+      _activeDownloads[index] = item.copyWith(status: DownloadStatus.paused);
+      _markActiveDirty();
     }
+  }
+
+  void _bumpStartGeneration(String id) {
+    _startGeneration[id] = (_startGeneration[id] ?? 0) + 1;
+  }
+
+  int _claimStartGeneration(String id) {
+    final next = (_startGeneration[id] ?? 0) + 1;
+    _startGeneration[id] = next;
+    return next;
+  }
+
+  bool _startStillCurrent(String id, int generation) {
+    return _startGeneration[id] == generation && _isQueuedById(id);
+  }
+
+  bool _isQueuedById(String id) {
+    final idx = _activeDownloads.indexWhere((d) => d.id == id);
+    if (idx == -1) return false;
+    final status = _activeDownloads[idx].status;
+    return status == DownloadStatus.queued || status == DownloadStatus.pending;
+  }
+
+  bool _statusIgnoresProgress(DownloadStatus status) {
+    return status == DownloadStatus.paused ||
+        status == DownloadStatus.cancelled ||
+        status == DownloadStatus.failed ||
+        status == DownloadStatus.completed;
+  }
+
+  /// process.kill() on Windows stops only the yt-dlp wrapper and leaves ffmpeg.exe.
+  Future<void> _killProcessTree(Process? process) async {
+    if (process == null) return;
+    if (Platform.isWindows) {
+      try {
+        await Process.run('taskkill', ['/F', '/T', '/PID', '${process.pid}']);
+        return;
+      } catch (_) {}
+    }
+    try {
+      process.kill(ProcessSignal.sigterm);
+    } catch (_) {}
+    try {
+      process.kill();
+    } catch (_) {}
   }
 
   void _loadHistory() {
     try {
       final List<DownloadItem> loaded = [];
       // Read per-key to isolate corrupted entries (e.g. unknown typeId 33).
-      for (final key in _downloadsBox.keys) {
+      for (final key in _downloadsBox.keys.toList()) {
         try {
           final item = _downloadsBox.get(key);
           if (item != null) loaded.add(item);
@@ -603,6 +649,7 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
     // C1/C2: claim the item synchronously before any await.
     if (_currentlyProcessingIds.contains(item.id)) return;
     _currentlyProcessingIds.add(item.id);
+    final generation = _claimStartGeneration(item.id);
     try {
       // Disk-space pre-flight (B10 fix): check available space before spawning yt-dlp
       if (item.totalBytes != null && item.totalBytes! > 0) {
@@ -714,6 +761,11 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
         archivePath: archivePath,
       );
 
+      if (!_startStillCurrent(item.id, generation)) {
+        await _killProcessTree(process);
+        return;
+      }
+
       _activeProcesses[item.id] = process;
 
       final index = _activeDownloads.indexWhere((d) => d.id == item.id);
@@ -725,11 +777,13 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
         notifyListeners();
       }
 
-      // Handle Output - B5 fix: retain subscriptions to await done
-      final stdoutSub = process.stdout.transform(const SystemEncoding().decoder).listen((data) {
-        final lines = data.split('\n');
-        for (final line in lines) {
-          if (line.trim().isEmpty) continue;
+      // Handle Output - B5 fix: retain subscriptions to await done.
+      // LineSplitter keeps a trailing partial line instead of splitting raw chunks.
+      final stdoutSub = process.stdout
+          .transform(const SystemEncoding().decoder)
+          .transform(const LineSplitter())
+          .listen((line) {
+          if (line.trim().isEmpty) return;
 
           // Check for thumbnail path
           if (line.contains('Writing video thumbnail') ||
@@ -758,8 +812,11 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
           );
           if (progress != null) {
             final idx = _activeDownloads.indexWhere((d) => d.id == item.id);
-            if (idx != -1) {
-              // B8 fix: clear stale speed during merge, ensure monotonic
+            if (idx != -1 &&
+                !_statusIgnoresProgress(_activeDownloads[idx].status)) {
+              // B8 fix: clear stale speed during merge, ensure monotonic.
+              // Lines buffered after pause/cancel must not flip the item
+              // back to downloading, or the killed process is stored as failed.
               final isMerging = progress.status == DownloadStatus.merging;
               _activeDownloads[idx] = _activeDownloads[idx].copyWith(
                 progress: progress.progress,
@@ -771,7 +828,6 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
               _throttledNotify();
             }
           }
-        }
       });
 
       final stderrBuffer = StringBuffer();
@@ -788,9 +844,8 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
       // B4 watchdog: do not await indefinitely; kill process on prolonged hang
       int exitCode;
       try {
-        exitCode = await process.exitCode.timeout(const Duration(hours: 6), onTimeout: () {
-          try { process.kill(ProcessSignal.sigkill); } catch (_) {}
-          try { process.kill(); } catch (_) {}
+        exitCode = await process.exitCode.timeout(const Duration(hours: 6), onTimeout: () async {
+          await _killProcessTree(process);
           throw TimeoutException('yt-dlp download timed out after 6h');
         });
       } on TimeoutException catch (e) {
@@ -811,60 +866,91 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
       } catch (_) {}
       _activeProcesses.remove(item.id);
 
+      // Look up the saved file before touching the queue. Another download
+      // can finish during this await and shift list indexes.
+      String? resolvedSavePath;
+      if (exitCode == 0) {
+        try {
+          final found = await _findDownloadedFile(item);
+          if (found != null &&
+              await found.exists() &&
+              await found.length() > 0) {
+            resolvedSavePath = found.path;
+          }
+        } catch (e) {
+          LoggingService().error(
+            'Failed to resolve downloaded file path: $e',
+            component: 'DownloadProvider',
+            error: e,
+          );
+        }
+      }
+
       final idx = _activeDownloads.indexWhere((d) => d.id == item.id);
       if (idx != -1) {
         DownloadItem finalItem = _activeDownloads[idx];
 
-        if (exitCode == 0) {
-          String? resolvedSavePath;
-          try {
-            final found = await _findDownloadedFile(item);
-            if (found != null) {
-              resolvedSavePath = found.path;
-            }
-          } catch (e) {
+        if (exitCode == 0 &&
+            finalItem.status != DownloadStatus.paused &&
+            finalItem.status != DownloadStatus.cancelled) {
+          if (resolvedSavePath == null) {
+            finalItem = finalItem.copyWith(
+              status: DownloadStatus.failed,
+              error:
+                  'yt-dlp exited successfully but no output file matching this download was found in ${item.outputPath}',
+              completedDate: DateTime.now(),
+            );
+            _activeDownloads.removeAt(idx);
+            _markActiveDirty();
+            _saveActiveDownloads();
+            _addToHistory(finalItem);
             LoggingService().error(
-              'Failed to resolve downloaded file path: $e',
+              'Download produced no verified file: ${finalItem.title}',
               component: 'DownloadProvider',
-              error: e,
+            );
+            _notificationService?.show(
+              title: 'Download Failed',
+              body: 'Finished, but the output file could not be verified',
+              isError: true,
+              alsoSystemNotification: false,
+            );
+          } else {
+            finalItem = finalItem.copyWith(
+              status: DownloadStatus.completed,
+              progress: 1.0,
+              eta: 0,
+              savePath: resolvedSavePath,
+              completedDate: DateTime.now(),
+            );
+
+            _activeDownloads.removeAt(idx);
+            _markActiveDirty();
+            _saveActiveDownloads();
+            _addToHistory(finalItem);
+
+            LoggingService().info(
+              'Download completed: ${finalItem.title}',
+              component: 'DownloadProvider',
+            );
+
+            // Single in-app surface: SnackBar only. History already holds the record.
+            _notificationService?.show(
+              title: 'Download Complete',
+              body: finalItem.title,
+              alsoSystemNotification: false,
+              onTap: () {
+                final openPath = finalItem.savePath ?? finalItem.outputPath;
+                if (Platform.isWindows) {
+                  Process.run('explorer.exe', [openPath]);
+                } else if (Platform.isMacOS) {
+                  Process.run('open', [openPath]);
+                } else {
+                  Process.run('xdg-open', [openPath]);
+                }
+              },
             );
           }
-
-          finalItem = finalItem.copyWith(
-            status: DownloadStatus.completed,
-            progress: 1.0,
-            eta: 0,
-            savePath: resolvedSavePath,
-            completedDate: DateTime.now(),
-          );
-
-          _activeDownloads.removeAt(idx);
-          _markActiveDirty();
-          _saveActiveDownloads();
-          _addToHistory(finalItem);
-
-          LoggingService().info(
-            'Download completed: ${finalItem.title}',
-            component: 'DownloadProvider',
-          );
-
-          // Single in-app surface: SnackBar only. History already holds the record.
-          _notificationService?.show(
-            title: 'Download Complete',
-            body: finalItem.title,
-            alsoSystemNotification: false,
-            onTap: () {
-              final openPath = finalItem.savePath ?? finalItem.outputPath;
-              if (Platform.isWindows) {
-                Process.run('explorer.exe', [openPath]);
-              } else if (Platform.isMacOS) {
-                Process.run('open', [openPath]);
-              } else {
-                Process.run('xdg-open', [openPath]);
-              }
-            },
-          );
-        } else {
+        } else if (exitCode != 0) {
           if (finalItem.status == DownloadStatus.paused) {
             // Special-case paused: leave in active downloads so it stays resumable
             _saveActiveDownloads();
@@ -906,6 +992,13 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
             finalItem = finalItem.copyWith(completedDate: DateTime.now());
             _addToHistory(finalItem);
           }
+        } else if (finalItem.status == DownloadStatus.cancelled) {
+          _activeDownloads.removeAt(idx);
+          _markActiveDirty();
+          _saveActiveDownloads();
+          _addToHistory(
+            finalItem.copyWith(completedDate: DateTime.now()),
+          );
         }
         notifyListeners();
       }
@@ -976,63 +1069,60 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   void cancelDownload(String id) {
     _currentlyProcessingIds.remove(id);
-    if (_activeProcesses.containsKey(id)) {
-      _activeProcesses[id]?.kill();
-      _activeProcesses.remove(id);
-    }
+    _bumpStartGeneration(id);
+    final process = _activeProcesses.remove(id);
 
     final index = _activeDownloads.indexWhere((d) => d.id == id);
     if (index != -1) {
       final item = _activeDownloads[index];
-      // B13 fix: queued/pending items have no process; move to history immediately
-      if (item.status == DownloadStatus.queued ||
-          item.status == DownloadStatus.pending) {
-        final cancelledItem = item.copyWith(
-          status: DownloadStatus.cancelled,
-          completedDate: DateTime.now(),
-        );
+      final cancelledItem = item.copyWith(
+        status: DownloadStatus.cancelled,
+        completedDate: DateTime.now(),
+      );
+      // Queued, pending, and paused items have no live exit handler.
+      // Leaving a paused cancel in _activeDownloads stuck it there forever.
+      final exitHandlerWillFinish = process != null &&
+          item.status != DownloadStatus.paused &&
+          item.status != DownloadStatus.queued &&
+          item.status != DownloadStatus.pending;
+      if (!exitHandlerWillFinish) {
         _activeDownloads.removeAt(index);
         _markActiveDirty();
         _saveActiveDownloads();
         _addToHistory(cancelledItem);
         notifyListeners();
+        if (process != null) unawaited(_killProcessTree(process));
         _processQueue();
         return;
       }
-      _activeDownloads[index] = _activeDownloads[index].copyWith(
-        status: DownloadStatus.cancelled,
-        completedDate: DateTime.now(),
-      );
+      _activeDownloads[index] = cancelledItem;
       _markActiveDirty();
       _saveActiveDownloads();
       notifyListeners();
+      unawaited(_killProcessTree(process));
 
       // Process queue after cancellation
       _processQueue();
+    } else if (process != null) {
+      unawaited(_killProcessTree(process));
     }
   }
 
   void pauseDownload(String id) {
     _currentlyProcessingIds.remove(id);
-    if (_activeProcesses.containsKey(id)) {
-      _activeProcesses[id]?.kill();
-      _activeProcesses.remove(id);
-    }
+    _bumpStartGeneration(id);
+    // Mark paused before the process dies so buffered stdout and the exit
+    // handler cannot record the download as failed.
+    _markPaused(id);
+    final process = _activeProcesses.remove(id);
+    if (process != null) unawaited(_killProcessTree(process));
 
     final index = _activeDownloads.indexWhere((d) => d.id == id);
-    if (index != -1) {
-      final item = _activeDownloads[index];
-      if (item.status == DownloadStatus.downloadingVideo ||
-          item.status == DownloadStatus.downloadingAudio ||
-          item.status == DownloadStatus.merging ||
-          item.status == DownloadStatus.queued ||
-          item.status == DownloadStatus.pending) {
-        _activeDownloads[index] = item.copyWith(status: DownloadStatus.paused);
-        _markActiveDirty();
-        _saveActiveDownloads();
-        notifyListeners();
-        _processQueue();
-      }
+    if (index != -1 &&
+        _activeDownloads[index].status == DownloadStatus.paused) {
+      _saveActiveDownloads();
+      notifyListeners();
+      _processQueue();
     }
   }
 
@@ -1065,7 +1155,7 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
     // H12: per-key safe read — a corrupted entry must not throw while trimming.
     if (_downloadsBox.length > 200) {
       final entries = <MapEntry<dynamic, DownloadItem>>[];
-      for (final k in _downloadsBox.keys) {
+      for (final k in _downloadsBox.keys.toList()) {
         try {
           final v = _downloadsBox.get(k);
           if (v != null) entries.add(MapEntry(k, v));
@@ -1160,18 +1250,31 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
+  Future<void>? _activeSaveChain;
+
   /// Persist active downloads to Hive so they can be recovered on restart.
   /// H13: diff-and-put instead of clear-then-put so a crash mid-save cannot
-  /// wipe every in-flight item.
-  Future<void> _saveActiveDownloads() async {
+  /// wipe every in-flight item. Saves are serialized so two unawaited calls
+  /// cannot interleave deleteAll and put.
+  Future<void> _saveActiveDownloads() {
+    final previous = _activeSaveChain ?? Future<void>.value();
+    final next = previous.catchError((Object _) {}).then((_) => _saveActiveDownloadsBody());
+    _activeSaveChain = next;
+    return next;
+  }
+
+  Future<void> _saveActiveDownloadsBody() async {
     if (!_isInit) return;
-    final activeIds = _activeDownloads.map((item) => item.id).toSet();
+    // Snapshot before the awaits. A later mutation of _activeDownloads would
+    // otherwise throw ConcurrentModificationError mid-save.
+    final snapshot = List<DownloadItem>.of(_activeDownloads);
+    final activeIds = snapshot.map((item) => item.id).toSet();
     final currentKeys = _activeDownloadsBox.keys.toSet();
     final keysToDelete = currentKeys.difference(activeIds);
     if (keysToDelete.isNotEmpty) {
       await _activeDownloadsBox.deleteAll(keysToDelete);
     }
-    for (final item in _activeDownloads) {
+    for (final item in snapshot) {
       await _activeDownloadsBox.put(item.id, item);
     }
   }
@@ -1185,7 +1288,7 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
     // Read box values per-key to isolate corrupted entries.
     try {
       orphans = [];
-      for (final key in _activeDownloadsBox.keys) {
+      for (final key in _activeDownloadsBox.keys.toList()) {
         try {
           final item = _activeDownloadsBox.get(key);
           if (item != null) orphans.add(item);
@@ -1395,14 +1498,12 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
       final errSub = proc.stderr.transform(const SystemEncoding().decoder).listen(stderrBuf.write);
       int exitCode;
       try {
-        exitCode = await proc.exitCode.timeout(timeout, onTimeout: () {
-          try { proc!.kill(ProcessSignal.sigkill); } catch (_) {}
-          try { proc!.kill(); } catch (_) {}
+        exitCode = await proc.exitCode.timeout(timeout, onTimeout: () async {
+          await _killProcessTree(proc);
           throw TimeoutException('Process $exe timed out after ${timeout.inSeconds}s');
         });
       } on TimeoutException {
-        try { proc.kill(ProcessSignal.sigkill); } catch (_) {}
-        try { proc.kill(); } catch (_) {}
+        try { await _killProcessTree(proc); } catch (_) {}
         try { await outSub.cancel(); } catch (_) {}
         try { await errSub.cancel(); } catch (_) {}
         return null;
@@ -1454,9 +1555,7 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
     _pendingProgressNotify?.cancel();
     _pendingProgressNotify = null;
     for (final process in _activeProcesses.values) {
-      try {
-        process.kill(ProcessSignal.sigkill);
-      } catch (_) {}
+      unawaited(_killProcessTree(process));
     }
     _activeProcesses.clear();
     _currentlyProcessingIds.clear();

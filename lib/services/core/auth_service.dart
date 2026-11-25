@@ -37,7 +37,7 @@ class AuthService {
   ];
 
   final FlutterSecureStorage _secureStorage = const FlutterSecureStorage(
-    aOptions: AndroidOptions(encryptedSharedPreferences: true),
+    aOptions: AndroidOptions(),
     iOptions: IOSOptions(
       accessibility: KeychainAccessibility.first_unlock_this_device,
     ),
@@ -264,14 +264,16 @@ class AuthService {
 
     final verifier = _generateCodeVerifier();
     final challenge = _generateCodeChallenge(verifier);
+    // 16 bytes encodes to 22 base64url chars; substring(0, 32) threw RangeError
+    // outside the try block and crashed every Android login.
     final stateBytes = List<int>.generate(
-      16,
+      32,
       (_) => Random.secure().nextInt(256),
     );
-    final state = base64Url
-        .encode(stateBytes)
-        .replaceAll('=', '')
-        .substring(0, 32);
+    final encodedState = base64Url.encode(stateBytes).replaceAll('=', '');
+    final state = encodedState.length <= 32
+        ? encodedState
+        : encodedState.substring(0, 32);
 
     final authUrl = Uri.https('accounts.google.com', '/o/oauth2/v2/auth', {
       'client_id': _clientId,

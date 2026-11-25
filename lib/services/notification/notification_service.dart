@@ -9,7 +9,9 @@ class NotificationService {
       GlobalKey<ScaffoldMessengerState>();
 
   /// When false, system notifications are suppressed (in-app snackbars still show).
-  bool systemNotificationsEnabled = true;
+  /// Static so the settings toggle reaches the live service. Constructing
+  /// `NotificationService()` only to assign the instance field never did.
+  static bool systemNotificationsEnabled = true;
 
   Future<void> init() async {
     await localNotifier.setup(

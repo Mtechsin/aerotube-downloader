@@ -67,11 +67,9 @@ void main() {
     expect(await findDownloadedFile(item()), isNull);
   });
 
-  test('returns the only media file present', () async {
-    final only = await writeMedia('clip.mp4');
-    final found = await findDownloadedFile(item());
-    expect(found, isNotNull);
-    expect(found!.path, only.path);
+  test('does not attach the only media file when its name does not match', () async {
+    await writeMedia('clip.mp4');
+    expect(await findDownloadedFile(item()), isNull);
   });
 
   test('prefers filename containing the download id over newer unrelated file',
@@ -109,12 +107,12 @@ void main() {
     expect(found!.path, titleMatch.path);
   });
 
-  test('picks newest media file when neither id nor title match', () async {
+  test('does not guess among several files when id and title both miss', () async {
     await writeMedia(
       'aaa.mp4',
       modified: DateTime.now().subtract(const Duration(hours: 3)),
     );
-    final newest = await writeMedia(
+    await writeMedia(
       'zzz.mp4',
       modified: DateTime.now(),
     );
@@ -122,8 +120,33 @@ void main() {
     final found = await findDownloadedFile(
       item(id: 'zzz-not-in-name', title: 'Completely Different Words'),
     );
+    expect(found, isNull);
+  });
+
+  test('matches [videoId] when the download id has a timestamp suffix', () async {
+    final match = await writeMedia('Talk [dQw4w9wgxcq].mp4');
+    await writeMedia('Other [abcdefghijk].mp4');
+
+    final found = await findDownloadedFile(
+      item(
+        id: 'dQw4w9wgxcq_1710000000000000_3',
+        title: 'Something Else',
+        outputPath: tempDir.path,
+      ),
+    );
     expect(found, isNotNull);
-    expect(found!.path, newest.path);
+    expect(found!.path, match.path);
+  });
+
+  test('title match survives windows-sanitized characters', () async {
+    final match = await writeMedia('axiom _ module_7.mp4');
+    await writeMedia('unrelated.mp4');
+
+    final found = await findDownloadedFile(
+      item(id: 'no-id-here', title: 'Axiom | Module_7'),
+    );
+    expect(found, isNotNull);
+    expect(found!.path, match.path);
   });
 
   test('ignores non-media extensions even if newer', () async {
@@ -136,7 +159,7 @@ void main() {
     await File('${tempDir.path}${Platform.pathSeparator}info.json')
         .writeAsString('{}');
 
-    final found = await findDownloadedFile(item(id: 'nomatch', title: 'zz'));
+    final found = await findDownloadedFile(item(id: 'nomatch', title: 'song'));
     expect(found, isNotNull);
     expect(found!.path, media.path);
     expect(found.path.endsWith('.mp3'), isTrue);
@@ -144,7 +167,7 @@ void main() {
 
   test('extension match is case-insensitive', () async {
     final upper = await writeMedia('Movie.MP4');
-    final found = await findDownloadedFile(item(id: 'nope', title: 'zz'));
+    final found = await findDownloadedFile(item(id: 'nope', title: 'Movie'));
     expect(found, isNotNull);
     expect(found!.path, upper.path);
   });
@@ -161,7 +184,7 @@ void main() {
       'h.flac',
     ];
     for (final n in names) {
-      await writeMedia(n);
+      await writeMedia('qqq$n');
       final found = await findDownloadedFile(item(id: 'x', title: 'qqq'));
       expect(found, isNotNull, reason: 'should find media for $n');
       // Clean up so only one candidate exists per iteration

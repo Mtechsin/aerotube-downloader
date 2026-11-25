@@ -35,15 +35,13 @@ import 'models/download_item.dart';
 import 'models/video_info.dart';
 
 void main() {
-  Animate.defaultCurve = Curves.linear;
+  Animate.defaultCurve = Curves.easeOutCubic;
   final loggingService = LoggingService();
 
   // Run app in a guarded zone to catch all async errors
   runZonedGuarded<Future<void>>(
     () async {
       WidgetsFlutterBinding.ensureInitialized();
-
-      await loggingService.init();
 
       FlutterError.onError = (details) {
         loggingService.error(
@@ -58,8 +56,13 @@ void main() {
       final settingsService = SettingsService();
       final authService = AuthService();
 
-      // Batch independent I/O: Hive + settings init in parallel
-      await Future.wait([Hive.initFlutter(), settingsService.init()]);
+      // Batch all independent cold-start I/O in parallel
+      await Future.wait([
+        loggingService.init(),
+        Hive.initFlutter(),
+        settingsService.init(),
+        services.initializeAll(),
+      ]);
 
       // Register Hive adapters BEFORE any box is opened (fix typeId 33 crash).
       // Guarded so hot-restart / re-init does not throw duplicate registration.
@@ -84,9 +87,6 @@ void main() {
       PaintingBinding.instance.imageCache.maximumSizeBytes =
           50 * 1024 * 1024; // 50MB
 
-      // Initialize global services singleton
-      await services.initializeAll();
-
       // Platform-specific initialization
       final isAndroid = PlatformUtils.isAndroid;
 
@@ -100,11 +100,18 @@ void main() {
       final cookieService = services.cookieService;
       final notificationService = services.notificationService;
 
-      // Only use WebView path if there's an active login
-      final isLoggedIn = await cookieService.isLoggedIn;
+      // Only use WebView path if there's an active login (fetch in parallel on desktop)
+      late final bool isLoggedIn;
       String? webViewPath;
-      if (!isAndroid) {
-        webViewPath = await cookieService.webViewPath;
+      if (isAndroid) {
+        isLoggedIn = await cookieService.isLoggedIn;
+      } else {
+        final results = await Future.wait<dynamic>([
+          cookieService.isLoggedIn,
+          cookieService.webViewPath,
+        ]);
+        isLoggedIn = results[0] as bool;
+        webViewPath = results[1] as String?;
       }
 
       final effectiveWebViewPath = isLoggedIn ? webViewPath : null;

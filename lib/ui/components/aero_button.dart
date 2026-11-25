@@ -357,7 +357,7 @@ class _AeroButtonState extends State<AeroButton> {
 
     final duration = appMotionDuration(
       context,
-      const Duration(milliseconds: 120),
+      const Duration(milliseconds: 80),
     );
 
     final BoxBorder effectiveBorder = _isFocused
@@ -370,7 +370,7 @@ class _AeroButtonState extends State<AeroButton> {
 
     Widget button = AnimatedContainer(
       duration: duration,
-      curve: Curves.linear,
+      curve: AppMotion.emphasized,
       width: effectiveWidth,
       height: effectiveHeight,
       padding: effectivePadding,
@@ -383,12 +383,12 @@ class _AeroButtonState extends State<AeroButton> {
       child: content,
     );
 
-    // Constant-speed scale on press feedback.
+    // Responsive scale on press feedback.
     final pressDuration = appMotionDuration(context, AppMotion.fast);
     button = AnimatedScale(
       scale: _isPressed ? 0.97 : 1.0,
       duration: pressDuration,
-      curve: _isPressed ? Curves.linear : AppMotion.linear,
+      curve: AppMotion.emphasized,
       child: button,
     );
 

@@ -248,7 +248,7 @@ class _AeroTextFieldState extends State<AeroTextField> {
     if (widget.maxLines == 1) {
       fieldBox = AnimatedContainer(
         duration: duration,
-        curve: Curves.linear,
+        curve: AppMotion.emphasized,
         height: singleLineHeight,
         alignment: Alignment.center,
         decoration: boxDecoration,
@@ -257,7 +257,7 @@ class _AeroTextFieldState extends State<AeroTextField> {
     } else {
       fieldBox = AnimatedContainer(
         duration: duration,
-        curve: Curves.linear,
+        curve: AppMotion.emphasized,
         constraints: BoxConstraints(minHeight: minMultiLineHeight),
         padding: const EdgeInsets.symmetric(vertical: 4.0),
         decoration: boxDecoration,

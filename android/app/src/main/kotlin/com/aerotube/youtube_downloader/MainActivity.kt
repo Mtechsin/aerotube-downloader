@@ -1508,6 +1508,20 @@ class MainActivity : FlutterActivity() {
             putExtra("title", title)
         }
 
+        val running = DownloadService.instance
+        if (running != null && running.ensureRegistered(
+                downloadId,
+                url,
+                outputPath,
+                format,
+                cookiesPath,
+                userAgent,
+                title ?: "Downloading..."
+            )
+        ) {
+            return
+        }
+
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 startForegroundService(intent)
@@ -1531,6 +1545,11 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun cancelDownloadInService(downloadId: String) {
+        val running = DownloadService.instance
+        if (running != null) {
+            running.requestCancel(downloadId)
+            return
+        }
         val intent = Intent(this, DownloadService::class.java).apply {
             action = "CANCEL_DOWNLOAD"
             putExtra("downloadId", downloadId)

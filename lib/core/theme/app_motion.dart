@@ -9,27 +9,27 @@ import '../../providers/platform_settings_provider.dart';
 /// here (or [appMotionDuration]) so the hierarchy stays consistent app-wide.
 abstract final class AppMotion {
   /// Quick feedback: press-down, small state flips.
-  static const Duration fast = Duration(milliseconds: 150);
+  static const Duration fast = Duration(milliseconds: 90);
 
   /// Component-level transitions: chip/status swaps, glow borders.
-  static const Duration short = Duration(milliseconds: 200);
+  static const Duration short = Duration(milliseconds: 120);
 
   /// Standard spatial transitions: tab switches, morphs, card entrances.
-  static const Duration medium = Duration(milliseconds: 350);
+  static const Duration medium = Duration(milliseconds: 190);
 
   /// Large transitions: page pushes, hero sections.
-  static const Duration long = Duration(milliseconds: 500);
+  static const Duration long = Duration(milliseconds: 260);
 
-  /// Constant-speed spatial transitions.
-  static const Curve emphasized = Curves.linear;
+  /// Decisive ease-out spatial transitions.
+  static const Curve emphasized = Curves.easeOutCubic;
 
-  /// Constant-speed entrance transitions.
-  static const Curve decelerate = Curves.linear;
+  /// Smooth entrance transitions.
+  static const Curve decelerate = Curves.easeOutQuart;
 
-  /// Constant-speed exit transitions.
-  static const Curve accelerate = Curves.linear;
+  /// Crisp exit transitions.
+  static const Curve accelerate = Curves.easeInCubic;
 
-  /// Constant-speed motion shared by components and progress indicators.
+  /// Constant-speed motion shared by continuous progress and shimmer indicators.
   static const Curve linear = Curves.linear;
 }
 

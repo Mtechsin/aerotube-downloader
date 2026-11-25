@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:convert';
+import 'dart:isolate';
 import 'dart:math';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
@@ -175,21 +176,24 @@ class FfmpegService implements FfmpegToolService {
     logger.info('Checking for FFmpeg updates...', component: 'FfmpegService');
 
     try {
-      // Check the GitHub releases API for FFmpeg builds
+      // The installer downloads BtbN master builds (N-######). Comparing that
+      // against a Gyan.dev tag such as 7.1 always looks outdated.
       final response = await http.get(
-        Uri.parse(AppConstants.ffmpegGyanDReleaseApiUrl),
+        Uri.parse('https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/tags/latest'),
         headers: {'Accept': 'application/vnd.github.v3+json'},
       ).timeout(const Duration(seconds: 15));
 
       if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        final latestVersion = data['tag_name'] as String?;
-        final publishedAt = data['published_at'] != null 
-            ? DateTime.parse(data['published_at'] as String) 
+        final data = json.decode(response.body) as Map<String, dynamic>;
+        final blob = '${data['name'] ?? ''}\n${data['body'] ?? ''}';
+        final latestVersion = RegExp(
+          r'N-\d+(?:-g[0-9a-fA-F]+)?',
+        ).firstMatch(blob)?.group(0);
+        final publishedAt = data['published_at'] != null
+            ? DateTime.parse(data['published_at'] as String)
             : null;
-        
-        // Get download URL for Windows essentials build
-        final downloadUrl = AppConstants.ffmpegGyanDDownloadUrl;
+
+        final downloadUrl = AppConstants.ffmpegBtbnDownloadUrl;
 
         logger.info(
           'FFmpeg update check completed: current=$currentVersion, latest=$latestVersion',
@@ -269,30 +273,14 @@ class FfmpegService implements FfmpegToolService {
         await ffmpegDir.create(recursive: true);
       }
 
-      // Stream-read zip from disk, avoid loading entire file into memory
-      final inputStream = InputFileStream(tempZipFile.path);
-      final archive = ZipDecoder().decodeStream(inputStream);
-
-      for (final entry in archive) {
-        if (isCancelled?.call() == true) {
-          throw Exception('Cancelled');
-        }
-        final filename = entry.name;
-        if (entry.isFile) {
-          if (filename.contains('bin/ffmpeg.exe') ||
-              filename.contains('bin/ffprobe.exe')) {
-            final outFile = File(p.join(ffmpegDir.path, p.basename(filename)));
-            if (await outFile.exists()) {
-              await outFile.delete();
-            }
-            // Write decompressed entry directly to disk — no full file in RAM
-            final output = OutputFileStream(outFile.path);
-            entry.writeContent(output);
-            await output.close();
-          }
-        }
+      if (isCancelled?.call() == true) {
+        throw Exception('Cancelled');
       }
-      await inputStream.close();
+      // Extraction is synchronous and the zip is ~130 MB. Run it off the UI
+      // isolate, and always close the zip stream so Windows can delete it.
+      final zipPath = tempZipFile.path;
+      final destDir = ffmpegDir.path;
+      await Isolate.run(() => extractFfmpegBinariesSync(zipPath, destDir));
 
       final ffmpegExe = File(p.join(ffmpegDir.path, 'ffmpeg.exe'));
       if (await ffmpegExe.exists()) {
@@ -337,5 +325,34 @@ class FfmpegService implements FfmpegToolService {
         }
       }
     }
+  }
+}
+
+/// Runs in a background isolate. Closes the zip stream even when extraction throws
+/// so the temp file can be deleted on Windows.
+void extractFfmpegBinariesSync(String zipPath, String destDir) {
+  final inputStream = InputFileStream(zipPath);
+  try {
+    final archive = ZipDecoder().decodeStream(inputStream);
+    for (final entry in archive) {
+      if (!entry.isFile) continue;
+      final filename = entry.name;
+      if (!filename.contains('bin/ffmpeg.exe') &&
+          !filename.contains('bin/ffprobe.exe')) {
+        continue;
+      }
+      final outFile = File(p.join(destDir, p.basename(filename)));
+      if (outFile.existsSync()) {
+        outFile.deleteSync();
+      }
+      final output = OutputFileStream(outFile.path);
+      try {
+        entry.writeContent(output);
+      } finally {
+        output.close();
+      }
+    }
+  } finally {
+    inputStream.close();
   }
 }

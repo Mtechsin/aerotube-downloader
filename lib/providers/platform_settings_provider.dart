@@ -237,7 +237,7 @@ class PlatformSettingsProvider extends ChangeNotifier {
     _ytdlpService.enableCookies = settings.enableCookies;
     // Sync notification toggle with the service on boot.
     try {
-      NotificationService().systemNotificationsEnabled =
+      NotificationService.systemNotificationsEnabled =
           settings.enableNotifications;
     } catch (_) {}
 
@@ -728,7 +728,7 @@ class PlatformSettingsProvider extends ChangeNotifier {
     await _settingsService.setEnableNotifications(value);
     // Propagate to the notification service so system toasts respect the toggle.
     try {
-      NotificationService().systemNotificationsEnabled = value;
+      NotificationService.systemNotificationsEnabled = value;
     } catch (_) {}
     notifyListeners();
   }

@@ -41,6 +41,8 @@ object YtDlpEngine {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val activeJobs = ConcurrentHashMap<String, Job>()
     private val cancelledIds = ConcurrentHashMap.newKeySet<String>()
+    private val runTokens = ConcurrentHashMap<String, Int>()
+    private val jobLock = Any()
 
     @Volatile
     private var appContext: Context? = null
@@ -257,12 +259,36 @@ object YtDlpEngine {
     fun startDownload(context: Context, job: DownloadJob, processId: String) {
         ensureInit(context)
         val ffmpegOk = ensureFfmpeg()
-        val pathFile = File(context.cacheDir, "ytdlp_path_$processId.txt")
+        // Resume and retry reuse this process id. A previous cancel left the id
+        // in cancelledIds, which would swallow this run's completed/error event.
+        // The token stops the previous coroutine from emitting after we clear it.
+        val token: Int
+        val previous = synchronized(jobLock) {
+            val prev = activeJobs.remove(processId)
+            cancelledIds.remove(processId)
+            val next = (runTokens[processId] ?: 0) + 1
+            runTokens[processId] = next
+            token = next
+            prev
+        }
+        previous?.cancel()
+        if (previous != null) {
+            try {
+                YoutubeDL.getInstance().destroyProcessById(processId)
+            } catch (_: Exception) {
+            }
+        }
+
+        val pathFile = File(context.cacheDir, "ytdlp_path_${processId}_$token.txt")
         val effectiveJob = (if (ffmpegOk) job else job.copy(ffmpegAvailable = false))
             .withEngineDefaults(context, pathFile)
 
+        fun isCurrentRun(): Boolean = synchronized(jobLock) { runTokens[processId] == token }
+
+        var launched: Job? = null
         val work = scope.launch {
             try {
+                if (!isCurrentRun()) return@launch
                 val outDir = File(effectiveJob.outputPath)
                 if (!outDir.exists()) {
                     outDir.mkdirs()
@@ -278,7 +304,7 @@ object YtDlpEngine {
 
                 executeDownload(effectiveJob, processId, PlayerClient.Default)
 
-                if (cancelledIds.remove(processId)) {
+                if (!isCurrentRun() || cancelledIds.remove(processId)) {
                     Log.d(TAG, "Download $processId finished after cancel — suppressing completed")
                     pathFile.delete()
                     return@launch
@@ -301,7 +327,7 @@ object YtDlpEngine {
             } catch (e: Throwable) {
                 // Best-effort oracle: a partial download may still have printed a path.
                 val partialPath = readPathOracle(pathFile)
-                if (cancelledIds.remove(processId) || !isActive) {
+                if (!isCurrentRun() || cancelledIds.remove(processId) || !isActive) {
                     Log.d(TAG, "Download $processId cancelled — suppressing error event")
                     return@launch
                 }
@@ -320,10 +346,21 @@ object YtDlpEngine {
                 DownloadService.instance?.completeDownload(processId)
             } finally {
                 pathFile.delete()
-                activeJobs.remove(processId)
+                synchronized(jobLock) {
+                    if (activeJobs[processId] === launched) {
+                        activeJobs.remove(processId)
+                    }
+                }
             }
         }
-        activeJobs[processId] = work
+        launched = work
+        synchronized(jobLock) {
+            if (cancelledIds.contains(processId)) {
+                work.cancel()
+            } else {
+                activeJobs[processId] = work
+            }
+        }
     }
 
     /**
@@ -359,11 +396,22 @@ object YtDlpEngine {
     }
 
     fun cancel(processId: String): Boolean {
+        val job = synchronized(jobLock) {
+            val existing = activeJobs.remove(processId)
+            if (existing == null) {
+                // Already stopped (or cancel already ran). Remember the id so a
+                // late completed event is dropped, but do not emit again —
+                // Dart treats every "cancelled" event as a new cancelDownload().
+                cancelledIds.add(processId)
+                null
+            } else {
+                cancelledIds.add(processId)
+                existing
+            }
+        } ?: return false
         return try {
-            cancelledIds.add(processId)
             YoutubeDL.getInstance().destroyProcessById(processId)
-            activeJobs[processId]?.cancel()
-            activeJobs.remove(processId)
+            job.cancel()
             DownloadEventBus.emit(
                 mapOf(
                     "event" to "cancelled",
@@ -576,7 +624,10 @@ object YtDlpEngine {
                         "output_path" to job.outputPath
                     )
                 )
-                DownloadService.instance?.reportProgress(processId, progress, line)
+                // youtubedl-android reports 0..100. DownloadService expects 0..1;
+                // passing the raw value clamps to 100% at the first percent.
+                val fraction = (progress / 100f).coerceIn(0f, 1f)
+                DownloadService.instance?.reportProgress(processId, fraction, line)
             }
         } catch (execError: Exception) {
             val msg = execError.message ?: ""
@@ -612,8 +663,7 @@ object YtDlpEngine {
             "https://ghproxy.net/https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp"
         )
         val checksumUrls = listOf(
-            "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.sha256",
-            "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.sha256sum"
+            "https://github.com/yt-dlp/yt-dlp/releases/latest/download/SHA2-256SUMS"
         )
 
         val tempFile = File.createTempFile("ytdlp_dl", ".tmp", context.cacheDir)
@@ -691,7 +741,7 @@ object YtDlpEngine {
             }
 
             // Integrity: refuse to install unless SHA-256 matches the official release checksum.
-            val expectedSha = fetchOfficialSha256(checksumUrls)
+            val expectedSha = fetchOfficialSha256(checksumUrls, "yt-dlp")
             if (expectedSha == null) {
                 tempFile.delete()
                 return Pair(false, "SHA-256 mismatch — refusing to install (official checksum unavailable)")
@@ -754,10 +804,12 @@ object YtDlpEngine {
     }
 
     /**
-     * Fetch the official yt-dlp release SHA-256. Accepts
-     * `<hash>`, `<hash>  filename`, or `<hash> *filename`.
+     * Fetch the official yt-dlp release SHA-256.
+     * SHA2-256SUMS lines are `<hash>  filename` or `<hash> *filename`.
+     * A one-line file of just `<hash>` is accepted when [assetName] is null.
      */
-    private fun fetchOfficialSha256(checksumUrls: List<String>): String? {
+    private fun fetchOfficialSha256(checksumUrls: List<String>, assetName: String): String? {
+        val hex = Regex("[0-9a-fA-F]{64}")
         for (urlString in checksumUrls) {
             try {
                 val conn = (URL(urlString).openConnection() as HttpURLConnection).apply {
@@ -771,15 +823,17 @@ object YtDlpEngine {
                 }
                 val text = conn.inputStream.bufferedReader().use { it.readText() }
                 conn.disconnect()
-                // First whitespace-separated token is the hex digest.
-                val hash = text.trim().split(Regex("\\s+"))
-                    .firstOrNull()
-                    ?.trim()
-                    ?.lowercase()
-                if (hash != null && hash.matches(Regex("[0-9a-f]{64}"))) {
-                    return hash
+                for (rawLine in text.lineSequence()) {
+                    val line = rawLine.trim()
+                    if (line.isEmpty() || line.startsWith("#")) continue
+                    val parts = line.split(Regex("\\s+"))
+                    val hash = parts.firstOrNull()?.lowercase() ?: continue
+                    if (!hash.matches(hex)) continue
+                    if (parts.size == 1) return hash
+                    val name = parts.last().removePrefix("*").substringAfterLast('/')
+                    if (name == assetName) return hash
                 }
-                Log.w(TAG, "Checksum file from $urlString had unexpected format: ${text.take(80)}")
+                Log.w(TAG, "Checksum file from $urlString had no entry for $assetName")
             } catch (e: Throwable) {
                 Log.w(TAG, "Failed to fetch SHA-256 from $urlString: ${e.message}")
             }

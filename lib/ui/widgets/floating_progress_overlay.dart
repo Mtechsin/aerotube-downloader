@@ -2,6 +2,7 @@ import 'package:material_symbols_icons/symbols.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
+import '../../core/theme/app_motion.dart';
 import '../../providers/download_provider.dart';
 import '../../providers/tool_update_provider.dart';
 import '../../services/core/logging_service.dart';
@@ -141,8 +142,8 @@ class _UserLogsWidget extends StatelessWidget {
                 ),
               )
               .animate()
-              .slideX(begin: 1, end: 0, duration: 300.ms, curve: Curves.linear)
-              .fadeIn(duration: 200.ms),
+              .slideX(begin: 1, end: 0, duration: 180.ms, curve: AppMotion.decelerate)
+              .fadeIn(duration: 140.ms),
     );
   }
 }
@@ -326,8 +327,8 @@ class _MobileDownloadCard extends StatelessWidget {
           ),
         )
         .animate()
-        .slideY(begin: 1, end: 0, duration: 400.ms, curve: Curves.linear)
-        .fadeIn(duration: 300.ms);
+        .slideY(begin: 1, end: 0, duration: 180.ms, curve: AppMotion.decelerate)
+        .fadeIn(duration: 140.ms);
   }
 }
 
@@ -384,8 +385,8 @@ class _DesktopDownloadCard extends StatelessWidget {
           ),
         )
         .animate()
-        .slideY(begin: 1, end: 0, duration: 400.ms, curve: Curves.linear)
-        .fadeIn(duration: 300.ms);
+        .slideY(begin: 1, end: 0, duration: 180.ms, curve: AppMotion.decelerate)
+        .fadeIn(duration: 140.ms);
   }
 }
 

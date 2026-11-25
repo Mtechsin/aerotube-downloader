@@ -75,9 +75,9 @@ class _CompletionPopState extends State<CompletionPop>
     _controller.duration = appMotionDuration(context, AppMotion.medium);
     return ScaleTransition(
       scale: Tween<double>(
-        begin: 0.92,
+        begin: 0.94,
         end: 1.0,
-      ).animate(CurvedAnimation(parent: _controller, curve: AppMotion.linear)),
+      ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutBack)),
       child: widget.child,
     );
   }

@@ -1,6 +1,5 @@
 plugins {
     id("com.android.application")
-    id("kotlin-android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
@@ -11,13 +10,9 @@ android {
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
         isCoreLibraryDesugaringEnabled = true
-    }
-
-    kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_11.toString()
     }
 
     defaultConfig {
@@ -44,6 +39,9 @@ android {
 
     packaging {
         jniLibs {
+            // youtubedl-android requires native libs extracted to disk (replaces
+            // android:extractNativeLibs="true" in AndroidManifest.xml, which AGP 9 forbids).
+            useLegacyPackaging = true
             // youtubedl-android ships archived payloads as *.zip.so files.
             // These are not ELF objects and must not be stripped.
             keepDebugSymbols += setOf("**/*.zip.so")
@@ -68,8 +66,14 @@ android {
     sourceSets {
         getByName("test") {
             // Canonical Kotlin unit-test source dir (plus existing java/).
-            java.srcDir("src/test/kotlin")
+            java.directories.add("src/test/kotlin")
         }
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
     }
 }
 

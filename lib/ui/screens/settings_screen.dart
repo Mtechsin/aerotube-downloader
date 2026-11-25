@@ -497,12 +497,12 @@ class _SettingsScreenState extends State<SettingsScreen>
             subtitle: provider.cookieFileName ?? 'No file selected',
             icon: Symbols.upload_file_rounded,
             onTap: () async {
-              final result = await FilePicker.platform.pickFiles(
+              final result = await FilePicker.pickFile(
                 type: FileType.custom,
                 allowedExtensions: ['txt'],
               );
-              if (result != null && result.files.single.path != null) {
-                provider.setCookiePath(result.files.single.path);
+              if (result?.path != null) {
+                provider.setCookiePath(result!.path);
               }
             },
           ),
@@ -546,7 +546,8 @@ class _SettingsScreenState extends State<SettingsScreen>
           subtitle: provider.outputPath ?? 'Default folder',
           icon: Symbols.folder_rounded,
           onTap: () async {
-            final result = await FilePicker.platform.getDirectoryPath();
+            // ignore: deprecated_member_use
+            final result = await FilePicker.getDirectoryPath();
             if (result == null || !context.mounted) return;
 
             if (provider.isAndroid) {
@@ -1876,15 +1877,15 @@ class _SettingsScreenState extends State<SettingsScreen>
                 icon: Symbols.file_open_rounded,
                 onTap: () async {
                   Navigator.pop(sheetContext);
-                  final result = await FilePicker.platform.pickFiles(
+                  final result = await FilePicker.pickFile(
                     type: FileType.custom,
                     allowedExtensions: ['exe'],
                   );
-                  if (result != null && result.files.single.path != null) {
+                  if (result?.path != null) {
                     if (isYtdlp) {
-                      await provider.setYtdlpPath(result.files.single.path);
+                      await provider.setYtdlpPath(result!.path);
                     } else {
-                      await provider.setFfmpegPath(result.files.single.path);
+                      await provider.setFfmpegPath(result!.path);
                     }
                     await toolProvider.refreshAvailability();
                   }
@@ -1914,7 +1915,8 @@ class _SettingsScreenState extends State<SettingsScreen>
     final service = LoggingService();
 
     try {
-      final pickedPath = await FilePicker.platform.getDirectoryPath(
+      // ignore: deprecated_member_use
+      final pickedPath = await FilePicker.getDirectoryPath(
         dialogTitle: 'Select folder to export logs',
       );
 

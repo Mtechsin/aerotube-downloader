@@ -91,11 +91,6 @@ class _AeroCardState extends State<AeroCard> {
       );
     }
 
-    final duration = appMotionDuration(
-      context,
-      const Duration(milliseconds: 120),
-    );
-
     final isInteractive = widget.onTap != null || widget.onLongPress != null;
 
     Widget content = Padding(
@@ -115,18 +110,37 @@ class _AeroCardState extends State<AeroCard> {
       );
     }
 
+    final decoration = BoxDecoration(
+      color: effectiveBg,
+      borderRadius: effectiveRadius,
+      border: effectiveBorder,
+    );
+
+    // Static cards avoid AnimatedContainer's AnimationController/tween overhead.
+    if (!widget.hoverable && !widget.selected && !isInteractive) {
+      return Container(
+        width: widget.width,
+        height: widget.height,
+        margin: widget.margin,
+        clipBehavior: widget.clipBehavior,
+        decoration: decoration,
+        child: content,
+      );
+    }
+
+    final duration = appMotionDuration(
+      context,
+      const Duration(milliseconds: 90),
+    );
+
     final card = AnimatedContainer(
       duration: duration,
-      curve: Curves.linear,
+      curve: AppMotion.emphasized,
       width: widget.width,
       height: widget.height,
       margin: widget.margin,
       clipBehavior: widget.clipBehavior,
-      decoration: BoxDecoration(
-        color: effectiveBg,
-        borderRadius: effectiveRadius,
-        border: effectiveBorder,
-      ),
+      decoration: decoration,
       child: content,
     );
 

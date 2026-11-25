@@ -73,11 +73,15 @@ class Services {
 
   Future<void> initializeAll() async {
     if (PlatformUtils.isAndroid) {
-      await (cookieService as CookieServiceAndroid).init();
-      await (notificationService as NotificationServiceAndroid).init();
+      await Future.wait([
+        (cookieService as CookieServiceAndroid).init(),
+        (notificationService as NotificationServiceAndroid).init(),
+      ]);
     } else {
-      await notificationService.init();
-      await cookieService.init();
+      await Future.wait([
+        notificationService.init(),
+        cookieService.init(),
+      ]);
     }
   }
 }

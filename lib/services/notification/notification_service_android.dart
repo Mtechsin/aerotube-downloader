@@ -178,7 +178,7 @@ class NotificationServiceAndroid extends NotificationService {
     );
 
     if (!alsoSystemNotification) return;
-    if (!systemNotificationsEnabled) return;
+    if (!NotificationService.systemNotificationsEnabled) return;
 
     if (!_isInitialized && !_permissionDenied) {
       await init();

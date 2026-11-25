@@ -1,8 +1,12 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import '../core/logging_service.dart';
 import '../../core/utils/url_validator.dart';
+
+Map<String, dynamic> _decodeJsonMap(String raw) =>
+    jsonDecode(raw) as Map<String, dynamic>;
 
 String _validateUrl(String url) {
   try {
@@ -89,7 +93,7 @@ class NativeYtdlpAndroid {
         throw Exception('Failed to get video info: null response');
       }
 
-      final parsed = jsonDecode(result) as Map<String, dynamic>;
+      final parsed = await compute(_decodeJsonMap, result);
 
       if (parsed['success'] == false) {
         LoggingService().error(
@@ -132,7 +136,7 @@ class NativeYtdlpAndroid {
         throw Exception('Failed to get playlist info: null response');
       }
 
-      final parsed = jsonDecode(result) as Map<String, dynamic>;
+      final parsed = await compute(_decodeJsonMap, result);
 
       if (parsed['success'] == false) {
         throw Exception(parsed['error'] ?? 'Unknown error');
@@ -170,7 +174,7 @@ class NativeYtdlpAndroid {
         throw Exception('Failed to search videos: null response');
       }
 
-      final parsed = jsonDecode(result) as Map<String, dynamic>;
+      final parsed = await compute(_decodeJsonMap, result);
       if (parsed['success'] == false) {
         throw Exception(parsed['error'] ?? 'Unknown error');
       }
@@ -232,7 +236,7 @@ class NativeYtdlpAndroid {
         throw Exception('Failed to enqueue download: null response');
       }
 
-      final parsed = jsonDecode(result) as Map<String, dynamic>;
+      final parsed = await compute(_decodeJsonMap, result);
       return parsed;
     } on PlatformException catch (e) {
       throw Exception('Platform error: ${e.message}');
@@ -289,7 +293,7 @@ class NativeYtdlpAndroid {
         throw Exception('Failed to update yt-dlp: null response');
       }
 
-      final parsed = jsonDecode(result) as Map<String, dynamic>;
+      final parsed = await compute(_decodeJsonMap, result);
       return parsed;
     } on PlatformException catch (e) {
       throw Exception('Platform error: ${e.message}');

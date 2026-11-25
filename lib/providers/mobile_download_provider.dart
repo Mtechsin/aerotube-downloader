@@ -59,11 +59,13 @@ class MobileDownloadProvider extends ChangeNotifier
   List<DownloadItem>? _cachedCompletedDownloads;
   List<DownloadItem>? _cachedFailedDownloads;
   List<DownloadItem>? _cachedCancelledDownloads;
+  List<DownloadItem>? _cachedHistoryDownloads;
   bool _downloadsDirty = true;
   bool _activeDirty = true;
   bool _completedDirty = true;
   bool _failedDirty = true;
   bool _cancelledDirty = true;
+  bool _historyDirty = true;
 
   // Progress events from yt-dlp arrive at native callback rate (~1-5/s per
   // download). Coalescing the UI notification to ~10 Hz cuts rebuild work
@@ -101,6 +103,12 @@ class MobileDownloadProvider extends ChangeNotifier
     _completedDirty = true;
     _failedDirty = true;
     _cancelledDirty = true;
+    _historyDirty = true;
+  }
+
+  void _markActiveOnlyDirty() {
+    _downloadsDirty = true;
+    _activeDirty = true;
   }
 
   @override
@@ -201,6 +209,16 @@ class MobileDownloadProvider extends ChangeNotifier
     return _cachedCancelledDownloads!;
   }
 
+  List<DownloadItem> get historyDownloads {
+    if (_historyDirty || _cachedHistoryDownloads == null) {
+      _cachedHistoryDownloads = List.unmodifiable(
+        _downloads.where((d) => _isTerminalStatus(d.status)).toList(),
+      );
+      _historyDirty = false;
+    }
+    return _cachedHistoryDownloads!;
+  }
+
   bool get isInitialized => _isInitialized;
   int get maxConcurrentDownloads => _maxConcurrentDownloads;
   int get activeDownloadsCount => activeDownloads.length;
@@ -286,11 +304,19 @@ class MobileDownloadProvider extends ChangeNotifier
   }
 
   Future<void> _initHistoryStorage() async {
-    // Open history box and active downloads box with corruption recovery
-    if (_historyBox == null || !_historyBox!.isOpen) {
+    // Open history box and active downloads box in parallel with corruption recovery
+    final needHistory = _historyBox == null || !_historyBox!.isOpen;
+    final needActive = _activeBox == null || !_activeBox!.isOpen;
+    if (needHistory && needActive) {
+      final boxes = await Future.wait([
+        _openBoxWithRecovery(_historyBoxName),
+        _openBoxWithRecovery(_activeBoxName),
+      ]);
+      _historyBox = boxes[0];
+      _activeBox = boxes[1];
+    } else if (needHistory) {
       _historyBox = await _openBoxWithRecovery(_historyBoxName);
-    }
-    if (_activeBox == null || !_activeBox!.isOpen) {
+    } else if (needActive) {
       _activeBox = await _openBoxWithRecovery(_activeBoxName);
     }
 
@@ -348,7 +374,7 @@ class MobileDownloadProvider extends ChangeNotifier
     List<DownloadItem> persistedHistory = [];
     if (_historyBox != null) {
       try {
-        for (final key in _historyBox!.keys) {
+        for (final key in _historyBox!.keys.toList()) {
           try {
             final item = _historyBox!.get(key);
             if (item != null) persistedHistory.add(item);
@@ -409,8 +435,18 @@ class MobileDownloadProvider extends ChangeNotifier
     notifyListeners();
   }
 
+  Future<void>? _activeSaveChain;
+
   /// Persist all active (non-terminal) downloads to Hive active box so they survive process kills.
-  Future<void> _saveActiveDownloads() async {
+  /// Saves are serialized so overlapping calls cannot interleave deleteAll and put.
+  Future<void> _saveActiveDownloads() {
+    final previous = _activeSaveChain ?? Future<void>.value();
+    final next = previous.catchError((Object _) {}).then((_) => _saveActiveDownloadsBody());
+    _activeSaveChain = next;
+    return next;
+  }
+
+  Future<void> _saveActiveDownloadsBody() async {
     final box = _activeBox;
     if (box == null || !box.isOpen) return;
 
@@ -467,7 +503,7 @@ class MobileDownloadProvider extends ChangeNotifier
     if (box == null || !box.isOpen) return;
 
     final List<DownloadItem> orphans = [];
-    for (final key in box.keys) {
+    for (final key in box.keys.toList()) {
       try {
         final item = box.get(key);
         if (item != null) orphans.add(item);
@@ -839,7 +875,8 @@ class MobileDownloadProvider extends ChangeNotifier
     }
   }
 
-  Future<void> _startDownload(DownloadItem item) async {
+  Future<void> _startDownload(DownloadItem requestedItem) async {
+    var item = requestedItem;
     if (_currentlyProcessingIds.contains(item.id)) return;
     _currentlyProcessingIds.add(item.id);
     try {
@@ -861,6 +898,7 @@ class MobileDownloadProvider extends ChangeNotifier
         final safePath = await _storageService.getSafeDownloadDirectory();
         if (safePath != item.outputPath) {
           final updated = item.copyWith(outputPath: safePath);
+          item = updated;
           final idx = _downloads.indexWhere((d) => d.id == item.id);
           if (idx != -1) {
             _downloads[idx] = updated;
@@ -875,6 +913,7 @@ class MobileDownloadProvider extends ChangeNotifier
         final safePath = await _storageService.getSafeDownloadDirectory();
         if (safePath != item.outputPath) {
           final updated = item.copyWith(outputPath: safePath);
+          item = updated;
           final idx = _downloads.indexWhere((d) => d.id == item.id);
           if (idx != -1) {
             _downloads[idx] = updated;
@@ -984,6 +1023,10 @@ class MobileDownloadProvider extends ChangeNotifier
         );
       }
 
+      // Cancel during startDownload used to fall through and still enqueue
+      // yt-dlp. Stop here if the item was cancelled or paused in that gap.
+      if (_downloadStartWasAbandoned(item.id)) return;
+
       _progressControllers[item.id] = StreamController<double>.broadcast();
 
       _logger.info(
@@ -1018,7 +1061,11 @@ class MobileDownloadProvider extends ChangeNotifier
       );
 
       if (processId != null) {
-        if (_isDisposed) return;
+        if (_isDisposed || _downloadStartWasAbandoned(item.id)) {
+          await NativeYtdlpAndroid.cancelDownload(processId);
+          await _foregroundService.cancelDownload(item.id);
+          return;
+        }
         _processToDownloadId[processId] = item.id;
 
         // Enqueue succeeded. Status is already downloadingVideo/Audio from
@@ -1151,6 +1198,14 @@ class MobileDownloadProvider extends ChangeNotifier
           readableStatus = 'Merging video + audio...';
           parsedProgress = max(parsedProgress, 0.96);
         }
+      } else if (!item.audioOnly &&
+          nextStatus != DownloadStatus.downloadingAudio) {
+        // Video half of a dual-stream download fills 0–70%. Mapping it 1:1
+        // shows ~99%, then the audio phase snaps the bar back to 70%.
+        final videoBand = (nativeProgress * 0.70).clamp(0.0, 0.70);
+        parsedProgress = item.progress <= 0.70
+            ? max(item.progress, videoBand)
+            : videoBand;
       } else if (acceptNativeProgress) {
         parsedProgress = nativeProgress;
       } else {
@@ -1197,7 +1252,11 @@ class MobileDownloadProvider extends ChangeNotifier
         status: nextStatus,
         statusText: readableStatus,
       );
-      _markDownloadsDirty();
+      if (_isTerminalStatus(nextStatus)) {
+        _markDownloadsDirty();
+      } else {
+        _markActiveOnlyDirty();
+      }
       if (statusChanged) {
         unawaited(_saveActiveDownloads());
       }
@@ -1289,6 +1348,13 @@ class MobileDownloadProvider extends ChangeNotifier
     }
 
     if (type == 'cancelled') {
+      // Pause and fail both stop the native process, which emits "cancelled".
+      // Re-entering cancelDownload() from that event overwrites paused/failed
+      // and, with an unguarded native cancel, fans out 2^n events.
+      if (_isTerminalStatus(item.status) ||
+          item.status == DownloadStatus.paused) {
+        return;
+      }
       unawaited(
         cancelDownload(downloadId).catchError((Object e, StackTrace st) {
           _logger.error(
@@ -1367,24 +1433,24 @@ class MobileDownloadProvider extends ChangeNotifier
 
       // If the file landed in app-private storage, publish a copy into the
       // public Downloads/AeroTube folder via MediaStore (works without
-      // All-files-access on Android 10+).
-      try {
-        final inPrivate = _storageService.isAppPrivatePath(file.path);
-        final publicWritable = await _storageService.canWritePublicDownloads();
-        if (inPrivate || !publicWritable) {
-          final published = await _storageService.publishToPublicDownloads(
-            sourcePath: file.path,
-            displayName: p.basename(file.path),
-          );
-          if (published) {
-            _logger.showUserLog('Saved to Downloads/AeroTube');
-          }
-        }
-      } catch (e) {
-        _logger.warning(
-          'Failed to publish download to public Downloads: $e',
-          component: 'MobileDownloadProvider',
+      // All-files-access on Android 10+). A failed copy must not be reported
+      // as complete: private files disappear when the app is uninstalled.
+      final inPrivate = _storageService.isAppPrivatePath(file.path);
+      final publicWritable = await _storageService.canWritePublicDownloads();
+      if (inPrivate || !publicWritable) {
+        final published = await _storageService.publishToPublicDownloads(
+          sourcePath: file.path,
+          displayName: p.basename(file.path),
         );
+        if (!published) {
+          await _failDownload(
+            downloadId,
+            'Saved inside app storage, but copying to Downloads/AeroTube failed. '
+            'That copy is removed if AeroTube is uninstalled.',
+          );
+          return;
+        }
+        _logger.showUserLog('Saved to Downloads/AeroTube');
       }
 
       // Trigger media scanner so Android MediaStore immediately indexes the media file
@@ -1397,7 +1463,12 @@ class MobileDownloadProvider extends ChangeNotifier
         );
       }
 
-      _downloads[index] = item.copyWith(
+      final writeIndex = _downloads.indexWhere((d) => d.id == downloadId);
+      if (writeIndex == -1 ||
+          _isTerminalStatus(_downloads[writeIndex].status)) {
+        return;
+      }
+      _downloads[writeIndex] = _downloads[writeIndex].copyWith(
         status: DownloadStatus.completed,
         progress: 1.0,
         speed: 0.0,
@@ -1409,11 +1480,12 @@ class MobileDownloadProvider extends ChangeNotifier
         statusText: 'Completed',
       );
       _markDownloadsDirty();
+      final completedItem = _downloads[writeIndex];
       await _removeActiveDownload(downloadId);
-      await _persistHistoryItem(_downloads[index]);
+      await _persistHistoryItem(completedItem);
       notifyListeners();
 
-      final title = _downloads[index].title;
+      final title = completedItem.title;
       // Single in-app surface: SnackBar only.
       unawaited(
         _notificationService
@@ -1511,6 +1583,10 @@ class MobileDownloadProvider extends ChangeNotifier
 
   Future<void> cancelDownload(String downloadId) async {
     final index = _downloads.indexWhere((d) => d.id == downloadId);
+    if (index != -1 &&
+        _downloads[index].status == DownloadStatus.cancelled) {
+      return;
+    }
     if (index != -1) {
       _downloads[index] = _downloads[index].copyWith(
         status: DownloadStatus.cancelled,
@@ -1561,6 +1637,10 @@ class MobileDownloadProvider extends ChangeNotifier
   Future<void> pauseDownload(String downloadId) async {
     final index = _downloads.indexWhere((d) => d.id == downloadId);
     if (index == -1) return;
+    if (_downloads[index].status == DownloadStatus.paused ||
+        _isTerminalStatus(_downloads[index].status)) {
+      return;
+    }
 
     final processId =
         _processToDownloadId.entries
@@ -1568,20 +1648,23 @@ class MobileDownloadProvider extends ChangeNotifier
             .map((e) => e.key)
             .firstOrNull ??
         downloadId;
-    // Pause is implemented as cancel + later re-enqueue. Resume only avoids
-    // re-downloading bytes when yt-dlp finds its partial (.part/.ytdl) files
-    // still on disk (see resumeDownload). The status text says so explicitly.
-    await NativeYtdlpAndroid.cancelDownload(processId);
-    await _foregroundService.cancelDownload(downloadId);
-
+    // Mark paused before the native cancel. That cancel emits "cancelled",
+    // and the event handler must see paused so it does not call cancelDownload.
     _downloads[index] = _downloads[index].copyWith(
       status: DownloadStatus.paused,
       speed: 0.0,
       statusText: 'Paused — resumes from partial file if still present',
     );
     _markDownloadsDirty();
-    await _saveActiveDownloads();
     notifyListeners();
+
+    // Pause is implemented as cancel + later re-enqueue. Resume only avoids
+    // re-downloading bytes when yt-dlp finds its partial (.part/.ytdl) files
+    // still on disk (see resumeDownload). The status text says so explicitly.
+    await NativeYtdlpAndroid.cancelDownload(processId);
+    await _foregroundService.cancelDownload(downloadId);
+
+    await _saveActiveDownloads();
 
     _currentlyProcessingIds.remove(downloadId);
     _progressControllers[downloadId]?.close();
@@ -1848,6 +1931,14 @@ class MobileDownloadProvider extends ChangeNotifier
     return status == DownloadStatus.completed ||
         status == DownloadStatus.failed ||
         status == DownloadStatus.cancelled;
+  }
+
+  /// True when a start that is still in flight should not enqueue yt-dlp.
+  bool _downloadStartWasAbandoned(String downloadId) {
+    final index = _downloads.indexWhere((d) => d.id == downloadId);
+    if (index == -1) return true;
+    final status = _downloads[index].status;
+    return _isTerminalStatus(status) || status == DownloadStatus.paused;
   }
 
   double? _extractSpeedBytesPerSecond(String line) {

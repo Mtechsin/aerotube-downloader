@@ -22,6 +22,16 @@ class VersionUtils {
 
     if (normCurrent == normLatest) return false;
 
+    // BtbN master builds report N-118xxx. Gyan release builds report 7.1.
+    // Treating a dotted release as newer than an N- build makes the updater
+    // loop forever after a BtbN install. A dotted install may still move to BtbN.
+    final currentIsBtbn = RegExp(r'^N-\d+', caseSensitive: false).hasMatch(normCurrent);
+    final latestIsBtbn = RegExp(r'^N-\d+', caseSensitive: false).hasMatch(normLatest);
+    final currentIsDotted = RegExp(r'^\d+\.\d+').hasMatch(normCurrent);
+    final latestIsDotted = RegExp(r'^\d+\.\d+').hasMatch(normLatest);
+    if (currentIsBtbn && latestIsDotted) return false;
+    if (currentIsDotted && latestIsBtbn) return true;
+
     // Split on dots or hyphens for component-wise comparison
     final currentParts = normCurrent.split(RegExp(r'[.\-]'));
     final latestParts = normLatest.split(RegExp(r'[.\-]'));

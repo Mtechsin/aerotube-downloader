@@ -45,7 +45,7 @@ class _AppState extends State<App> with TickerProviderStateMixin {
     super.initState();
     _entranceController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 420),
+      duration: const Duration(milliseconds: 200),
     );
     if (PlatformUtils.isAndroid) {
       _onboardingComplete = context
@@ -59,7 +59,7 @@ class _AppState extends State<App> with TickerProviderStateMixin {
         _entranceController.forward();
         _hasAnimatedIn = true;
       }
-      _deepLinkHandler.init(context);
+      _deepLinkHandler.init(context, navigatorKey: _navigatorKey);
     });
   }
 
@@ -220,33 +220,13 @@ class _AppState extends State<App> with TickerProviderStateMixin {
                                               constraints: const BoxConstraints(
                                                 maxWidth: 1100,
                                               ),
-                                              child: AnimatedSwitcher(
+                                              child: _SmoothIndexedStack(
+                                                index: currentIndex,
                                                 duration: appMotionDuration(
                                                   context,
                                                   AppMotion.short,
                                                 ),
-                                                switchInCurve:
-                                                    AppMotion.decelerate,
-                                                switchOutCurve:
-                                                    AppMotion.accelerate,
-                                                transitionBuilder:
-                                                    (
-                                                      child,
-                                                      animation,
-                                                    ) => FadeTransition(
-                                                      opacity: animation,
-                                                      child: SlideTransition(
-                                                        position: Tween<Offset>(
-                                                          begin: const Offset(
-                                                            0.02,
-                                                            0,
-                                                          ),
-                                                          end: Offset.zero,
-                                                        ).animate(animation),
-                                                        child: child,
-                                                      ),
-                                                    ),
-                                                child: _screens[currentIndex],
+                                                children: _screens,
                                               ),
                                             ),
                                           ),
@@ -278,6 +258,74 @@ class _AppState extends State<App> with TickerProviderStateMixin {
                 );
               },
             ),
+    );
+  }
+}
+
+/// Keeps all tab subtrees alive in an [IndexedStack] for instant 0 ms tab
+/// switches while running a lightweight fade on tab changes.
+class _SmoothIndexedStack extends StatefulWidget {
+  final int index;
+  final Duration duration;
+  final List<Widget> children;
+
+  const _SmoothIndexedStack({
+    required this.index,
+    required this.duration,
+    required this.children,
+  });
+
+  @override
+  State<_SmoothIndexedStack> createState() => _SmoothIndexedStackState();
+}
+
+class _SmoothIndexedStackState extends State<_SmoothIndexedStack>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _opacity;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: widget.duration,
+      value: 1.0,
+    );
+    _opacity = Tween<double>(begin: 0.92, end: 1.0).animate(
+      CurvedAnimation(parent: _controller, curve: AppMotion.decelerate),
+    );
+  }
+
+  @override
+  void didUpdateWidget(covariant _SmoothIndexedStack oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (_controller.duration != widget.duration) {
+      _controller.duration = widget.duration;
+    }
+    if (oldWidget.index != widget.index) {
+      if (widget.duration == Duration.zero) {
+        _controller.value = 1.0;
+      } else {
+        _controller.forward(from: 0.0);
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: _opacity,
+      child: IndexedStack(
+        index: widget.index,
+        children: widget.children,
+      ),
     );
   }
 }

@@ -112,7 +112,7 @@ class _SearchScreenState extends State<SearchScreen> {
     final trimmed = query.trim();
     if (trimmed.isNotEmpty) {
       _saveRecentSearch(trimmed);
-      context.read<SearchProvider>().search(trimmed);
+      context.read<SearchProvider>().search(trimmed, immediate: true);
       _focusNode.unfocus();
     }
   }
@@ -363,7 +363,7 @@ class _SearchScreenState extends State<SearchScreen> {
             title: 'Search Failed',
             description: errorHelper.friendlyMessage,
             actionLabel: 'Try Again',
-            onAction: () => provider.search(provider.lastQuery),
+            onAction: () => provider.search(provider.lastQuery, immediate: true),
           ),
         ),
       );

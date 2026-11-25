@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/theme/app_motion.dart';
 import '../../core/theme/tokens/colors.dart';
 import '../../core/theme/tokens/radius.dart';
 import '../../core/theme/tokens/spacing.dart';
@@ -222,7 +223,7 @@ class _HomeScreenState extends State<HomeScreen> {
           : videoProvider.loadingStatus,
       errorMessage: videoProvider.hasError ? videoProvider.errorMessage : null,
       maxWidth: 860,
-    ).animate().slideY(begin: -1, curve: Curves.linear, duration: 600.ms);
+    ).animate().slideY(begin: -0.18, curve: AppMotion.decelerate, duration: 180.ms).fadeIn(duration: 140.ms);
   }
 
   /// One readable workspace keeps the form and activity on the same grid.

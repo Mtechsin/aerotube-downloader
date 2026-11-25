@@ -139,19 +139,21 @@ class _AeroProgressState extends State<AeroProgress>
       );
     }
 
-    return AnimatedBuilder(
-      animation: _shimmerController,
-      builder: (context, child) {
-        return CustomPaint(
-          size: Size.infinite,
-          painter: _IndeterminateShimmerPainter(
-            animationValue: _shimmerController.value,
-            trackColor: trackColor,
-            shimmerColor: activeColor,
-            glowColor: glowColor,
-          ),
-        );
-      },
+    return RepaintBoundary(
+      child: AnimatedBuilder(
+        animation: _shimmerController,
+        builder: (context, child) {
+          return CustomPaint(
+            size: Size.infinite,
+            painter: _IndeterminateShimmerPainter(
+              animationValue: _shimmerController.value,
+              trackColor: trackColor,
+              shimmerColor: activeColor,
+              glowColor: glowColor,
+            ),
+          );
+        },
+      ),
     );
   }
 
@@ -164,21 +166,23 @@ class _AeroProgressState extends State<AeroProgress>
     final targetValue = (widget.value ?? 0.0).clamp(0.0, 1.0);
     final motionDuration = appMotionDuration(context, AppMotion.fast);
 
-    return TweenAnimationBuilder<double>(
-      tween: Tween<double>(begin: 0.0, end: targetValue),
-      duration: motionDuration,
-      curve: Curves.linear,
-      builder: (context, animatedValue, child) {
-        return CustomPaint(
-          size: Size.infinite,
-          painter: _DeterminateProgressPainter(
-            progress: animatedValue,
-            trackColor: trackColor,
-            activeColor: activeColor,
-            glowColor: glowColor,
-          ),
-        );
-      },
+    return RepaintBoundary(
+      child: TweenAnimationBuilder<double>(
+        tween: Tween<double>(begin: 0.0, end: targetValue),
+        duration: motionDuration,
+        curve: AppMotion.emphasized,
+        builder: (context, animatedValue, child) {
+          return CustomPaint(
+            size: Size.infinite,
+            painter: _DeterminateProgressPainter(
+              progress: animatedValue,
+              trackColor: trackColor,
+              activeColor: activeColor,
+              glowColor: glowColor,
+            ),
+          );
+        },
+      ),
     );
   }
 }
@@ -223,11 +227,10 @@ class _DeterminateProgressPainter extends CustomPainter {
       ..style = PaintingStyle.fill;
     canvas.drawRRect(activeRRect, activePaint);
 
-    // Faint glow at the head
+    // Faint glow at the head (lightweight translucent circle without MaskFilter.blur)
     if (fillWidth > 2.0 && fillWidth < size.width) {
       final glowPaint = Paint()
-        ..color = glowColor.withValues(alpha: 0.55)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2.5);
+        ..color = glowColor.withValues(alpha: 0.35);
       canvas.drawCircle(
         Offset(fillWidth, size.height / 2),
         size.height * 1.2,
@@ -299,12 +302,11 @@ class _IndeterminateShimmerPainter extends CustomPainter {
 
     canvas.drawRect(bandRect, shimmerPaint);
 
-    // Subtle glow at the head
+    // Subtle glow at the head (lightweight translucent circle without MaskFilter.blur)
     final headX = currentLeft + bandWidth * 0.75;
     if (headX > 0 && headX < size.width) {
       final glowPaint = Paint()
-        ..color = glowColor.withValues(alpha: 0.4)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2.5);
+        ..color = glowColor.withValues(alpha: 0.35);
       canvas.drawCircle(Offset(headX, size.height / 2), size.height, glowPaint);
     }
 

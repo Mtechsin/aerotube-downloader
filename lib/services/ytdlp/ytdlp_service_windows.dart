@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import '../../models/download_item.dart';
@@ -18,6 +19,30 @@ import '../../core/utils/version_utils.dart';
 import '../../core/utils/error_helper.dart';
 
 export 'ytdlp_tool_service.dart' show YtdlpUpdateInfo;
+
+VideoInfo _parseVideoInfoIsolate(String stdout) {
+  final trimmed = stdout.trim();
+  if (trimmed.isEmpty) {
+    throw YtdlpException('Failed to fetch video info: Empty output from yt-dlp');
+  }
+  final lines = trimmed.split('\n').where((l) => l.trim().isNotEmpty).toList();
+  if (lines.isEmpty) {
+    throw YtdlpException('Failed to fetch video info: No valid JSON lines in output');
+  }
+  String? jsonLine;
+  for (final line in lines) {
+    final t = line.trim();
+    if (t.startsWith('{')) {
+      jsonLine = t;
+      break;
+    }
+  }
+  if (jsonLine == null) {
+    throw YtdlpException('Failed to fetch video info: No JSON object found in output');
+  }
+  final json = jsonDecode(jsonLine) as Map<String, dynamic>;
+  return VideoInfo.fromJson(json);
+}
 
 class YtdlpService implements YtdlpToolService {
   String _ytdlpPath;
@@ -742,7 +767,7 @@ class YtdlpService implements YtdlpToolService {
         perAttemptTimeout: fastAttemptTimeout,
       );
       if (result.exitCode == 0) {
-        return _parseAndCacheVideoInfo(result.stdout as String, cacheKey, onProgress);
+        return await _parseAndCacheVideoInfo(result.stdout as String, cacheKey, onProgress);
       }
       lastError = (result.stderr as String).trim();
       LoggingService().warning('Attempt 1 (fast) failed: $lastError', component: 'YtdlpService');
@@ -787,7 +812,7 @@ class YtdlpService implements YtdlpToolService {
           'yt-dlp timed out fetching video info (45 s). VPN may be slowing connection, try again or disable VPN.',
         );
         if (result.exitCode == 0) {
-          return _parseAndCacheVideoInfo(result.stdout as String, cacheKey, onProgress);
+          return await _parseAndCacheVideoInfo(result.stdout as String, cacheKey, onProgress);
         }
         lastError = (result.stderr as String).trim();
         LoggingService().warning('Attempt 2 (patient) failed: $lastError', component: 'YtdlpService');
@@ -824,7 +849,7 @@ class YtdlpService implements YtdlpToolService {
             ];
             final r2 = await runTracked(retryArgs, 'yt-dlp auth retry timed out (45 s).');
             if (r2.exitCode == 0) {
-              return _parseAndCacheVideoInfo(r2.stdout as String, cacheKey, onProgress);
+              return await _parseAndCacheVideoInfo(r2.stdout as String, cacheKey, onProgress);
             }
             lastError = (r2.stderr as String).trim();
           } catch (e) {
@@ -870,7 +895,7 @@ class YtdlpService implements YtdlpToolService {
           'yt-dlp retry (no cookies) timed out (45 s). VPN may be slowing connection.',
         );
         if (result.exitCode == 0) {
-          return _parseAndCacheVideoInfo(result.stdout as String, cacheKey, onProgress);
+          return await _parseAndCacheVideoInfo(result.stdout as String, cacheKey, onProgress);
         }
         lastError = (result.stderr as String).trim();
         LoggingService().warning('Attempt 2 (no cookies) failed: $lastError', component: 'YtdlpService');
@@ -894,7 +919,7 @@ class YtdlpService implements YtdlpToolService {
           'yt-dlp VPN fallback timed out (45 s). Try disabling VPN.',
         );
         if (result.exitCode == 0) {
-          return _parseAndCacheVideoInfo(result.stdout as String, cacheKey, onProgress);
+          return await _parseAndCacheVideoInfo(result.stdout as String, cacheKey, onProgress);
         }
         lastError = (result.stderr as String).trim();
       } on YtdlpException catch (e) {
@@ -923,7 +948,7 @@ class YtdlpService implements YtdlpToolService {
         ];
         result = await runTracked(argsWithoutBrowser, 'yt-dlp retry timed out (45 s).');
         if (result.exitCode == 0) {
-          return _parseAndCacheVideoInfo(result.stdout as String, cacheKey, onProgress);
+          return await _parseAndCacheVideoInfo(result.stdout as String, cacheKey, onProgress);
         }
         final retryError = (result.stderr as String).trim();
         throw YtdlpException(
@@ -944,29 +969,13 @@ class YtdlpService implements YtdlpToolService {
     throw YtdlpException('Failed to fetch video info: $finalErr');
   }
 
-  VideoInfo _parseAndCacheVideoInfo(String stdout, String cacheKey, Function(String status)? onProgress) {
+  Future<VideoInfo> _parseAndCacheVideoInfo(
+    String stdout,
+    String cacheKey,
+    Function(String status)? onProgress,
+  ) async {
     onProgress?.call('Processing video formats...');
-    final trimmed = stdout.trim();
-    if (trimmed.isEmpty) {
-      throw YtdlpException('Failed to fetch video info: Empty output from yt-dlp');
-    }
-    final lines = trimmed.split('\n').where((l) => l.trim().isNotEmpty).toList();
-    if (lines.isEmpty) {
-      throw YtdlpException('Failed to fetch video info: No valid JSON lines in output');
-    }
-    String? jsonLine;
-    for (final line in lines) {
-      final t = line.trim();
-      if (t.startsWith('{')) {
-        jsonLine = t;
-        break;
-      }
-    }
-    if (jsonLine == null) {
-      throw YtdlpException('Failed to fetch video info: No JSON object found in output');
-    }
-    final json = jsonDecode(jsonLine) as Map<String, dynamic>;
-    final info = VideoInfo.fromJson(json);
+    final info = await compute(_parseVideoInfoIsolate, stdout);
     if (_videoInfoCache.length >= _maxCacheSize) {
       final oldest = _videoInfoCache.keys.first;
       _videoInfoCache.remove(oldest);
@@ -1409,20 +1418,25 @@ class YtdlpService implements YtdlpToolService {
     );
     args.addAll(['-o', outputPath]);
 
-    // Embed thumbnail and metadata (requires FFmpeg)
-    if (_ffmpegPath != null) {
-      if (embedThumbnail) args.add('--embed-thumbnail');
-      if (embedMetadata) args.add('--embed-metadata');
-    }
+    // Embed flags work with a system-PATH ffmpeg too. Gating them on a
+    // managed _ffmpegPath dropped thumbnail, metadata, and subtitle embed
+    // whenever the user had not downloaded a private copy.
+    if (embedThumbnail) args.add('--embed-thumbnail');
+    if (embedMetadata) args.add('--embed-metadata');
 
-    // Subtitles
+    // Subtitles. One --sub-langs list: repeating --sub-lang keeps only the last.
     if (subtitleLanguages != null && subtitleLanguages.isNotEmpty) {
       args.add('--write-subs');
-      if (embedSubtitles && _ffmpegPath != null) {
+      args.add('--write-auto-subs');
+      if (embedSubtitles) {
         args.add('--embed-subs');
       }
-      for (final lang in subtitleLanguages) {
-        args.addAll(['--sub-lang', lang]);
+      final langs = subtitleLanguages
+          .map((lang) => lang.trim())
+          .where((lang) => lang.isNotEmpty)
+          .join(',');
+      if (langs.isNotEmpty) {
+        args.addAll(['--sub-langs', langs]);
       }
     }
 
@@ -1562,7 +1576,9 @@ class YtdlpService implements YtdlpToolService {
 
     // SponsorBlock
     if (sponsorBlock) {
-      args.add('--sponsorblock-remove');
+      // A bare --sponsorblock-remove consumes the next flag
+      // (--download-archive, --cookies, or -o) as its category.
+      args.addAll(['--sponsorblock-remove', 'all']);
     }
 
     // Download archive
@@ -1699,9 +1715,9 @@ class YtdlpService implements YtdlpToolService {
       speed =
           parsedSpeed *
           switch (unit) {
-            'ki' => 1024,
-            'mi' => 1024 * 1024,
-            'gi' => 1024 * 1024 * 1024,
+            'k' || 'ki' => 1024,
+            'm' || 'mi' => 1024 * 1024,
+            'g' || 'gi' => 1024 * 1024 * 1024,
             _ => 1,
           };
     }

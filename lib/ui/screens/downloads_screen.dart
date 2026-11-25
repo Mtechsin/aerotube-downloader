@@ -107,14 +107,14 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
           // Content View with shared-axis expressive transition
           Expanded(
             child: AnimatedSwitcher(
-              duration: appMotionDuration(context, AppMotion.medium),
-              switchInCurve: AppMotion.emphasized,
+              duration: appMotionDuration(context, AppMotion.short),
+              switchInCurve: AppMotion.decelerate,
               switchOutCurve: AppMotion.accelerate,
               transitionBuilder: (child, animation) => FadeTransition(
                 opacity: animation,
                 child: SlideTransition(
                   position: Tween<Offset>(
-                    begin: Offset(_selectedIndex == 0 ? -0.06 : 0.06, 0),
+                    begin: Offset(_selectedIndex == 0 ? -0.03 : 0.03, 0),
                     end: Offset.zero,
                   ).animate(animation),
                   child: child,
@@ -481,6 +481,7 @@ class _ActiveDownloadsView extends StatelessWidget {
                           context.read<NavigationProvider>().switchToHome(),
                     )
                   : ListView.builder(
+                      cacheExtent: 400,
                       padding: const EdgeInsets.symmetric(
                         horizontal: AeroSpace.lg,
                         vertical: AeroSpace.sm,
@@ -568,12 +569,13 @@ class _HistoryDownloadsViewState extends State<_HistoryDownloadsView> {
     super.dispose();
   }
 
-  HistoryDateGroup _getGroupForDate(DateTime? date) {
+  HistoryDateGroup _getGroupForDate(
+    DateTime? date,
+    DateTime todayStart,
+    DateTime yesterdayStart,
+    DateTime weekStart,
+  ) {
     if (date == null) return HistoryDateGroup.earlier;
-    final now = DateTime.now();
-    final todayStart = DateTime(now.year, now.month, now.day);
-    final yesterdayStart = todayStart.subtract(const Duration(days: 1));
-    final weekStart = todayStart.subtract(const Duration(days: 7));
 
     final itemDate = DateTime(date.year, date.month, date.day);
     if (itemDate.isAtSameMomentAs(todayStart) || itemDate.isAfter(todayStart)) {
@@ -704,11 +706,7 @@ class _HistoryDownloadsViewState extends State<_HistoryDownloadsView> {
 
     final List<DownloadItem> rawDownloads = PlatformUtils.isMobile
         ? context.select<MobileDownloadProvider, List<DownloadItem>>(
-            (p) => [
-              ...p.completedDownloads,
-              ...p.failedDownloads,
-              ...p.cancelledDownloads,
-            ],
+            (p) => p.historyDownloads,
           )
         : context.select<DownloadProvider, List<DownloadItem>>(
             (p) => p.historyDownloads,
@@ -716,10 +714,19 @@ class _HistoryDownloadsViewState extends State<_HistoryDownloadsView> {
 
     final filteredDownloads = _applyFilters(rawDownloads);
 
-    // Grouping by date
+    // Grouping by date (compute date boundaries once outside the loop)
+    final now = DateTime.now();
+    final todayStart = DateTime(now.year, now.month, now.day);
+    final yesterdayStart = todayStart.subtract(const Duration(days: 1));
+    final weekStart = todayStart.subtract(const Duration(days: 7));
     final Map<HistoryDateGroup, List<DownloadItem>> grouped = {};
     for (final item in filteredDownloads) {
-      final group = _getGroupForDate(item.completedDate);
+      final group = _getGroupForDate(
+        item.completedDate,
+        todayStart,
+        yesterdayStart,
+        weekStart,
+      );
       grouped.putIfAbsent(group, () => []).add(item);
     }
 

@@ -44,6 +44,19 @@ void main() {
       expect(VersionUtils.isNewerVersion('1.0.0', ''), isFalse);
     });
 
+    test('BtbN N- builds are not older than a Gyan dotted release', () {
+      expect(VersionUtils.isNewerVersion('N-118123-gabcdef', '7.1'), isFalse);
+      expect(VersionUtils.isNewerVersion('7.1', 'N-118123-gabcdef'), isTrue);
+      expect(
+        VersionUtils.isNewerVersion('N-118100-gaaa', 'N-118200-gbbb'),
+        isTrue,
+      );
+      expect(
+        VersionUtils.isNewerVersion('N-118200-gbbb', 'N-118100-gaaa'),
+        isFalse,
+      );
+    });
+
     test('different component lengths', () {
       expect(VersionUtils.isNewerVersion('1.0', '1.0.1'), isTrue);
       expect(VersionUtils.isNewerVersion('1.0.1', '1.0'), isFalse);

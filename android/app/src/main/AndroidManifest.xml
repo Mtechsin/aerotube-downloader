@@ -37,7 +37,6 @@
         android:icon="@mipmap/ic_launcher"
         android:networkSecurityConfig="@xml/network_security_config"
         android:enableOnBackInvokedCallback="true"
-        android:extractNativeLibs="true"
         android:requestLegacyExternalStorage="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules">
@@ -78,7 +77,8 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="myapp" android:host="oauth2callback" />
-                <data android:scheme="com.youtube.downloader" />
+                <data android:scheme="com.youtube.downloader" android:host="oauth2callback" />
+                <data android:scheme="com.aerotube.youtube_downloader" android:host="oauth2callback" />
             </intent-filter>
 
             <!-- App URL scheme for direct AeroTube links -->

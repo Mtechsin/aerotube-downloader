@@ -449,6 +449,9 @@ class VideoProvider extends ChangeNotifier {
     }
   }
 
+  // Reusable YoutubeExplode client for HTTP keep-alive connection pooling
+  explode.YoutubeExplode? _explodeClient;
+
   /// Instant display metadata via youtube_explode. Never blocks download:
   /// formats stay empty until yt-dlp returns the real ladder. Failures are
   /// silent — the yt-dlp path remains the source of truth.
@@ -458,45 +461,41 @@ class VideoProvider extends ChangeNotifier {
       if (idStr == null) return;
       final videoId = explode.VideoId(idStr);
 
-      final yt = explode.YoutubeExplode();
-      try {
-        final video = await yt.videos
-            .get(videoId)
-            .timeout(const Duration(seconds: 4));
-        if (gen != _fetchGen) return;
-        // Do not clobber a full result that landed first.
-        if (_videoInfo != null && !_isPreviewOnly) return;
-        // H9: do not install a preview after yt-dlp already failed for this gen.
-        if (_errorMessage != null && gen == _fetchGen) return;
+      final yt = _explodeClient ??= explode.YoutubeExplode();
+      final video = await yt.videos
+          .get(videoId)
+          .timeout(const Duration(seconds: 4));
+      if (gen != _fetchGen || _isDisposed) return;
+      // Do not clobber a full result that landed first.
+      if (_videoInfo != null && !_isPreviewOnly) return;
+      // H9: do not install a preview after yt-dlp already failed for this gen.
+      if (_errorMessage != null && gen == _fetchGen) return;
 
-        final thumb = video.thumbnails.mediumResUrl;
-        final preview = VideoInfo(
-          id: videoId.value,
-          title: video.title,
-          channel: video.author,
-          channelUrl: 'https://www.youtube.com/channel/${video.channelId.value}',
-          thumbnailUrl: thumb,
-          duration: video.duration?.inSeconds ?? 0,
-          description: video.description,
-          viewCount: video.engagement.viewCount.toInt(),
-          uploadDate: video.uploadDate?.toIso8601String() ?? '',
-          formats: const [],
-          url: url,
-          subtitles: const [],
-        );
-        _videoInfo = preview;
-        _isPreviewOnly = true;
-        _playlistInfo = null;
-        _appendFetchLog('Preview metadata loaded (formats pending)');
-        _loadingStatus = 'Loading stream formats...';
-        notifyListeners();
-        LoggingService().debug(
-          'Explode preview: ${preview.title}',
-          component: 'VideoProvider',
-        );
-      } finally {
-        yt.close();
-      }
+      final thumb = video.thumbnails.mediumResUrl;
+      final preview = VideoInfo(
+        id: videoId.value,
+        title: video.title,
+        channel: video.author,
+        channelUrl: 'https://www.youtube.com/channel/${video.channelId.value}',
+        thumbnailUrl: thumb,
+        duration: video.duration?.inSeconds ?? 0,
+        description: video.description,
+        viewCount: video.engagement.viewCount.toInt(),
+        uploadDate: video.uploadDate?.toIso8601String() ?? '',
+        formats: const [],
+        url: url,
+        subtitles: const [],
+      );
+      _videoInfo = preview;
+      _isPreviewOnly = true;
+      _playlistInfo = null;
+      _appendFetchLog('Preview metadata loaded (formats pending)');
+      _loadingStatus = 'Loading stream formats...';
+      notifyListeners();
+      LoggingService().debug(
+        'Explode preview: ${preview.title}',
+        component: 'VideoProvider',
+      );
     } catch (e) {
       // Non-fatal: yt-dlp continues independently.
       LoggingService().debug(
@@ -1083,6 +1082,8 @@ class VideoProvider extends ChangeNotifier {
   @override
   void dispose() {
     _isDisposed = true;
+    _explodeClient?.close();
+    _explodeClient = null;
     super.dispose();
   }
 }

@@ -21,12 +21,21 @@ class CookieServiceAndroid extends CookieService {
   static const String _isLoggedInKey = AppConstants.prefAuthIsLoggedIn;
   static const String _codeVerifierKey = 'youtube_oauth_code_verifier';
 
-  static const String _clientId =
-      'YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com';
-  static const String _redirectUri =
-      'com.youtube.downloader:/oauth2callback';
+  // Same dart-defines, redirect, and secure-storage options as AuthService.
+  // Different placeholders or AndroidOptions made the two logins unable to
+  // read each other's tokens, and the manifest scheme never matched.
+  static const String _clientId = String.fromEnvironment(
+    'GOOGLE_OAUTH_CLIENT_ID',
+    defaultValue: 'YOUR_CLIENT_ID.apps.googleusercontent.com',
+  );
+  static const String _redirectUri = String.fromEnvironment(
+    'GOOGLE_OAUTH_REDIRECT_URI',
+    defaultValue: 'com.aerotube.youtube_downloader:/oauth2callback',
+  );
 
-  final FlutterSecureStorage _secureStorage = const FlutterSecureStorage();
+  final FlutterSecureStorage _secureStorage = const FlutterSecureStorage(
+    aOptions: AndroidOptions(),
+  );
   final LoggingService _logger = LoggingService();
 
   bool _isLoggedIn = false;
@@ -84,7 +93,7 @@ class CookieServiceAndroid extends CookieService {
   /// Perform YouTube login using flutter_web_auth_2
   Future<bool> login({Function(String status)? onStatus}) async {
     try {
-      if (_clientId == 'YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com') {
+      if (_clientId.contains('YOUR_CLIENT_ID')) {
         _logger.error(
           'Google OAuth client ID not configured. Set a real client ID in cookie_service_android.dart',
           component: 'CookieServiceAndroid',
@@ -437,7 +446,11 @@ class CookieServiceAndroid extends CookieService {
     }
   }
 
-  /// Export cookies to file (for compatibility with yt-dlp if needed)
+  /// Copy a Netscape cookies.txt for yt-dlp.
+  ///
+  /// An OAuth access token is not a browser cookie. Writing it as JSON makes
+  /// yt-dlp reject the file. This copies the WebView-exported cookies.txt when
+  /// one exists.
   Future<void> exportCookiesToFile(String filePath) async {
     if (!_isLoggedIn) {
       throw CookieAndroidException('Not logged in');
@@ -449,14 +462,16 @@ class CookieServiceAndroid extends CookieService {
         file.parent.createSync(recursive: true);
       }
 
-      // Export auth token as JSON
-      final cookieData = {
-        'auth_token': _cachedAuthToken,
-        'token_expiry': _tokenExpiry?.toIso8601String(),
-        'user_agent': await userAgent,
-      };
-
-      await file.writeAsString(jsonEncode(cookieData));
+      final dir = await getApplicationSupportDirectory();
+      final existing = File(p.join(dir.path, 'cookies.txt'));
+      if (await existing.exists() && p.normalize(existing.path) != p.normalize(file.path)) {
+        await existing.copy(file.path);
+      } else if (!await existing.exists()) {
+        throw CookieAndroidException(
+          'YouTube OAuth does not produce a Netscape cookies.txt. '
+          'Import a browser cookies.txt instead.',
+        );
+      }
 
       _logger.info(
         'Cookies exported to $filePath',

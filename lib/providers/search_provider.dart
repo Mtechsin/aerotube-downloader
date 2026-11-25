@@ -35,8 +35,12 @@ class SearchProvider extends ChangeNotifier {
       return const [];
     }
 
-    final resultsObj = raw['results'] as Map<String, dynamic>?;
-    final entries = (resultsObj?['entries'] as List?) ?? const [];
+    // Android wraps yt-dlp JSON as {results: {entries: [...]}}.
+    // Desktop searchVideosRaw returns the raw playlist object {entries: [...]}.
+    final resultsObj = raw['results'];
+    final entries = (resultsObj is Map ? resultsObj['entries'] : raw['entries'])
+            as List? ??
+        const [];
     final mapped = <SearchVideoResult>[];
     for (final e in entries) {
       if (e is! Map) continue;
@@ -90,13 +94,13 @@ class SearchProvider extends ChangeNotifier {
     return l.contains('timed out') || l.contains('timeout') || l.contains('vpn') || l.contains('socket') || l.contains('connection');
   }
 
-  Future<void> search(String query) async {
+  Future<void> search(String query, {bool immediate = false}) async {
     if (query.trim().isEmpty) return;
 
     _debounceTimer?.cancel();
     final trimmed = query.trim();
-    // debounce with cancellation support
-    _debounceTimer = Timer(const Duration(milliseconds: 400), () async {
+
+    Future<void> execute() async {
       final myGen = ++_searchGen;
       _isLoading = true;
       _error = null;
@@ -137,7 +141,15 @@ class SearchProvider extends ChangeNotifier {
           notifyListeners();
         }
       }
-    });
+    }
+
+    if (immediate) {
+      await execute();
+      return;
+    }
+
+    // debounce with cancellation support
+    _debounceTimer = Timer(const Duration(milliseconds: 250), execute);
   }
 
   Future<void> loadMore() async {

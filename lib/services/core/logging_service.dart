@@ -138,6 +138,15 @@ class LoggingService {
   bool _sanitizeUrls = true;
   late File _logFile;
 
+  // Buffered, serialized file writes to avoid per-log-line disk I/O and stat() calls.
+  final StringBuffer _pendingFileWrites = StringBuffer();
+  Timer? _flushTimer;
+  Future<void> _writeChain = Future<void>.value();
+  int _bytesSinceRotationCheck = 0;
+  static const int _flushIntervalMs = 500;
+  static const int _flushThresholdBytes = 8192;
+  static const int _rotationCheckIntervalBytes = 65536;
+
   bool get isEnabled => _loggingEnabled;
   bool get isSanitizeUrlsEnabled => _sanitizeUrls;
   bool get isInitialized => _isInitialized;
@@ -193,7 +202,7 @@ class LoggingService {
           prefs.getBool('sanitize_urls') ??
           true;
 
-      await cleanupOldLogs(maxAgeDays: 7);
+      unawaited(cleanupOldLogs(maxAgeDays: 7));
 
       info(
         'LoggingService initialized (session $sessionId)',
@@ -340,25 +349,58 @@ class LoggingService {
     if (_devLogs.length > _maxDevLogs) {
       _devLogs.removeAt(0);
     }
-    _devLogsController.add(List.unmodifiable(_devLogs));
+    if (_devLogsController.hasListener) {
+      _devLogsController.add(List.unmodifiable(_devLogs));
+    }
 
-    _writeToFile(entry);
+    _enqueueFileWrite(entry, immediate: level == LogLevel.error);
   }
 
-  Future<void> _writeToFile(LogEntry entry) async {
+  void _enqueueFileWrite(LogEntry entry, {bool immediate = false}) {
     if (!_isInitialized || !_loggingEnabled) return;
+    // The on-disk log file is always sanitized, regardless of the in-memory
+    // toggle — anything written to disk is an export/leak surface (M4).
+    final line = '${entry.toStringWithSanitization(true)}\n';
+    _pendingFileWrites.write(line);
 
-    try {
-      // Check and rotate log file if needed
-      await _rotateLogFileIfNeeded();
-
-      // The on-disk log file is always sanitized, regardless of the in-memory
-      // toggle — anything written to disk is an export/leak surface (M4).
-      final line = '${entry.toStringWithSanitization(true)}\n';
-      await _logFile.writeAsString(line, mode: FileMode.append);
-    } catch (e) {
-      debugPrint('Failed to write to log file: $e');
+    if (immediate || _pendingFileWrites.length >= _flushThresholdBytes) {
+      _flushTimer?.cancel();
+      _flushTimer = null;
+      unawaited(flush());
+    } else {
+      _flushTimer ??= Timer(
+        const Duration(milliseconds: _flushIntervalMs),
+        () {
+          _flushTimer = null;
+          unawaited(flush());
+        },
+      );
     }
+  }
+
+  /// Flushes any buffered log lines to disk in a serialized write chain.
+  Future<void> flush() {
+    if (!_isInitialized) return _writeChain;
+    _flushTimer?.cancel();
+    _flushTimer = null;
+    if (_pendingFileWrites.isEmpty) return _writeChain;
+
+    final chunk = _pendingFileWrites.toString();
+    _pendingFileWrites.clear();
+
+    _writeChain = _writeChain.then((_) async {
+      try {
+        _bytesSinceRotationCheck += chunk.length;
+        if (_bytesSinceRotationCheck >= _rotationCheckIntervalBytes) {
+          _bytesSinceRotationCheck = 0;
+          await _rotateLogFileIfNeeded();
+        }
+        await _logFile.writeAsString(chunk, mode: FileMode.append);
+      } catch (e) {
+        debugPrint('Failed to write to log file: $e');
+      }
+    });
+    return _writeChain;
   }
 
   /// Returns the last [limit] log entries, newest last. Used by bug reports.
@@ -562,6 +604,7 @@ class LoggingService {
     if (!_isInitialized) {
       throw StateError('Logging service is not initialized yet.');
     }
+    await flush();
 
     if (outputPath.trim().isEmpty) {
       throw ArgumentError.value(
@@ -609,6 +652,9 @@ class LoggingService {
 
   /// Dispose resources
   void dispose() {
+    _flushTimer?.cancel();
+    _flushTimer = null;
+    unawaited(flush());
     _devLogsController.close();
     _userLogsController.close();
     _progressController.close();

@@ -630,8 +630,8 @@ class MobileInitializationOverlay extends StatelessWidget {
             children: [
               AppLogo(size: 120)
                   .animate()
-                  .fadeIn(duration: 800.ms)
-                  .scale(begin: const Offset(0.8, 0.8), curve: Curves.linear),
+                  .fadeIn(duration: 220.ms, curve: Curves.easeOutQuart)
+                  .scale(begin: const Offset(0.9, 0.9), curve: Curves.easeOutQuart),
               const SizedBox(height: 32),
               Text(
                 'YouTube Downloader',
@@ -676,8 +676,8 @@ class MobileInitializationOverlay extends StatelessWidget {
                   borderRadius: BorderRadius.circular(2),
                 ),
                 child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 1500),
-                  curve: Curves.linear,
+                  duration: const Duration(milliseconds: 220),
+                  curve: Curves.easeOutCubic,
                   width: 100,
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
@@ -689,7 +689,7 @@ class MobileInitializationOverlay extends StatelessWidget {
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
-              ).animate().fadeIn(duration: 600.ms, delay: 1200.ms),
+              ).animate().fadeIn(duration: 220.ms, curve: Curves.easeOutQuart),
             ],
           ),
         ),

@@ -7,7 +7,9 @@ import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import java.util.concurrent.ConcurrentHashMap
@@ -56,7 +58,19 @@ class DownloadService : Service() {
     // Per-download last emitted progress (0..1) + timestamp (ms) used to
     // throttle updateNotification() to ~1 Hz or 1 percentage-point jumps.
     private val lastNotify = ConcurrentHashMap<String, Pair<Float, Long>>()
+    private val mainHandler = Handler(Looper.getMainLooper())
     private var isForegroundStarted = false
+    @Volatile
+    private var stopping = false
+
+    /** Keep the process foreground between queued items so the next
+     *  startForegroundService is not required from the background. */
+    private val idleStopDelayMs = 20_000L
+    private val idleStopRunnable = Runnable {
+        if (activeDownloads.isEmpty()) {
+            stopForegroundNow()
+        }
+    }
 
     companion object {
         private const val TAG = "DownloadService"
@@ -72,6 +86,7 @@ class DownloadService : Service() {
     override fun onCreate() {
         super.onCreate()
         Log.d(TAG, "DownloadService created")
+        stopping = false
         instance = this
 
         notificationManager = getSystemService(NotificationManager::class.java)
@@ -82,28 +97,7 @@ class DownloadService : Service() {
         Log.d(TAG, "DownloadService started")
 
         // Create and start foreground notification FIRST (required within 5 seconds)
-        if (!isForegroundStarted) {
-            val notification = createForegroundNotification("Download service active", 0)
-            when {
-                // API 35+: declare both types so FFmpeg post-processing
-                // (merge/thumbnail embed) is covered by mediaProcessing and a
-                // long playlist session is not bound solely by the dataSync
-                // 6-hour cap.
-                Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM -> {
-                    startForeground(
-                        NOTIFICATION_ID,
-                        notification,
-                        ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC or
-                            ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROCESSING
-                    )
-                }
-                Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q -> {
-                    startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
-                }
-                else -> startForeground(NOTIFICATION_ID, notification)
-            }
-            isForegroundStarted = true
-        }
+        startInForegroundIfNeeded("Download service active", 0)
 
         when (intent?.action) {
             "START_DOWNLOAD" -> {
@@ -129,7 +123,7 @@ class DownloadService : Service() {
                 }
             }
             "STOP_SERVICE" -> {
-                stopSelf()
+                stopForegroundNow()
             }
         }
 
@@ -146,6 +140,7 @@ class DownloadService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         Log.d(TAG, "DownloadService destroyed")
+        mainHandler.removeCallbacks(idleStopRunnable)
         instance = null
 
         // Cancel any engine jobs still registered for tracked downloads so
@@ -215,6 +210,16 @@ class DownloadService : Service() {
      * Completion is always emitted.
      */
     fun reportProgress(downloadId: String, progress: Float, statusText: String?) {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            reportProgressOnMain(downloadId, progress, statusText)
+        } else {
+            val fraction = progress
+            val text = statusText
+            mainHandler.post { reportProgressOnMain(downloadId, fraction, text) }
+        }
+    }
+
+    private fun reportProgressOnMain(downloadId: String, progress: Float, statusText: String?) {
         val task = activeDownloads[downloadId]
         if (task == null) {
             Log.d(TAG, "reportProgress: unknown downloadId $downloadId, ignoring")
@@ -254,23 +259,105 @@ class DownloadService : Service() {
      * When the map empties, updateNotification() stops foreground + self.
      */
     fun completeDownload(downloadId: String) {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            completeDownloadOnMain(downloadId)
+        } else {
+            mainHandler.post { completeDownloadOnMain(downloadId) }
+        }
+    }
+
+    /**
+     * Attach a download to the already-running service. Returns false when
+     * the service is in the middle of stopping, so the caller can start a
+     * fresh one instead of touching a dying instance.
+     */
+    fun ensureRegistered(
+        downloadId: String,
+        url: String,
+        outputPath: String,
+        format: String?,
+        cookiesPath: String?,
+        userAgent: String?,
+        title: String
+    ): Boolean {
+        if (stopping) return false
+        val run = Runnable {
+            if (stopping) return@Runnable
+            mainHandler.removeCallbacks(idleStopRunnable)
+            startInForegroundIfNeeded(title, 0)
+            registerDownload(downloadId, url, outputPath, format, cookiesPath, userAgent, title)
+        }
+        if (Looper.myLooper() == Looper.getMainLooper()) run.run() else mainHandler.post(run)
+        return true
+    }
+
+    fun requestCancel(downloadId: String) {
+        val run = Runnable { cancelDownload(downloadId) }
+        if (Looper.myLooper() == Looper.getMainLooper()) run.run() else mainHandler.post(run)
+    }
+
+    private fun completeDownloadOnMain(downloadId: String) {
         activeDownloads.remove(downloadId)
         lastNotify.remove(downloadId)
         // Force-refresh on terminal transition regardless of throttle state.
         updateNotification()
     }
 
+    private fun startInForegroundIfNeeded(contentText: String, progress: Int) {
+        if (isForegroundStarted) return
+        val notification = createForegroundNotification(contentText, progress)
+        when {
+            // API 35+: declare both types so FFmpeg post-processing
+            // (merge/thumbnail embed) is covered by mediaProcessing and a
+            // long playlist session is not bound solely by the dataSync
+            // 6-hour cap.
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM -> {
+                startForeground(
+                    NOTIFICATION_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC or
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROCESSING
+                )
+            }
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q -> {
+                startForeground(
+                    NOTIFICATION_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+                )
+            }
+            else -> startForeground(NOTIFICATION_ID, notification)
+        }
+        isForegroundStarted = true
+    }
+
+    private fun stopForegroundNow() {
+        if (stopping) return
+        stopping = true
+        mainHandler.removeCallbacks(idleStopRunnable)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        } else {
+            stopForeground(true)
+        }
+        isForegroundStarted = false
+        stopSelf()
+    }
+
     private fun updateNotification() {
         if (activeDownloads.isEmpty()) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                stopForeground(STOP_FOREGROUND_REMOVE)
-            } else {
-                stopForeground(true)
+            // Stay foreground briefly. Dart dequeues the next item after this
+            // terminal event; tearing the service down immediately forces a
+            // background startForegroundService, which Android 12+ rejects.
+            if (!stopping && isForegroundStarted) {
+                val waiting = createForegroundNotification("Waiting for the next download…", 0)
+                notificationManager.notify(NOTIFICATION_ID, waiting)
+                mainHandler.removeCallbacks(idleStopRunnable)
+                mainHandler.postDelayed(idleStopRunnable, idleStopDelayMs)
             }
-            isForegroundStarted = false
-            stopSelf()
             return
         }
+        mainHandler.removeCallbacks(idleStopRunnable)
 
         val totalProgress = activeDownloads.values.map { it.progress }.average().toFloat()
         val activeCount = activeDownloads.size

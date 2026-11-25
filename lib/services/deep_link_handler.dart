@@ -9,19 +9,22 @@ import 'notification/notification_service.dart';
 import 'core/logging_service.dart';
 import '../core/utils/platform_utils.dart';
 import '../ui/screens/mobile_result_screen.dart';
+import '../ui/screens/playlist_screen.dart';
 
 class DeepLinkHandler {
   final DeepLinkService _deepLinkService = DeepLinkService();
   StreamSubscription<String>? _subscription;
   String? _lastHandledLink;
   DateTime? _lastHandledAt;
+  GlobalKey<NavigatorState>? _navigatorKey;
 
   /// H15: only ignore an identical URL received within this window
   /// (prevents double-handling of the same launch event, without
   /// permanently blocking a link the user opens again later).
   static const Duration _dedupWindow = Duration(seconds: 3);
 
-  void init(BuildContext context) {
+  void init(BuildContext context, {GlobalKey<NavigatorState>? navigatorKey}) {
+    _navigatorKey = navigatorKey ?? _navigatorKey;
     if (!PlatformUtils.isMobile || _subscription != null) return;
     final loggingService = context.read<LoggingService>();
     _subscription = _deepLinkService.links.listen(
@@ -61,23 +64,39 @@ class DeepLinkHandler {
         (uri?.queryParameters['list'] ?? '').isNotEmpty;
     final hasVideoParam = uri?.queryParameters.containsKey('v') == true;
     if (isPlaylistPath || (hasListParam && !hasVideoParam)) {
-      context.read<NavigationProvider>().setIndex(2); // Playlist tab
-      context.read<PlaylistProvider>().fetchPlaylist(url);
+      if (PlatformUtils.isMobile) {
+        // MobileShell index 2 is Library, not a playlist tab. Playlist
+        // results live on MobileResultScreen, same as the home fetch flow.
+        context.read<VideoProvider>().fetchPlaylistInfo(url);
+        _push(const MobileResultScreen());
+      } else {
+        context.read<PlaylistProvider>().fetchPlaylist(url);
+        _push(const PlaylistScreen());
+      }
     } else {
       final videoProvider = context.read<VideoProvider>();
       videoProvider.fetchVideoInfo(url);
       videoProvider.setAudioOnly(false);
       if (PlatformUtils.isMobile) {
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (context) => const MobileResultScreen(),
-          ),
-        );
+        // context here is above MaterialApp, so Navigator.of(context) throws.
+        _push(const MobileResultScreen());
       } else {
         context.read<NavigationProvider>().switchToHome();
       }
     }
     context.read<NotificationService>().show(title: 'Link opened', body: 'Fetching media');
+  }
+
+  void _push(Widget page) {
+    final navigator = _navigatorKey?.currentState;
+    if (navigator == null) {
+      LoggingService().warning(
+        'Deep link ignored: navigator is not ready',
+        component: 'DeepLink',
+      );
+      return;
+    }
+    navigator.push(MaterialPageRoute(builder: (_) => page));
   }
 
   void dispose() {

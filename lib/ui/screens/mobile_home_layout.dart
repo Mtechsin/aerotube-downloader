@@ -187,7 +187,7 @@ class _AeroBottomNavBar extends StatelessWidget {
                       // Icon inside a pill indicator when selected
                       AnimatedContainer(
                         duration: appMotionDuration(context, AppMotion.short),
-                        curve: AppMotion.linear,
+                        curve: AppMotion.emphasized,
                         width: 52,
                         height: 28,
                         decoration: BoxDecoration(

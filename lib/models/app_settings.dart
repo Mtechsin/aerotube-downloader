@@ -78,10 +78,13 @@ class AppSettings {
     this.isSidebarExpanded = true,
   });
 
-  // CopyWith for easy updates
+  static const Object _unset = Object();
+
+  // Nullable fields use a sentinel so callers can clear them. `??` kept the
+  // previous value in memory after settings deleted the key from disk.
   AppSettings copyWith({
-    String? ytdlpPath,
-    String? ffmpegPath,
+    Object? ytdlpPath = _unset,
+    Object? ffmpegPath = _unset,
     bool? isYtdlpManaged,
     String? outputPath,
     int? maxConcurrentDownloads,
@@ -92,12 +95,12 @@ class AppSettings {
     String? defaultSubtitleLanguage,
     ThemeMode? themeMode,
     bool? amoledDark,
-    int? accentColorValue,
+    Object? accentColorValue = _unset,
     bool? enableAnimations,
     bool? enableCookies,
-    String? cookiePath,
-    String? cookieBrowser,
-    String? youtubeProfileImageUrl,
+    Object? cookiePath = _unset,
+    Object? cookieBrowser = _unset,
+    Object? youtubeProfileImageUrl = _unset,
     bool? enableNotifications,
     bool? autoCheckUpdates,
     bool? sponsorBlockEnabled,
@@ -108,8 +111,8 @@ class AppSettings {
     bool? isSidebarExpanded,
   }) {
     return AppSettings(
-      ytdlpPath: ytdlpPath ?? this.ytdlpPath,
-      ffmpegPath: ffmpegPath ?? this.ffmpegPath,
+      ytdlpPath: identical(ytdlpPath, _unset) ? this.ytdlpPath : ytdlpPath as String?,
+      ffmpegPath: identical(ffmpegPath, _unset) ? this.ffmpegPath : ffmpegPath as String?,
       isYtdlpManaged: isYtdlpManaged ?? this.isYtdlpManaged,
       outputPath: outputPath ?? this.outputPath,
       maxConcurrentDownloads:
@@ -122,13 +125,18 @@ class AppSettings {
           defaultSubtitleLanguage ?? this.defaultSubtitleLanguage,
       themeMode: themeMode ?? this.themeMode,
       amoledDark: amoledDark ?? this.amoledDark,
-      accentColorValue: accentColorValue ?? this.accentColorValue,
+      accentColorValue: identical(accentColorValue, _unset)
+          ? this.accentColorValue
+          : accentColorValue as int?,
       enableAnimations: enableAnimations ?? this.enableAnimations,
       enableCookies: enableCookies ?? this.enableCookies,
-      cookiePath: cookiePath ?? this.cookiePath,
-      cookieBrowser: cookieBrowser ?? this.cookieBrowser,
-      youtubeProfileImageUrl:
-          youtubeProfileImageUrl ?? this.youtubeProfileImageUrl,
+      cookiePath: identical(cookiePath, _unset) ? this.cookiePath : cookiePath as String?,
+      cookieBrowser: identical(cookieBrowser, _unset)
+          ? this.cookieBrowser
+          : cookieBrowser as String?,
+      youtubeProfileImageUrl: identical(youtubeProfileImageUrl, _unset)
+          ? this.youtubeProfileImageUrl
+          : youtubeProfileImageUrl as String?,
       enableNotifications: enableNotifications ?? this.enableNotifications,
       autoCheckUpdates: autoCheckUpdates ?? this.autoCheckUpdates,
       sponsorBlockEnabled: sponsorBlockEnabled ?? this.sponsorBlockEnabled,
